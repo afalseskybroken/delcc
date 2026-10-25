@@ -60,6 +60,11 @@ publishable tree.
 
 ## 3. Git identity (attribution to the TMATH alt)
 
+> **STATE as of 2026-10-25:** `git init` + `git add` are already done (staged tree
+> verified clean: 87 files, zero private-layer, zero workspace-name references).
+> **Do NOT run `git commit` before configuring the identity below** — the commit
+> would be authored with the machine's global git name, permanently.
+
 After the account exists, inside `delcc-app/`:
 
 ```
@@ -72,7 +77,12 @@ Config is repo-local (`--local` is implied) — the global identity stays yours.
 All commits are then attributed to the burner; the TMATH alt connection lives in
 the handle and the profile bio, deliberately nowhere else.
 
-## 4. First commit and push
+## 4. First commit and push — DONE 2026-10-25
+
+**Live: https://github.com/afalseskybroken/delcc** (b5f8163, main; commit linked
+to the account via the noreply email). Note: GitHub displays the license as
+"Other" — its picker does not know CC-BY-NC-SA-4.0; LICENSE in-repo is the
+authority. About-description nit fixed by hand: it briefly read "independentt".
 
 ```
 git checkout -b main

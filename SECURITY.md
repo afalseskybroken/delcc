@@ -56,9 +56,10 @@ next planned step — see the vault lane.
 
 ## Reporting
 
-No public tracker exists yet — this section is a placeholder for the maintainer
-to fill in (issue tracker / contact) at first publish. In the meantime: the
-fastest audit is `git grep fetch` plus reading `src/lib/transport.ts`.
+Report at **https://github.com/afalseskybroken/delcc/issues** — for anything
+sensitive, mark it private via the issue form or open a minimal public issue
+first and ask for a private channel. The fastest self-audit remains
+`git grep fetch` plus reading `src/lib/transport.ts`.
 
 ## Non-negotiables (repeated from SUCCESSION.md because they belong here too)
 
