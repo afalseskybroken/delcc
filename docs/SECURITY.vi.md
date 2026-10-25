@@ -9,6 +9,7 @@ report, và sửa cái sai. Bản gốc tiếng Anh: [SECURITY.md](SECURITY.md).
 | Điểm đến | Khi nào | Vì sao |
 |---|---|---|
 | `oj.tmathcoding.vn/api/v3/*` | toàn bộ traffic API | sàn thi đấu: auth, contests, problems, submissions, leaderboard, manifest client-release |
+| `oj.tmathcoding.vn/<trang profile người dùng>` | chỉ khi xem profile của người dùng khác | đọc trang profile **công khai** của site — đúng những byte mà bất kỳ browser ẩn danh nào cũng nhận được, CORS mở — để lấy hash gravatar mà chính site công bố ở đó. Được validate, cache tại máy (giới hạn FIFO); một GET mỗi người dùng, không hơn. Xem `src/tmath/avatars.ts`. |
 | `www.gravatar.com/avatar/<sha256>` | chỉ khi server giao hash gravatar của chính bạn (self-view, tài khoản có email đăng ký Gravatar) | ảnh avatar của bạn, gọi với `referrerpolicy="no-referrer"`, `d=404` nên không thứ gì khác được fetch |
 
 Hết. Cụ thể là KHÔNG có:

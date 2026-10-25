@@ -11,6 +11,7 @@ file it, and fix whichever is wrong.
 | Destination | When | Why |
 |---|---|---|
 | `oj.tmathcoding.vn/api/v3/*` | all API traffic | the judge itself: auth, contests, problems, submissions, leaderboard, client-release manifest |
+| `oj.tmathcoding.vn/<user profile pages>` | only when viewing another user's profile | reads the site's **public** profile page — the exact bytes any anonymous browser gets, CORS-open — to pick up the gravatar hash the site itself publishes there. Validated, cached locally (FIFO-capped); one GET per user, ever. See `src/tmath/avatars.ts` for the honesty notes. |
 | `www.gravatar.com/avatar/<sha256>` | only when the server delivers your own gravatar hash (self-view, gravatar-registered account) | your avatar image, requested with `referrerpolicy="no-referrer"`, `d=404` so nothing else is fetched |
 
 That is all. Concretely absent:
