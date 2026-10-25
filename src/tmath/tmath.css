@@ -665,11 +665,13 @@ body[data-persona="tmath"] .tm-filter-fields { display: flex; flex: 1 1 620px; f
 body[data-persona="tmath"] .tm-filter-fields .tm-field { display: flex; flex: 1 1 180px; flex-direction: column; gap: 6px; min-width: 0; }
 body[data-persona="tmath"] .tm-filter-fields .tm-field-narrow { flex: 0 1 100px; }
 body[data-persona="tmath"] .tm-filter-fields label { font-size: 13px; font-weight: 500; }
+body[data-persona="tmath"] .tm-filter-check { align-self: end; padding-bottom: 9px; }
 body[data-persona="tmath"] .tm-filter-actions { display: flex; gap: 8px; }
 body[data-persona="tmath"] .tm-result-pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; line-height: 1.5; background: color-mix(in srgb, var(--tmath-foreground) 8%, transparent); color: var(--tmath-muted-foreground); }
-body[data-persona="tmath"] .tm-result-pill.ok { background: color-mix(in srgb, #16a34a 18%, transparent); color: #22c55e; }
-body[data-persona="tmath"] .tm-result-pill.bad { background: color-mix(in srgb, #dc2626 16%, transparent); color: #f87171; }
-body[data-persona="tmath"] .tm-result-pill.pending { background: color-mix(in srgb, #d97706 16%, transparent); color: #fbbf24; }
+/* official pills are solid fills with dark text (audit screenshots) */
+body[data-persona="tmath"] .tm-result-pill.ok { background: #22c55e; color: #052e16; }
+body[data-persona="tmath"] .tm-result-pill.bad { background: #ef4444; color: #450a0a; }
+body[data-persona="tmath"] .tm-result-pill.pending { background: #f59e0b; color: #451a03; }
 body[data-persona="tmath"] .tm-col-eye { width: 44px; text-align: right; }
 body[data-persona="tmath"] .tm-settings-wrap { max-width: 896px; margin-right: auto; margin-left: auto; }
 body[data-persona="tmath"] .tm-settings-wrap .tm-settings-grid { max-width: none; }
@@ -686,6 +688,6 @@ body[data-persona="tmath"] .tm-legend-dot, body[data-persona="tmath"] .tm-dot { 
 body[data-persona="tmath"] .tm-dot { margin-right: 7px; }
 body[data-persona="tmath"] .tm-legend-dot.solved, body[data-persona="tmath"] .tm-dot.solved { background: #22c55e; box-shadow: none; }
 body[data-persona="tmath"] .tm-legend-dot.attempted, body[data-persona="tmath"] .tm-dot.attempted { background: #f59e0b; box-shadow: none; }
-body[data-persona="tmath"] .tm-table tr.tm-row-solved > td { background: color-mix(in srgb, #22c55e 7%, transparent); }
-body[data-persona="tmath"] .tm-table tr.tm-row-attempted > td { background: color-mix(in srgb, #f59e0b 7%, transparent); }
+body[data-persona="tmath"] .tm-table tr.tm-row-solved > td { background: color-mix(in srgb, #22c55e 13%, transparent); }
+body[data-persona="tmath"] .tm-table tr.tm-row-attempted > td { background: color-mix(in srgb, #f59e0b 11%, transparent); }
 

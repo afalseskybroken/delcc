@@ -130,11 +130,12 @@ export interface Dict {
   "subs.eyebrow": string;
   "subs.desc": string;
   "subs.refresh": string;
-  "time.justNow": string;
+  "time.secondsAgo": string;
+  "problems.allTopics": string;
+  "subs.allResults": string;
   "time.minutesAgo": string;
   "time.hoursAgo": string;
   "time.daysAgo": string;
-  "subs.scope": string;
   "subs.page": string;
   "common.loading": string;
   "common.retry": string;
@@ -290,7 +291,6 @@ export interface Dict {
   "subs.score": string;
   "subs.date": string;
   "subs.mine": string;
-  "subs.public": string;
   "subs.details": string;
   "subs.noDetails": string;
   "subs.testcase": string;

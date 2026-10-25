@@ -43,7 +43,7 @@ const routes = Object.keys(titles) as Route[];
 const PAGE_SIZE = 20;
 const SUBS_FILTERS_KEY = "delcc-subs-filters";
 const SUBS_RESULTS = ["QU","W","P","G","J","AC","WA","TLE","MLE","OLE","RTE","CE","IR","IE","AB","PD","SC","D"];
-interface SubsFilterPrefs { scope: string; user: string; problem: string; result: string; pageSize: string }
+interface SubsFilterPrefs { scope: string; mine: string; user: string; problem: string; result: string; pageSize: string }
 const brand = () => `<div class="tm-wordmark">TMATH<span>STUDENT</span></div>`;
 
 // official rating tier table (carve Zg/Qg + carved css --color-*-500 values, pass #19):
@@ -176,10 +176,25 @@ export class TmathApp {
     const bs: any = bsR.status === "fulfilled" ? bsR.value : null;
     // merge, don't replace: /me is UNTYPED in the contract — unwrap every wrapper the
     // official client's serde table implies (user/profile/data) and keep top-level
-    // extras (a session gravatar must survive into this.user; carve: session gravatarHash)
-    const merged = me ? { ...me, ...(me.user ?? me.profile ?? me.data ?? {}) } : {};
+    // extras (a session gravatar must survive into this.user; carve: session gravatarHash).
+    // TOP-LEVEL WINS (audit: @delete's avatar never rendered — the old spread let a
+    // nested wrapper that lacks gravatar_hash override the flattened /me fields).
+    const merged = me ? { ...(me.user ?? me.profile ?? me.data ?? {}), ...me } : {};
     const bsUser = bs?.user ?? bs?.profile ?? null;
     this.user = (me || bsUser) ? { ...merged, ...(bsUser ?? {}) } : null;
+    // own-avatar fallback: when /me ships no hash, pull our own PUBLIC profile page
+    // (same bytes the site shows everyone) so the topbar still gets an avatar
+    const uname = String(this.user?.username ?? "");
+    if (uname && !(this.user?.gravatarHash ?? this.user?.gravatar_hash)) {
+      void hydrateAvatars([uname]).then(() => {
+        const h = cachedAvatar(uname);
+        const av = document.querySelector(".tm-topbar-account .tm-avatar");
+        if (!h || !av || av.querySelector("img")) return;
+        av.insertAdjacentHTML("beforeend", avatarImg(h, 34));
+        const img = av.querySelector("img");
+        if (img) img.onerror = () => img.remove();
+      }).catch(() => { /* letter stays */ });
+    }
   }
 
   private go(route: Route, params: Record<string, string> = {}): void {
@@ -230,7 +245,7 @@ export class TmathApp {
     const displayName = this.user?.display_name ?? this.user?.username ?? "?";
     this.host.innerHTML = `<div class="tm-shell${this.collapsed ? " collapsed" : ""}">
       <aside class="tm-sidebar"><div class="tm-sidebar-header">${brand()}<button type="button" class="tm-sidebar-toggle" data-action="collapse" aria-controls="tm-navigation" aria-expanded="${!this.collapsed}" aria-label="${text(this.collapsed ? "app.expandSidebar" : "app.collapseSidebar")}">${phIcon("sidebar-simple", 22)}</button></div><div class="tm-nav-label">${text("app.navigation")}</div><nav class="tm-nav" id="tm-navigation">${loggedIn ? (this.contest ? nav("workspace") : nav("contests") + nav("problems")) + nav("submissions") + nav("rankings") + nav("account") : ""}${nav("settings")}</nav><div class="tm-sidebar-footer"><b>delcc</b><p>${text("app.independent")}</p>${loggedIn ? "" : button("auth.login","login")}</div></aside>
-      <div class="tm-main"><header class="tm-topbar"><div class="tm-topbar-page"><span class="tm-topbar-page-icon" aria-hidden="true">${phIcon(navIcons[this.route] ?? "user-circle", 22)}</span><div class="tm-topbar-page-copy"><span class="tm-topbar-eyebrow">TMATH / STUDENT</span><strong class="tm-topbar-title">${text(titles[this.route])}</strong></div></div><div class="tm-topbar-actions">${themeMenuHtml(this.prefs.theme)}${loggedIn ? `<button type="button" class="tm-topbar-account" data-route="account">${avatarHtml(displayName, this.user?.gravatarHash ?? this.user?.gravatar_hash, 34)}<span class="tm-topbar-account-name"${ratingStyle(this.user?.rating)}>${esc(displayName)}</span></button><button type="button" class="tm-topbar-logout" data-action="logout" aria-label="${text("app.topbar.logout")}" title="${text("app.topbar.logout")}">${phIcon("sign-out", 18, "regular")}<span>${text("app.topbar.logout")}</span></button>` : button("auth.login","login")}</div></header>${this.versionNotice && !this.bannerDismissed ? this.bannerHtml() : ""}<main class="tm-content" id="tm-content"></main></div></div>`;
+      <div class="tm-main"><header class="tm-topbar"><div class="tm-topbar-page"><span class="tm-topbar-page-icon" aria-hidden="true">${phIcon(navIcons[this.route] ?? "user-circle", 22)}</span><div class="tm-topbar-page-copy"><span class="tm-topbar-eyebrow">TMATH / STUDENT</span><strong class="tm-topbar-title">${text(titles[this.route])}</strong></div></div><div class="tm-topbar-actions">${themeMenuHtml(this.prefs.theme)}${loggedIn ? `<button type="button" class="tm-topbar-account" data-route="account">${avatarHtml(displayName, this.user?.gravatarHash ?? this.user?.gravatar_hash ?? cachedAvatar(String(this.user?.username ?? "")), 34)}<span class="tm-topbar-account-name"${ratingStyle(this.user?.rating)}>${esc(displayName)}</span></button><button type="button" class="tm-topbar-logout" data-action="logout" aria-label="${text("app.topbar.logout")}" title="${text("app.topbar.logout")}">${phIcon("sign-out", 18, "regular")}<span>${text("app.topbar.logout")}</span></button>` : button("auth.login","login")}</div></header>${this.versionNotice && !this.bannerDismissed ? this.bannerHtml() : ""}<main class="tm-content" id="tm-content"></main></div></div>`;
     this.host.querySelectorAll<HTMLElement>("[data-route]").forEach(b => b.onclick = () => this.go(b.dataset.route as Route, b.dataset.route === "workspace" && this.contest ? {contest:this.contest.key} : {}));
     this.host.querySelector<HTMLButtonElement>('[data-action="collapse"]')!.onclick = () => {
       this.collapsed = !this.collapsed; write("delcc-tmath-sidebar", this.collapsed ? "collapsed" : "expanded");
@@ -495,19 +510,15 @@ export class TmathApp {
       if (idx.attempted.has(code)) return "attempted";
       return "untouched";
     };
-    const count = (k: "all" | "todo" | "none"): number | null => {
-      if (!clientMode || !idx) return null;
-      if (k === "all") return idx.items.length;
-      return idx.items.filter(p => k === "todo" ? idx.attempted.has(p.code) && !idx.solved.has(p.code) : !idx.attempted.has(p.code) && !idx.solved.has(p.code)).length;
-    };
-    const chipLabel = (k: "all" | "todo" | "none", key: DictKey) => { const n = count(k); return n == null ? text(key) : `${text(key)} (${n})`; };
+    // official chips carry no counts (audit screenshots) — labels only
+    const chipLabel = (k: "all" | "todo" | "none"): string => text(k === "all" ? "problems.chipAll" : k === "todo" ? "problems.chipTodo" : "problems.chipNone");
     const note = clientMode ? "" : !indexReady
       ? (this.problemsAttempts >= 2 && !this.problemsSweep ? t("problems.indexUnavailable") : t("problems.indexing", { n: this.problemsIndexTotal }))
       : t("problems.chipGroupNote");
-    const chipBar = `<div class="tm-chip-row" role="group" aria-label="${text("problems.filterLabel")}">${(["all","todo","none"] as const).map(k => `<button type="button" class="tm-chip${clientMode && chip === k ? " active" : ""}" data-chip="${k}"${clientMode ? "" : " disabled"} aria-pressed="${clientMode && chip === k}">${chipLabel(k, k === "all" ? "problems.chipAll" : k === "todo" ? "problems.chipTodo" : "problems.chipNone")}</button>`).join("")}${note ? `<span class="tm-chip-note"${indexReady ? "" : " data-index-note"} role="status">${esc(note)}</span>` : ""}</div>`;
+    const chipBar = `<div class="tm-chip-row" role="group" aria-label="${text("problems.filterLabel")}">${(["all","todo","none"] as const).map(k => `<button type="button" class="tm-chip${clientMode && chip === k ? " active" : ""}" data-chip="${k}"${clientMode ? "" : " disabled"} aria-pressed="${clientMode && chip === k}">${chipLabel(k)}</button>`).join("")}${note ? `<span class="tm-chip-note"${indexReady ? "" : " data-index-note"} role="status">${esc(note)}</span>` : ""}</div>`;
     const legend = indexReady ? `<div class="tm-legend">${(["solved","attempted","none"] as const).map(k => `<span class="tm-legend-item"><span class="tm-legend-dot ${k}" aria-hidden="true"></span>${text(k === "solved" ? "problems.legendSolved" : k === "attempted" ? "problems.legendAttempted" : "problems.legendNone")}</span>`).join("")}</div>` : "";
     const activeFilter = Boolean(search || type || group);
-    host.innerHTML = this.pageTitle("problems.eyebrow","problems.title","problems.desc","problems.refresh") + `<section class="tm-card tm-card-body"><form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-problem-search">${text("problems.searchField")}</label><input id="tm-problem-search" name="search" placeholder="${text("problems.searchPlaceholder")}" value="${esc(search)}" maxlength="200"></div><div class="tm-field"><label for="tm-problem-topic">${text("problems.topic")}</label><select id="tm-problem-topic" name="type"><option value="">${text("problems.topic")} · ${text("common.all")}</option>${list<string>(topics).map(topic => `<option${topic === type ? " selected" : ""}>${esc(topic)}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-problem-group">${text("problems.group")}</label><input id="tm-problem-group" name="group" placeholder="${text("problems.group")}" value="${esc(group)}"></div></div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form>${chipBar}${legend}<div class="tm-table-wrap"><table class="tm-table tm-problem-table"><thead><tr>${[["code","problems.code"],["name","problems.name"],["points","problems.points"],["topic","problems.topic"],["solvers","problems.solvers"]].map(([k, key]) => `<th><button type="button" class="tm-sort-h" data-sort="${k}" title="${text("problems.sortHint")}">${text(key as DictKey)}${arrow(k)}</button></th>`).join("")}</tr></thead><tbody>${display.map(p => { const st = rowState(String(p.code)); return `<tr class="tm-row-${st}"><td class="tm-code-muted"><span class="tm-dot ${st}" aria-hidden="true"></span>${esc(p.code)}</td><td><a href="#/problems?code=${encodeURIComponent(p.code)}">${esc(p.name)}</a></td><td>${esc(p.points)}</td><td>${esc(list(p.types).join(", "))}</td><td>${esc(p.user_count ?? "—")}</td></tr>`; }).join("")}</tbody></table>${display.length ? "" : empty()}</div></section>`;
+    host.innerHTML = this.pageTitle("problems.eyebrow","problems.title","problems.desc","problems.refresh") + `<section class="tm-card tm-card-body"><form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-problem-search">${text("problems.searchField")}</label><input id="tm-problem-search" name="search" placeholder="${text("problems.searchPlaceholder")}" value="${esc(search)}" maxlength="200"></div><div class="tm-field"><label for="tm-problem-topic">${text("problems.topic")}</label><select id="tm-problem-topic" name="type"><option value="">${text("problems.allTopics")}</option>${list<string>(topics).map(topic => `<option${topic === type ? " selected" : ""}>${esc(topic)}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-problem-group">${text("problems.group")}</label><input id="tm-problem-group" name="group" placeholder="${text("problems.group")}" value="${esc(group)}"></div></div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form>${chipBar}${legend}<div class="tm-table-wrap"><table class="tm-table tm-problem-table"><thead><tr>${[["code","problems.code"],["name","problems.name"],["points","problems.points"],["topic","problems.topic"],["solvers","problems.solvers"]].map(([k, key]) => `<th><button type="button" class="tm-sort-h" data-sort="${k}" title="${text("problems.sortHint")}">${text(key as DictKey)}${arrow(k)}</button></th>`).join("")}</tr></thead><tbody>${display.map(p => { const st = rowState(String(p.code)); return `<tr class="tm-row-${st}"><td class="tm-code-muted"><span class="tm-dot ${st}" aria-hidden="true"></span>${esc(String(p.code).toUpperCase())}</td><td><a href="#/problems?code=${encodeURIComponent(p.code)}">${esc(p.name)}</a></td><td>${esc(p.points)}</td><td>${esc(list(p.types).join(", "))}</td><td>${esc(p.user_count ?? "—")}</td></tr>`; }).join("")}</tbody></table>${display.length ? "" : empty()}</div></section>`;
     const clearFilter = host.querySelector<HTMLButtonElement>('[data-action="clear"]');
     if (clearFilter) clearFilter.onclick = () => this.go("problems", {});
     host.querySelectorAll<HTMLButtonElement>("[data-chip]").forEach(b => b.onclick = () => {
@@ -632,7 +643,10 @@ export class TmathApp {
     let remembered: Partial<SubsFilterPrefs> = {};
     try { remembered = JSON.parse(read(SUBS_FILTERS_KEY,"{}")) ?? {}; } catch { /* defaults */ }
     const value = (key: keyof SubsFilterPrefs, fallback = "") => params.has(key) ? params.get(key)! : typeof remembered[key] === "string" ? remembered[key]! : fallback;
-    const scope = value("scope") === "public_practice" ? "public_practice" : "";
+    // official anatomy (audit screenshots): the view is always public practice ·
+    // whole system; "my submissions" is a CHECKBOX that rides the user filter
+    const scope = "public_practice";
+    const mine = value("mine") === "1";
     const problem = value("problem"), user = value("user");
     const result = SUBS_RESULTS.includes(value("result")) ? value("result") : "";
     const size = value("pageSize","100"), pageSize = [10,20,50,100].includes(Number(size)) ? Number(size) : 100;
@@ -642,16 +656,17 @@ export class TmathApp {
       const ts = new Date(String(scalar(value))).getTime();
       if (!Number.isFinite(ts)) return "—";
       const secs = Math.max(0, Math.round((Date.now() - ts) / 1000));
-      if (secs < 60) return text("time.justNow");
+      if (secs < 60) return text("time.secondsAgo", { n: secs }); // official counts seconds, no "just now"
       if (secs < 3600) return text("time.minutesAgo", { n: Math.floor(secs / 60) });
       if (secs < 86400) return text("time.hoursAgo", { n: Math.floor(secs / 3600) });
       return text("time.daysAgo", { n: Math.floor(secs / 86400) });
     };
-    const filters: SubsFilterPrefs = {scope,user,problem,result,pageSize:String(pageSize)};
+    const userFilter = user.trim() || (mine ? String(this.user?.username ?? "") : "");
+    const filters: SubsFilterPrefs = {scope,mine:mine ? "1" : "",user:userFilter,problem,result,pageSize:String(pageSize)};
     // Resolve shared memory before the very first request, including explicit clears.
     for (const [key,v] of Object.entries(filters)) params.set(key,v);
     let rows: any[];
-    try { rows = list(await api.submissions(auth.accessToken()!,{page,page_size:pageSize,scope,problem:problem.trim(),user:user.trim(),result})); }
+    try { rows = list(await api.submissions(auth.accessToken()!,{page,page_size:pageSize,scope,problem:problem.trim(),user:userFilter,result})); }
     catch (e) {
       // Refresh failure can already have switched the view to login; still clear the shared key.
       if (e instanceof ApiError && e.status === 401) {
@@ -661,8 +676,8 @@ export class TmathApp {
     }
     if (!alive()) return;
     write(SUBS_FILTERS_KEY,JSON.stringify(filters));
-    const activeFilter = Boolean(user || problem || result || scope);
-    host.innerHTML = this.pageTitle("subs.eyebrow","subs.title","subs.desc","subs.refresh") + `<section class="tm-card tm-card-body"><form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-subs-scope">${text("subs.scope")}</label><select id="tm-subs-scope" name="scope"><option value="">${text("subs.mine")}</option><option value="public_practice"${scope ? " selected" : ""}>${text("subs.public")}</option></select></div><div class="tm-field"><label for="tm-subs-user">${text("subs.user")}</label><input id="tm-subs-user" name="user" placeholder="${text("subs.user")}" value="${esc(user)}"></div><div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><input id="tm-subs-problem" name="problem" placeholder="${text("problems.code")}" value="${esc(problem)}"></div><div class="tm-field"><label for="tm-subs-result">${text("subs.result")}</label><select id="tm-subs-result" name="result"><option value="">${text("subs.result")} · ${text("common.all")}</option>${SUBS_RESULTS.map(s=>`<option${result === s ? " selected" : ""}>${s}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-subs-size">${text("subs.pageSize")}</label><select id="tm-subs-size" name="pageSize">${sizeOptions.map(n=>`<option value="${n}"${n === pageSize ? " selected" : ""}>${n}</option>`).join("")}</select></div></div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form><div class="tm-table-wrap"><table class="tm-table tm-subs-table"><thead><tr>${["subs.id","subs.user","subs.problem","subs.date","subs.language","subs.result","subs.score"].map(k=>`<th>${text(k as DictKey)}</th>`).join("")}<th class="tm-col-eye"><span class="sr-only">${text("subs.details")}</span></th></tr></thead><tbody>${rows.map(s=>`<tr><td class="tm-code-muted">#${esc(s.id)}</td><td>${esc(s.user_display_name ?? s.user ?? "—")}</td><td>${esc(s.problem_name ?? s.problem ?? "—")}</td><td>${esc(ago(s.date))}</td><td>${esc(s.language ?? "—")}</td><td><span class="tm-result-pill${s.result === "AC" ? " ok" : !s.is_terminal ? " pending" : " bad"}">${esc(s.result ?? s.status ?? "—")}${!s.is_terminal && s.current_testcase ? ` · #${esc(s.current_testcase)}` : ""}</span></td><td>${esc(s.points ?? "—")}</td><td class="tm-col-eye"><button class="tm-icon-button" data-sub="${s.id}" aria-expanded="false" title="${text("subs.details")}" aria-label="${text("subs.details")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.5 10.5 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.5 10.5 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></svg></button></td></tr>`).join("")}</tbody></table>${rows.length ? "" : empty()}</div></section>`;
+    const activeFilter = Boolean(user || problem || result || mine);
+    host.innerHTML = this.pageTitle("subs.eyebrow","subs.title","subs.desc","subs.refresh") + `<section class="tm-card tm-card-body"><form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-subs-user">${text("subs.user")}</label><input id="tm-subs-user" name="user" placeholder="${text("subs.user")}" value="${esc(user)}"></div><div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><input id="tm-subs-problem" name="problem" placeholder="${text("problems.code")}" value="${esc(problem)}"></div><div class="tm-field"><label for="tm-subs-result">${text("subs.result")}</label><select id="tm-subs-result" name="result"><option value="">${text("subs.allResults")}</option>${SUBS_RESULTS.map(s=>`<option${result === s ? " selected" : ""}>${s}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-subs-size">${text("subs.pageSize")}</label><select id="tm-subs-size" name="pageSize">${sizeOptions.map(n=>`<option value="${n}"${n === pageSize ? " selected" : ""}>${n}</option>`).join("")}</select></div><label class="tm-check tm-filter-check"><input type="checkbox" name="mine" value="1"${mine ? " checked" : ""}>${text("subs.mine")}</label></div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form><div class="tm-table-wrap"><table class="tm-table tm-subs-table"><thead><tr>${["subs.id","subs.user","subs.problem","subs.date","subs.language","subs.result","subs.score"].map(k=>`<th>${text(k as DictKey)}</th>`).join("")}<th class="tm-col-eye"><span class="sr-only">${text("subs.details")}</span></th></tr></thead><tbody>${rows.map(s=>`<tr><td class="tm-code-muted">#${esc(s.id)}</td><td>${esc(s.user_display_name ?? s.user ?? "—")}</td><td><a href="#/problems?code=${encodeURIComponent(String(s.problem ?? ""))}">${esc(s.problem_name ?? s.problem ?? "—")}</a></td><td>${esc(ago(s.date))}</td><td>${esc(s.language ?? "—")}</td><td><span class="tm-result-pill${s.result === "AC" ? " ok" : !s.is_terminal ? " pending" : " bad"}">${esc(s.result ?? s.status ?? "—")}${!s.is_terminal && s.current_testcase ? ` · #${esc(s.current_testcase)}` : ""}</span></td><td>${esc(s.points ?? "—")}</td><td class="tm-col-eye"><button class="tm-icon-button" data-sub="${s.id}" aria-expanded="false" title="${text("subs.details")}" aria-label="${text("subs.details")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.5 10.5 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.5 10.5 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></svg></button></td></tr>`).join("")}</tbody></table>${rows.length ? "" : empty()}</div></section>`;
     const clearFilter = host.querySelector<HTMLButtonElement>('[data-action="clear"]');
     if (clearFilter) clearFilter.onclick = () => this.go("submissions", {});
     host.querySelector<HTMLFormElement>("form")!.onsubmit = e => { e.preventDefault(); this.go("submissions",Object.fromEntries(new FormData(e.currentTarget as HTMLFormElement)) as Record<string,string>); };
@@ -1053,11 +1068,12 @@ export class TmathApp {
       handleBtn.textContent = `${t("common.copied")} @${bare}`;
       setTimeout(() => { if (handleBtn.isConnected) handleBtn.textContent = was; }, 1200);
     };
-    // another user's avatar (pass #27): the API never ships it — fetch their public
-    // profile page once and lay the image over the letter like the official own-view
-    if (!own) {
+    // avatar via the public profile page (pass #27; audit: also covers the OWN view
+    // when /me ships no hash — same bytes the site shows everyone, cached once)
+    {
       const otherName = String(u.username ?? username ?? "");
-      if (otherName && !(u.gravatar_hash ?? u.gravatarHash) && !cachedAvatar(otherName)) {
+      const wireHash = u.gravatar_hash ?? u.gravatarHash ?? (own ? (this.user?.gravatar_hash ?? this.user?.gravatarHash) : undefined);
+      if (otherName && !wireHash && !cachedAvatar(otherName)) {
         void hydrateAvatars([otherName]).then(() => {
           if (!alive()) return;
           const h = cachedAvatar(otherName);
