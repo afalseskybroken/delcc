@@ -232,6 +232,9 @@ export class TmathApp {
       if (this.route === "submissions") await this.submissions(content, params, alive);
       if (this.route === "rankings") await this.rankings(content, alive);
       if (this.route === "account") await this.account(content, alive);
+      // every page's hero Refresh button (audit: it rendered but was never wired)
+      const refresh = content.querySelector<HTMLButtonElement>('[data-action="refresh"]');
+      if (refresh) refresh.onclick = () => { if (alive()) void this.render(); };
     } catch (error) {
       if (!alive()) return;
       content.innerHTML = errorBox(error) + button("common.retry", "retry");
@@ -695,11 +698,9 @@ export class TmathApp {
       (!uMatch || uMatch(String(s.user_display_name ?? s.user ?? ""))));
     write(SUBS_FILTERS_KEY,JSON.stringify(filters));
     const activeFilter = Boolean(user || problem || result || mine);
-    host.innerHTML = this.pageTitle("subs.eyebrow","subs.title","subs.desc","subs.refresh") + `<section class="tm-card tm-card-body"><form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-subs-user">${text("subs.user")}</label><input id="tm-subs-user" name="user" placeholder="${text("subs.user")}" value="${esc(user)}"></div><div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><input id="tm-subs-problem" name="problem" placeholder="${text("subs.problemPlaceholder")}" value="${esc(problem)}"></div><div class="tm-field"><label for="tm-subs-result">${text("subs.result")}</label><select id="tm-subs-result" name="result"><option value="">${text("subs.allResults")}</option>${SUBS_RESULTS.map(s=>`<option${result === s ? " selected" : ""}>${s}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-subs-size">${text("subs.pageSize")}</label><select id="tm-subs-size" name="pageSize">${sizeOptions.map(n=>`<option value="${n}"${n === pageSize ? " selected" : ""}>${n}</option>`).join("")}</select></div><label class="tm-check tm-filter-check"><input type="checkbox" name="mine" value="1"${mine ? " checked" : ""}>${text("subs.mine")}</label></div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form><div class="tm-table-wrap"><table class="tm-table tm-subs-table"><thead><tr>${["subs.id","subs.user","subs.problem","subs.date","subs.language","subs.result","subs.score"].map(k=>`<th>${text(k as DictKey)}</th>`).join("")}<th class="tm-col-eye"><span class="sr-only">${text("subs.details")}</span></th></tr></thead><tbody>${rows.map(s=>`<tr><td class="tm-code-muted">#${esc(s.id)}</td><td><a href="#/account?user=${encodeURIComponent(String(s.user ?? ""))}"${ratingStyle(s.user_rating)} title="${text("account.title")}">${esc(s.user_display_name ?? s.user ?? "—")}</a></td><td><a href="#/problems?code=${encodeURIComponent(String(s.problem ?? ""))}">${esc(s.problem_name ?? s.problem ?? "—")}</a></td><td>${esc(ago(s.date))}</td><td>${esc(s.language ?? "—")}</td><td><span class="tm-result-pill${s.result === "AC" ? " ok" : !s.is_terminal ? " pending" : " bad"}">${esc(s.result ?? s.status ?? "—")}${!s.is_terminal && s.current_testcase ? ` · #${esc(s.current_testcase)}` : ""}</span></td><td>${esc(s.points ?? "—")}</td><td class="tm-col-eye"><button class="tm-icon-button" data-sub="${s.id}" aria-expanded="false" title="${text("subs.details")}" aria-label="${text("subs.details")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.5 10.5 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.5 10.5 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></svg></button></td></tr>`).join("")}</tbody></table>${rows.length ? "" : empty()}</div></section>`;
-    const clearFilter = host.querySelector<HTMLButtonElement>('[data-action="clear"]');
-    if (clearFilter) clearFilter.onclick = () => this.go("submissions", {});
-    host.querySelector<HTMLFormElement>("form")!.onsubmit = e => { e.preventDefault(); this.go("submissions",Object.fromEntries(new FormData(e.currentTarget as HTMLFormElement)) as Record<string,string>); };
-    host.querySelectorAll<HTMLButtonElement>("[data-sub]").forEach(b => b.onclick = async () => {
+    const rowHtml = (s: any): string => `<tr><td class="tm-code-muted">#${esc(s.id)}</td><td><a href="#/account?user=${encodeURIComponent(String(s.user ?? ""))}"${ratingStyle(s.user_rating)} title="${text("account.title")}">${esc(s.user_display_name ?? s.user ?? "—")}</a></td><td><a href="#/problems?code=${encodeURIComponent(String(s.problem ?? ""))}">${esc(s.problem_name ?? s.problem ?? "—")}</a></td><td>${esc(ago(s.date))}</td><td>${esc(s.language ?? "—")}</td><td><span class="tm-result-pill${s.result === "AC" ? " ok" : !s.is_terminal ? " pending" : " bad"}">${esc(s.result ?? s.status ?? "—")}${!s.is_terminal && s.current_testcase ? ` · #${esc(s.current_testcase)}` : ""}</span></td><td>${esc(s.points ?? "—")}</td><td class="tm-col-eye"><button class="tm-icon-button" data-sub="${s.id}" aria-expanded="false" title="${text("subs.details")}" aria-label="${text("subs.details")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.5 10.5 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.5 10.5 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></svg></button></td></tr>`;
+    const wireRows = (): void => {
+      host.querySelectorAll<HTMLButtonElement>("[data-sub]").forEach(b => b.onclick = async () => {
       const existing = host.querySelector(`[data-detail="${b.dataset.sub}"]`);
       if (existing) { existing.remove(); b.setAttribute("aria-expanded","false"); return; }
       const row = document.createElement("tr"); row.dataset.detail = b.dataset.sub;
@@ -720,6 +721,33 @@ export class TmathApp {
         };
       } catch(e) { if (alive() && row.isConnected) cell.innerHTML = errorBox(e); }
     });
+    };
+    const paintRows = (): void => {
+      const tbody = host.querySelector("tbody");
+      if (tbody) tbody.innerHTML = rows.map(rowHtml).join("");
+      wireRows();
+    };
+    host.innerHTML = this.pageTitle("subs.eyebrow","subs.title","subs.desc","subs.refresh") + `<section class="tm-card tm-card-body"><form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-subs-user">${text("subs.user")}</label><input id="tm-subs-user" name="user" placeholder="${text("subs.user")}" value="${esc(user)}"></div><div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><input id="tm-subs-problem" name="problem" placeholder="${text("subs.problemPlaceholder")}" value="${esc(problem)}"></div><div class="tm-field"><label for="tm-subs-result">${text("subs.result")}</label><select id="tm-subs-result" name="result"><option value="">${text("subs.allResults")}</option>${SUBS_RESULTS.map(s=>`<option${result === s ? " selected" : ""}>${s}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-subs-size">${text("subs.pageSize")}</label><select id="tm-subs-size" name="pageSize">${sizeOptions.map(n=>`<option value="${n}"${n === pageSize ? " selected" : ""}>${n}</option>`).join("")}</select></div><label class="tm-check tm-filter-check"><input type="checkbox" name="mine" value="1"${mine ? " checked" : ""}>${text("subs.mine")}</label></div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form><div class="tm-table-wrap"><table class="tm-table tm-subs-table"><thead><tr>${["subs.id","subs.user","subs.problem","subs.date","subs.language","subs.result","subs.score"].map(k=>`<th>${text(k as DictKey)}</th>`).join("")}<th class="tm-col-eye"><span class="sr-only">${text("subs.details")}</span></th></tr></thead><tbody>${rows.map(rowHtml).join("")}</tbody></table>${rows.length ? "" : empty()}</div></section>`;
+    const clearFilter = host.querySelector<HTMLButtonElement>('[data-action="clear"]');
+    // audit: clear must ALSO forget the remembered filters — value() falls back to
+    // SUBS_FILTERS_KEY, so an empty-params go() alone just re-applied the old filter
+    if (clearFilter) clearFilter.onclick = () => { try { localStorage.removeItem(SUBS_FILTERS_KEY); } catch { /* storage off */ } this.go("submissions",{}); };
+    host.querySelector<HTMLFormElement>("form")!.onsubmit = e => { e.preventDefault(); this.go("submissions",Object.fromEntries(new FormData(e.currentTarget as HTMLFormElement)) as Record<string,string>); };
+    wireRows();
+    // official polls this view — refresh quietly in place (audit: Refresh did nothing)
+    const pollArgs = {page,page_size:pageSize,scope,problem:serverProblem,user:serverUser,result};
+    const refine = (fresh: any[]): any[] => fresh.filter(s =>
+      (!subId || String(s.id) === subId) &&
+      (!pMatch || pMatch(String(s.problem_name ?? s.problem ?? "")) || pMatch(String(s.problem ?? ""))) &&
+      (!uMatch || uMatch(String(s.user_display_name ?? s.user ?? ""))));
+    const poll = window.setInterval(() => {
+      if (!alive()) { window.clearInterval(poll); return; }
+      void api.submissions(auth.accessToken()!,pollArgs).then(r => {
+        if (!alive()) { window.clearInterval(poll); return; }
+        rows = refine(list(r));
+        paintRows();
+      }).catch(() => { /* transient — next tick retries */ });
+    }, 10_000);
     this.pager(host,page,rows.length,params,pageSize);
   }
 
