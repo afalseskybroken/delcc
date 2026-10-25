@@ -133,6 +133,7 @@ export interface Dict {
   "time.secondsAgo": string;
   "problems.allTopics": string;
   "subs.allResults": string;
+  "subs.problemPlaceholder": string;
   "time.minutesAgo": string;
   "time.hoursAgo": string;
   "time.daysAgo": string;

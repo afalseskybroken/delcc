@@ -62,6 +62,7 @@ export const viVN: Dict = {
   "time.secondsAgo": "{n} giây trước",
   "problems.allTopics": "Tất cả chủ đề",
   "subs.allResults": "Tất cả kết quả",
+  "subs.problemPlaceholder": "Mã, ID bài nộp, hoặc regex",
   "time.minutesAgo": "{n} phút trước",
   "time.hoursAgo": "{n} giờ trước",
   "time.daysAgo": "{n} ngày trước",

@@ -62,6 +62,7 @@ export const zhCN: Dict = {
   "time.secondsAgo": "{n} 秒前",
   "problems.allTopics": "全部题目",
   "subs.allResults": "全部结果",
+  "subs.problemPlaceholder": "题号、提交 ID 或正则",
   "time.minutesAgo": "{n} 分钟前",
   "time.hoursAgo": "{n} 小时前",
   "time.daysAgo": "{n} 天前",

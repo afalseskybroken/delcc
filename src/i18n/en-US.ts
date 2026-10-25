@@ -63,6 +63,7 @@ export const enUS: Dict = {
   "time.secondsAgo": "{n} seconds ago",
   "problems.allTopics": "All topics",
   "subs.allResults": "All results",
+  "subs.problemPlaceholder": "Code, submission ID, or regex",
   "time.minutesAgo": "{n} min ago",
   "time.hoursAgo": "{n} h ago",
   "time.daysAgo": "{n} d ago",
