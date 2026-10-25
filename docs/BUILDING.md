@@ -45,6 +45,10 @@ npm run tauri dev     # dev shell with hot reload
 npm run tauri build   # release bundle; targets: "all" (see src-tauri/tauri.conf.json)
 ```
 
+Windows cache note: this workspace keeps cargo's cache outside the tree — set
+`CARGO_TARGET_DIR=C:\rust-target` (PowerShell: `$env:CARGO_TARGET_DIR='C:\rust-target'`)
+before building. The checkout stays small and rebuilds reuse the same artifacts.
+
 Bundle outputs per platform: Windows → MSI (WiX) + NSIS installer;
 macOS → .app/.dmg; Linux → .deb/.appimage. `productName: delcc`,
 identifier `vn.delcc.app` — changing the identifier changes the WebView data

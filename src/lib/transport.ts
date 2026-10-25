@@ -55,6 +55,18 @@ export async function transport(
   return { status: r.status, json, text };
 }
 
+// pass #18: public site HTML (avatar harvest). Rust shell first — the webview fetch
+// is CORS-blocked on profile pages; plain-browser dev keeps a best-effort fetch.
+export async function siteGet(path: string): Promise<TransportResponse> {
+  const inv = await invoke();
+  if (inv) {
+    const raw = await inv("site_fetch", { path });
+    const env = JSON.parse(raw) as { status: number; body: string };
+    return { status: env.status, json: {}, text: env.body };
+  }
+  const r = await fetch(`https://oj.tmathcoding.vn${path}`, { headers: { Accept: "text/html" } });
+  return { status: r.status, json: {}, text: await r.text().catch(() => "") };
+}
 export async function getLayout(): Promise<string> {
   const inv = await invoke();
   if (inv) return inv("get_layout", {}) as Promise<string>;

@@ -9,7 +9,7 @@ report, và sửa cái sai. Bản gốc tiếng Anh: [SECURITY.md](SECURITY.md).
 | Điểm đến | Khi nào | Vì sao |
 |---|---|---|
 | `oj.tmathcoding.vn/api/v3/*` | toàn bộ traffic API | sàn thi đấu: auth, contests, problems, submissions, leaderboard, manifest client-release |
-| `oj.tmathcoding.vn/<trang profile người dùng>` | chỉ khi xem profile của người dùng khác | đọc trang profile **công khai** của site — đúng những byte mà bất kỳ browser ẩn danh nào cũng nhận được, CORS mở — để lấy hash gravatar mà chính site công bố ở đó. Được validate, cache tại máy (giới hạn FIFO); một GET mỗi người dùng, không hơn. Xem `src/tmath/avatars.ts`. |
+| `oj.tmathcoding.vn/<trang profile người dùng>` | chỉ khi xem profile của người dùng khác | đọc trang profile **công khai** của site — đúng những byte mà bất kỳ browser ẩn danh nào cũng nhận được, CORS mở — để lấy hash gravatar mà chính site công bố ở đó. Được validate, cache tại máy (giới hạn FIFO); một GET *thành công* mỗi người dùng, trượt thì thử lại ở lần xem sau. Do shell Rust (`site_fetch`) thực hiện — các trang này không có header CORS cho webview. Xem `src/tmath/avatars.ts`. |
 | `www.gravatar.com/avatar/<sha256>` | chỉ khi server giao hash gravatar của chính bạn (self-view, tài khoản có email đăng ký Gravatar) | ảnh avatar của bạn, gọi với `referrerpolicy="no-referrer"`, `d=404` nên không thứ gì khác được fetch |
 
 Hết. Cụ thể là KHÔNG có:
@@ -23,9 +23,19 @@ Hết. Cụ thể là KHÔNG có:
   biên dịch và chạy *code của bạn* trên *máy của bạn*, không sandbox, y như tự
   bạn chạy nó trong terminal
 
-Điểm nghẽn duy nhất: `src/lib/transport.ts`. Mọi HTTP request đi qua
-`transport()` (shell Rust trước, `fetch` WebView dự phòng). Kiểm toán bề mặt
-mạng = đọc một file.
+Mã mạng nằm ở ba nơi có tên rõ ràng. `src/lib/transport.ts` chở toàn bộ lưu lượng
+API (shell Rust trước, `fetch` WebView dự phòng). Hai ngoại lệ `fetch` trực tiếp có
+chủ đích: `src/lib/verdict.ts` (stream SSE kết quả chấm) và `src/tmath/avatars.ts`
+(GET trang profile công khai, đi qua lệnh `site_fetch` của shell). Kiểm toán bề mặt
+mạng = đọc ba file đó.
+
+Đường đọc nặng duy nhất là **chỉ mục bài tập**. Trang Bài tập có bộ lọc tiến độ
+(đã giải / đã thử / chưa đụng tới), mà API công khai không cho biết trạng thái
+giải của từng người — nên lần đầu mở, delcc đọc danh sách bài công khai theo
+từng trang (năm request song song, nhận biết trang ngắn, có chặn trên), cộng
+`solved_problems` của chính bạn và các bài nộp của chính bạn. Chỉ mục đó chỉ nằm
+trong bộ nhớ, mất khi đóng delcc, và bật bộ lọc khi quét xong; trước đó bộ lọc
+hiện rõ là bị tắt kèm dòng tiến độ. Không ghi key lưu trữ nào.
 
 ## Dữ liệu xác thực tại máy — khoảng trống đã biết, nói thẳng
 

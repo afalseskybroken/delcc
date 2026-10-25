@@ -9,11 +9,14 @@
 // user but most have no gravatar image, and d=404 made those rows show broken
 // icons — profile pages fall back to the letter via onerror instead.
 import { read, write } from "./preferences";
+import { siteGet } from "../lib/transport";
 
 const SITE = "https://oj.tmathcoding.vn";
 const CACHE_KEY = "delcc-gravatar-map";
 const CACHE_CAP = 6000; // FIFO beyond this — bounds a long session's leaderboard walk
 const HASH = /^[a-f0-9]{32,64}$/;
+// the site serves this hash for users without an avatar (MD5 of ""), d=identicon — never a real one
+const PLACEHOLDER_HASH = "d41d8cd98f00b204e9800998ecf8427e";
 const NAME = /^[a-zA-Z0-9_.-]{1,60}$/;
 
 type AvatarMap = Record<string, { h: string; t: number }>;
@@ -37,7 +40,7 @@ export function cachedAvatar(username: string): string | undefined {
 }
 
 function remember(username: string, hash: string): void {
-  if (NAME.test(username) && HASH.test(hash)) store[username] = { h: hash, t: Date.now() };
+  if (NAME.test(username) && HASH.test(hash) && hash !== PLACEHOLDER_HASH) store[username] = { h: hash, t: Date.now() };
 }
 
 function persist(): void {
@@ -68,11 +71,11 @@ function harvest(html: string, pageOwner?: string): void {
 }
 
 async function getText(path: string): Promise<string> {
-  // hard timeout (audit B3): a hung connection must never stall the serialized
-  // hydrate queue — the letter fallback covers a missed fetch
-  const r = await fetch(`${SITE}${path}`, { headers: { Accept: "text/html" }, signal: AbortSignal.timeout(10_000) });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.text();
+  // Rust shell route (pass #18): profile pages lost their CORS header, so the webview
+  // fetch is silently blocked. Timeout lives in site_fetch now.
+  const r = await siteGet(path);
+  if (r.status >= 400) throw new Error(`HTTP ${r.status}`);
+  return r.text;
 }
 
 let inFlight: Promise<void> | null = null;

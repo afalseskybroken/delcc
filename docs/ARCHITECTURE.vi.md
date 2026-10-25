@@ -10,7 +10,7 @@ này. Thuật ngữ kỹ thuật giữ nguyên tiếng Anh cho khớp với code
 Một app Tauri v2: shell Rust sở hữu webview hệ thống, chạy frontend TypeScript
 không framework. Hai tiến trình, một hợp đồng giữa chúng:
 
-- **Phía Rust** (`src-tauri/src/`): proxy HTTP (`api_fetch`), trình chạy CPH
+- **Phía Rust** (`src-tauri/src/`): proxy HTTP (`api_fetch` cho API của sàn, `site_fetch` cho trang công khai của site), trình chạy CPH
   cục bộ (`cph.rs`), liệt kê font (`fonts.rs`), mở URL (`open_url`), chọn layout
   (`get_layout`). Shell là bên nói chuyện — xem mục Transport.
 - **Frontend** (`src/`): TS thuần, render bằng template string vào DOM. Không

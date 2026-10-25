@@ -11,7 +11,7 @@ file it, and fix whichever is wrong.
 | Destination | When | Why |
 |---|---|---|
 | `oj.tmathcoding.vn/api/v3/*` | all API traffic | the judge itself: auth, contests, problems, submissions, leaderboard, client-release manifest |
-| `oj.tmathcoding.vn/<user profile pages>` | only when viewing another user's profile | reads the site's **public** profile page — the exact bytes any anonymous browser gets, CORS-open — to pick up the gravatar hash the site itself publishes there. Validated, cached locally (FIFO-capped); one GET per user, ever. See `src/tmath/avatars.ts` for the honesty notes. |
+| `oj.tmathcoding.vn/<user profile pages>` | only when viewing another user's profile | reads the site's **public** profile page — the exact bytes any anonymous browser gets, CORS-open — to pick up the gravatar hash the site itself publishes there. Validated (the site's empty-string hash placeholder is rejected), cached locally (FIFO-capped); one *successful* GET per user, retried on the next view if it missed. Fetched by the Rust shell (`site_fetch`) — these pages carry no CORS header for the webview. See `src/tmath/avatars.ts` for the honesty notes. |
 | `www.gravatar.com/avatar/<sha256>` | only when the server delivers your own gravatar hash (self-view, gravatar-registered account) | your avatar image, requested with `referrerpolicy="no-referrer"`, `d=404` so nothing else is fetched |
 
 That is all. Concretely absent:
@@ -25,9 +25,20 @@ That is all. Concretely absent:
   compiles and runs *your* code on *your* machine, sandbox-free, exactly like
   running it in a terminal
 
-Single choke point: `src/lib/transport.ts`. Every HTTP request goes through
-`transport()` (Rust shell first, WebView `fetch` as fallback). Auditing the
-network surface means reading one file.
+Network code lives in three plainly named places. `src/lib/transport.ts` carries
+all API traffic (Rust shell first, WebView `fetch` as fallback). Two deliberate
+direct-`fetch` exceptions: `src/lib/verdict.ts` (the submission-result SSE stream)
+and `src/tmath/avatars.ts` (the public profile page GET, which goes through the
+shell's `site_fetch` command). Auditing the network surface means reading those
+three files.
+
+The one read-heavy path is the **problems index**. The Problems page has progress
+filters (solved / attempted / untouched), and the public API exposes no per-user
+solved state — so on first visit delcc reads the public problem list page by page
+(five requests in flight, short-page detection, hard page cap), plus your own
+`solved_problems` and your own submissions. That index lives in memory only, is
+dropped when delcc closes, and enables the filters once it completes; until then
+the filters are visibly disabled with a progress line. No storage key is written.
 
 ## Authentication data at rest — known gaps, stated plainly
 

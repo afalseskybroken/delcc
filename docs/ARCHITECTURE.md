@@ -11,7 +11,7 @@ to this folder.
 A Tauri v2 app: a Rust shell owning a system webview that runs a framework-free
 TypeScript frontend. Two processes, one contract between them:
 
-- **Rust side** (`src-tauri/src/`): HTTP proxy (`api_fetch`), the CPH local
+- **Rust side** (`src-tauri/src/`): HTTP proxies (`api_fetch` for the judge API, `site_fetch` for public site pages), the CPH local
   runner (`cph.rs`), font enumeration (`fonts.rs`), URL opening (`open_url`),
   layout selection (`get_layout`). The shell does the talking — see Transport.
 - **Frontend** (`src/`): vanilla TS rendered as template strings into the DOM.

@@ -296,12 +296,10 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       $("[data-compile]").textContent = result.compile_log;
       const scored = selected.filter(c => typeof c.expected === "string" && c.expected.trim().length > 0);
       const passed = result.results.filter(r=>r.verdict === "AC").length;
-      const sumMs = result.results.reduce((a, r) => a + (r.time_ms || 0), 0);
       if (scored.length) lastScore = { passed, total: scored.length }; // rides the count pill
       // the status line carries only anomalies — the score is in the pill
       const bits: string[] = [];
       if (!result.compile_ok) bits.push("CE");
-      else if (!scored.length) bits.push(`Σ ${sumMs} ms`);
       if (result.cancelled) bits.push(t("cph.cancelled"));
       if (startRevision !== revision) bits.push(t("cph.stale"));
       summary.textContent = bits.join(" · ");

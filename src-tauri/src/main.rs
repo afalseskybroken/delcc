@@ -6,6 +6,24 @@ use std::collections::HashMap;
 mod fonts;
 mod cph;
 use cph::{cph_compile, cph_detect, cph_run, cph_stop, CphState};
+// pass #18: same-origin HTML GET for the public site (avatar harvest). The webview
+// fetch is CORS-blocked on profile pages; the shell talks, the page renders.
+#[tauri::command]
+async fn site_fetch(path: String) -> Result<String, String> {
+    const BASE: &str = "https://oj.tmathcoding.vn";
+    if !path.starts_with('/') || path.contains("..") { return Err("bad path".into()); }
+    let client = reqwest::Client::builder()
+        .http1_only()
+        .user_agent(concat!("delcc/", env!("CARGO_PKG_VERSION")))
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("client: {e}"))?;
+    let resp = client.get(format!("{BASE}{path}")).send().await.map_err(|e| format!("send: {e}"))?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await.map_err(|e| format!("body: {e}"))?;
+    serde_json::to_string(&serde_json::json!({ "status": status, "body": text }))
+        .map_err(|e| format!("encode: {e}"))
+}
 // pass #10: installed font families for the settings font picker
 use fonts::fonts_list;
 
@@ -85,7 +103,7 @@ fn window_title() -> &'static str {
 fn main() {
     tauri::Builder::default()
         .manage(CphState::default())
-        .invoke_handler(tauri::generate_handler![api_fetch, get_layout, open_url, fonts_list, cph_detect, cph_run, cph_compile, cph_stop])
+        .invoke_handler(tauri::generate_handler![api_fetch, site_fetch, get_layout, open_url, fonts_list, cph_detect, cph_run, cph_compile, cph_stop])
         .setup(move |app| {
             if DELCC_LAYOUT == "tmath" {
                 use tauri::Manager;

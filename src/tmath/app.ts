@@ -324,11 +324,11 @@ export class TmathApp {
     };
   }
 
-  private pager(host: HTMLElement, page: number, count: number, params: URLSearchParams, pageSize = PAGE_SIZE): void {
+  private pager(host: HTMLElement, page: number, count: number, params: URLSearchParams, pageSize = PAGE_SIZE, total?: number): void {
     host.insertAdjacentHTML("beforeend", `<div class="tm-pager">${button("common.previous", "prev")}<span>${text("subs.page", {n:page})}</span>${button("common.next", "next")}</div>`);
     const prev = host.querySelector<HTMLButtonElement>('[data-action="prev"]')!;
     const next = host.querySelector<HTMLButtonElement>('[data-action="next"]')!;
-    prev.disabled = page === 1; next.disabled = count < pageSize;
+    prev.disabled = page === 1; next.disabled = total == null ? count < pageSize : page * pageSize >= total;
     const move = (n: number) => { params.set("page", String(n)); this.go(this.route, Object.fromEntries(params)); };
     prev.onclick = () => move(page - 1); next.onclick = () => move(page + 1);
   }
@@ -372,36 +372,172 @@ export class TmathApp {
     this.pager(host,page,deduped.length,params);
   }
 
+
+  // pass #19 — hybrid progress filters. The API exposes no per-user solved state, so
+  // the honest source is one background sweep: every public problem (/problems), own
+  // solved list (/users/<me> → solved_problems) and own submissions (attempted). The
+  // unfiltered view stays server-paged; once the sweep lands, filtering/sorting/paging
+  // run client-side over the full set. Memory only — nothing is persisted.
+  private problemsIndex: { complete: boolean; items: any[]; solved: Set<string>; attempted: Set<string> } | null = null;
+  private problemsSweep: Promise<void> | null = null;
+  private problemsAttempts = 0;
+  private problemsIndexTotal = 0;
+  private problemsProgress: (() => void)[] = [];
+
+  private warmProblemsIndex(): Promise<void> {
+    if (this.problemsSweep) return this.problemsSweep;
+    if (this.problemsAttempts >= 2) return Promise.resolve();
+    const token = auth.accessToken();
+    if (!token) return Promise.resolve();
+    this.problemsAttempts++;
+    this.problemsSweep = (async () => {
+      const PS = 100;
+      const items: any[] = [];
+      const seen = new Set<string>();
+      let listComplete = false, failures = 0;
+      for (let base = 1; base <= 300; base += 5) {
+        const pages = await Promise.allSettled(Array.from({ length: 5 }, (_, k) =>
+          raw(`/problems?page=${base + k}&page_size=${PS}`, { token })));
+        let short = false;
+        for (const r of pages) {
+          if (r.status !== "fulfilled") { failures++; continue; }
+          const batch = list(r.value);
+          for (const p of batch) {
+            if (!p || typeof p.code !== "string" || seen.has(p.code)) continue;
+            seen.add(p.code);
+            items.push({ code: p.code, name: String(p.name ?? p.title ?? ""), points: p.points ?? null, types: list(p.types), user_count: p.user_count ?? null });
+          }
+          if (batch.length < PS) short = true;
+        }
+        this.problemsIndexTotal = items.length;
+        for (const cb of this.problemsProgress) cb();
+        if (short) { listComplete = failures === 0; break; }
+      }
+      const solved = new Set<string>();
+      const attempted = new Set<string>();
+      const me = this.user?.username;
+      let triedComplete = !me;
+      if (me) {
+        try {
+          const meRows = list<string>((await raw(`/users/${encodeURIComponent(me)}`, { token }))?.solved_problems);
+          for (const code of meRows) solved.add(String(code));
+        } catch { failures++; }
+        for (let base = 1; base <= 50; base += 5) {
+          const pages = await Promise.allSettled(Array.from({ length: 5 }, (_, k) =>
+            raw(`/submissions?user=${encodeURIComponent(me)}&page=${base + k}&page_size=100`, { token })));
+          let short = false;
+          for (const r of pages) {
+            if (r.status !== "fulfilled") { failures++; continue; }
+            const batch = list(r.value);
+            for (const s of batch) {
+              const code = String(s?.problem ?? "");
+              if (code) attempted.add(code);
+            }
+            if (batch.length < 100) short = true;
+          }
+          if (short) { triedComplete = true; break; }
+        }
+      }
+      this.problemsIndex = { complete: listComplete && triedComplete && failures === 0, items, solved, attempted };
+      for (const cb of this.problemsProgress) cb();
+      this.problemsProgress = [];
+      if (this.problemsIndex.complete && this.route === "problems") void this.render();
+    })().catch(() => { this.problemsSweep = null; });
+    return this.problemsSweep;
+  }
+
   private async problems(host: HTMLElement, params: URLSearchParams, alive: () => boolean): Promise<void> {
     const page = Math.max(1, Number(params.get("page")) || 1);
     const search = params.get("search") ?? "", type = params.get("type") ?? "", group = params.get("group") ?? "";
-    const [rows, topics] = await Promise.all([api.problems(auth.accessToken()!, {page,page_size:PAGE_SIZE,search,type,group}), api.topics(auth.accessToken()!)]);
+    const chipValue = params.get("chip") ?? "";
+    const chip: "all" | "todo" | "none" = chipValue === "todo" ? "todo" : chipValue === "none" ? "none" : "all";
+    const token = auth.accessToken()!;
+    const idx = this.problemsIndex;
+    const indexReady = Boolean(idx?.complete);
+    const clientMode = Boolean(idx?.complete) && !group;
+    if (!indexReady && !this.problemsSweep) void this.warmProblemsIndex();
+    const topicsP = api.topics(token).catch(() => [] as string[]);
+    let items: any[] = [], serverCount = 0;
+    if (clientMode) {
+      const q = search.trim().toLowerCase();
+      items = idx!.items.filter(p =>
+        (!q || String(p.code).toLowerCase().includes(q) || String(p.name).toLowerCase().includes(q)) &&
+        (!type || p.types.includes(type)) &&
+        (chip === "all" || (chip === "todo" ? idx!.attempted.has(p.code) && !idx!.solved.has(p.code) : !idx!.attempted.has(p.code) && !idx!.solved.has(p.code))));
+    } else {
+      const rows = await api.problems(token, { page, page_size: PAGE_SIZE, search, type, group });
+      if (!alive()) return;
+      items = list(rows); serverCount = items.length;
+    }
+    const topics = await topicsP;
     if (!alive()) return;
-    // client-side column sort over the loaded page (server stays the paginator)
     const COLS: Record<string, (p: any) => string | number> = {
       code: p => String(p.code ?? ""), name: p => String(p.name ?? p.title ?? "").toLowerCase(),
       topic: p => list(p.types).join(", "), points: p => Number(p.points ?? -1), solvers: p => Number(p.user_count ?? -1),
     };
     const savedSort = read("delcc-problems-sort", "");
     let [col, dir] = savedSort.split(":");
-    if (!Object.prototype.hasOwnProperty.call(COLS, col)) col = ""; // audit B1 — see rankings
+    if (!Object.prototype.hasOwnProperty.call(COLS, col)) col = "";
     if (dir !== "asc" && dir !== "desc") dir = "asc";
-    const items = list(rows);
-    const display = col ? [...items].sort((a, b) => {
+    const sorted = col ? [...items].sort((a, b) => {
       const va = COLS[col](a), vb = COLS[col](b);
       const cmp = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
       return (dir === "asc" ? 1 : -1) * cmp;
     }) : items;
+    const display = clientMode ? sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) : sorted;
     const arrow = (k: string) => col === k ? (dir === "asc" ? " ↑" : " ↓") : "";
-    host.innerHTML = this.pageTitle("problems.eyebrow","problems.title","problems.desc","problems.refresh") + `<section class="tm-card"><form class="tm-toolbar tm-card-header"><input name="search" placeholder="${text("problems.searchField")}" aria-label="${text("problems.searchField")}" value="${esc(search)}" maxlength="200"><select name="type" aria-label="${text("problems.topic")}"><option value="">${text("problems.topic")} · ${text("common.all")}</option>${list<string>(topics).map(topic => `<option${topic === type ? " selected" : ""}>${esc(topic)}</option>`).join("")}</select><input name="group" placeholder="${text("problems.group")}" aria-label="${text("problems.group")}" value="${esc(group)}"><button class="tm-button" type="submit">${text("common.search")}</button></form><div class="tm-table-wrap"><table class="tm-table"><thead><tr>${[["code","problems.code"],["name","problems.name"],["topic","problems.topic"],["points","problems.points"],["solvers","problems.solvers"]].map(([k, key]) => `<th><button type="button" class="tm-sort-h" data-sort="${k}" title="${text("problems.sortHint")}">${text(key as DictKey)}${arrow(k)}</button></th>`).join("")}</tr></thead><tbody>${display.map(p => `<tr><td class="tm-code-muted">${esc(p.code)}</td><td><a href="#/problems?code=${encodeURIComponent(p.code)}">${esc(p.name)}</a></td><td>${esc(list(p.types).join(", "))}</td><td>${esc(p.points)}</td><td>${esc(p.user_count ?? "—")}</td></tr>`).join("")}</tbody></table>${items.length ? "" : empty()}</div></section>`;
+    const rowState = (code: string): "solved" | "attempted" | "untouched" => {
+      if (!indexReady || !idx) return "untouched";
+      if (idx.solved.has(code)) return "solved";
+      if (idx.attempted.has(code)) return "attempted";
+      return "untouched";
+    };
+    const count = (k: "all" | "todo" | "none"): number | null => {
+      if (!clientMode || !idx) return null;
+      if (k === "all") return idx.items.length;
+      return idx.items.filter(p => k === "todo" ? idx.attempted.has(p.code) && !idx.solved.has(p.code) : !idx.attempted.has(p.code) && !idx.solved.has(p.code)).length;
+    };
+    const chipLabel = (k: "all" | "todo" | "none", key: DictKey) => { const n = count(k); return n == null ? text(key) : `${text(key)} (${n})`; };
+    const note = clientMode ? "" : !indexReady
+      ? (this.problemsAttempts >= 2 && !this.problemsSweep ? t("problems.indexUnavailable") : t("problems.indexing", { n: this.problemsIndexTotal }))
+      : t("problems.chipGroupNote");
+    const chipBar = `<div class="tm-chip-row" role="group" aria-label="${text("problems.filterLabel")}">${(["all","todo","none"] as const).map(k => `<button type="button" class="tm-chip${clientMode && chip === k ? " active" : ""}" data-chip="${k}"${clientMode ? "" : " disabled"} aria-pressed="${clientMode && chip === k}">${chipLabel(k, k === "all" ? "problems.chipAll" : k === "todo" ? "problems.chipTodo" : "problems.chipNone")}</button>`).join("")}${note ? `<span class="tm-chip-note"${indexReady ? "" : " data-index-note"} role="status">${esc(note)}</span>` : ""}</div>`;
+    const legend = indexReady ? `<div class="tm-legend">${(["solved","attempted","none"] as const).map(k => `<span class="tm-legend-item"><span class="tm-legend-dot ${k}" aria-hidden="true"></span>${text(k === "solved" ? "problems.legendSolved" : k === "attempted" ? "problems.legendAttempted" : "problems.legendNone")}</span>`).join("")}</div>` : "";
+    const activeFilter = Boolean(search || type || group);
+    host.innerHTML = this.pageTitle("problems.eyebrow","problems.title","problems.desc","problems.refresh") + `<section class="tm-card tm-card-body"><form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-problem-search">${text("problems.searchField")}</label><input id="tm-problem-search" name="search" placeholder="${text("problems.searchPlaceholder")}" value="${esc(search)}" maxlength="200"></div><div class="tm-field"><label for="tm-problem-topic">${text("problems.topic")}</label><select id="tm-problem-topic" name="type"><option value="">${text("problems.topic")} · ${text("common.all")}</option>${list<string>(topics).map(topic => `<option${topic === type ? " selected" : ""}>${esc(topic)}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-problem-group">${text("problems.group")}</label><input id="tm-problem-group" name="group" placeholder="${text("problems.group")}" value="${esc(group)}"></div></div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form>${chipBar}${legend}<div class="tm-table-wrap"><table class="tm-table tm-problem-table"><thead><tr>${[["code","problems.code"],["name","problems.name"],["points","problems.points"],["topic","problems.topic"],["solvers","problems.solvers"]].map(([k, key]) => `<th><button type="button" class="tm-sort-h" data-sort="${k}" title="${text("problems.sortHint")}">${text(key as DictKey)}${arrow(k)}</button></th>`).join("")}</tr></thead><tbody>${display.map(p => { const st = rowState(String(p.code)); return `<tr class="tm-row-${st}"><td class="tm-code-muted"><span class="tm-dot ${st}" aria-hidden="true"></span>${esc(p.code)}</td><td><a href="#/problems?code=${encodeURIComponent(p.code)}">${esc(p.name)}</a></td><td>${esc(p.points)}</td><td>${esc(list(p.types).join(", "))}</td><td>${esc(p.user_count ?? "—")}</td></tr>`; }).join("")}</tbody></table>${display.length ? "" : empty()}</div></section>`;
+    const clearFilter = host.querySelector<HTMLButtonElement>('[data-action="clear"]');
+    if (clearFilter) clearFilter.onclick = () => this.go("problems", {});
+    host.querySelectorAll<HTMLButtonElement>("[data-chip]").forEach(b => b.onclick = () => {
+      const k = b.dataset.chip!;
+      const next: Record<string, string> = { ...Object.fromEntries(params), page: "1" };
+      if (k === "all") delete next.chip; else next.chip = k;
+      this.go("problems", next);
+    });
     host.querySelectorAll<HTMLButtonElement>(".tm-sort-h").forEach(btn => btn.onclick = () => {
       const k = btn.dataset.sort!;
       const next = col === k && dir === "asc" ? `${k}:desc` : col === k ? "" : `${k}:asc`;
       write("delcc-problems-sort", next);
       if (alive()) void this.render();
     });
-    host.querySelector<HTMLFormElement>("form")!.onsubmit = event => { event.preventDefault(); this.go("problems",Object.fromEntries(new FormData(event.currentTarget as HTMLFormElement)) as Record<string,string>); };
-    this.pager(host,page,list(rows).length,params);
+    host.querySelector<HTMLFormElement>("form")!.onsubmit = event => {
+      event.preventDefault();
+      this.go("problems", { ...Object.fromEntries(params) as Record<string, string>, ...Object.fromEntries(new FormData(event.currentTarget as HTMLFormElement)) as Record<string, string>, page: "1" });
+    };
+    if (!clientMode && !indexReady) {
+      const noteEl = host.querySelector<HTMLElement>("[data-index-note]");
+      if (noteEl) {
+        const cb = () => {
+          if (!noteEl.isConnected || !alive() || !this.problemsSweep) {
+            const i = this.problemsProgress.indexOf(cb);
+            if (i >= 0) this.problemsProgress.splice(i, 1);
+            return;
+          }
+          if (noteEl.isConnected) noteEl.textContent = t("problems.indexing", { n: this.problemsIndexTotal });
+        };
+        this.problemsProgress.push(cb);
+      }
+    }
+    this.pager(host, page, clientMode ? display.length : serverCount, params, PAGE_SIZE, clientMode ? sorted.length : undefined);
   }
 
   private scoreClass(status?: string): string {
@@ -496,7 +632,18 @@ export class TmathApp {
     const scope = value("scope") === "public_practice" ? "public_practice" : "";
     const problem = value("problem"), user = value("user");
     const result = SUBS_RESULTS.includes(value("result")) ? value("result") : "";
-    const size = value("pageSize","30"), pageSize = ["10","20","30","50"].includes(size) ? Number(size) : 30;
+    const size = value("pageSize","100"), pageSize = [10,20,50,100].includes(Number(size)) ? Number(size) : 100;
+    const sizeOptions = [10,20,50,100];
+    const scalar = (v: unknown) => Array.isArray(v) ? v[0] : v;
+    const ago = (value: unknown): string => {
+      const ts = new Date(String(scalar(value))).getTime();
+      if (!Number.isFinite(ts)) return "—";
+      const secs = Math.max(0, Math.round((Date.now() - ts) / 1000));
+      if (secs < 60) return text("time.justNow");
+      if (secs < 3600) return text("time.minutesAgo", { n: Math.floor(secs / 60) });
+      if (secs < 86400) return text("time.hoursAgo", { n: Math.floor(secs / 3600) });
+      return text("time.daysAgo", { n: Math.floor(secs / 86400) });
+    };
     const filters: SubsFilterPrefs = {scope,user,problem,result,pageSize:String(pageSize)};
     // Resolve shared memory before the very first request, including explicit clears.
     for (const [key,v] of Object.entries(filters)) params.set(key,v);
@@ -511,13 +658,16 @@ export class TmathApp {
     }
     if (!alive()) return;
     write(SUBS_FILTERS_KEY,JSON.stringify(filters));
-    host.innerHTML = `<section class="tm-card"><form class="tm-toolbar tm-card-header"><select name="scope" aria-label="${text("subs.scope")}"><option value="">${text("subs.mine")}</option><option value="public_practice"${scope ? " selected" : ""}>${text("subs.public")}</option></select><input name="user" aria-label="${text("subs.user")}" placeholder="${text("subs.user")}" value="${esc(user)}"><input name="problem" aria-label="${text("subs.problem")}" placeholder="${text("problems.code")}" value="${esc(problem)}"><select name="result" aria-label="${text("subs.result")}"><option value="">${text("subs.result")} · ${text("common.all")}</option>${SUBS_RESULTS.map(s=>`<option${result === s ? " selected" : ""}>${s}</option>`).join("")}</select><select name="pageSize" aria-label="${text("subs.pageSize")}">${[10,20,30,50].map(n=>`<option value="${n}"${n === pageSize ? " selected" : ""}>${n}</option>`).join("")}</select><button type="submit" class="tm-button">${text("common.search")}</button></form><div class="tm-table-wrap"><table class="tm-table"><thead><tr>${["subs.id","subs.problem","subs.user","subs.language","subs.result","subs.score","subs.time","subs.memory","subs.date"].map(k=>`<th>${text(k as DictKey)}</th>`).join("")}</tr></thead><tbody>${rows.map(s=>`<tr><td><button class="tm-button ghost" data-sub="${s.id}" aria-expanded="false">#${s.id}</button></td><td>${esc(s.problem_name ?? s.problem)}</td><td>${esc(s.user_display_name ?? s.user)}</td><td>${esc(s.language)}</td><td><span class="tm-badge${s.result === "AC" ? " success" : ""}">${esc(s.result ?? s.status)}${!s.is_terminal && s.current_testcase ? ` · #${esc(s.current_testcase)}` : ""}</span></td><td>${esc(s.points ?? "—")}</td><td>${esc(s.time ?? "—")}</td><td>${esc(s.memory ?? "—")}</td><td>${date(s.date)}</td></tr>`).join("")}</tbody></table>${rows.length ? "" : empty()}</div></section>`;
+    const activeFilter = Boolean(user || problem || result || scope);
+    host.innerHTML = this.pageTitle("subs.eyebrow","subs.title","subs.desc","subs.refresh") + `<section class="tm-card tm-card-body"><form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-subs-scope">${text("subs.scope")}</label><select id="tm-subs-scope" name="scope"><option value="">${text("subs.mine")}</option><option value="public_practice"${scope ? " selected" : ""}>${text("subs.public")}</option></select></div><div class="tm-field"><label for="tm-subs-user">${text("subs.user")}</label><input id="tm-subs-user" name="user" placeholder="${text("subs.user")}" value="${esc(user)}"></div><div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><input id="tm-subs-problem" name="problem" placeholder="${text("problems.code")}" value="${esc(problem)}"></div><div class="tm-field"><label for="tm-subs-result">${text("subs.result")}</label><select id="tm-subs-result" name="result"><option value="">${text("subs.result")} · ${text("common.all")}</option>${SUBS_RESULTS.map(s=>`<option${result === s ? " selected" : ""}>${s}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-subs-size">${text("subs.pageSize")}</label><select id="tm-subs-size" name="pageSize">${sizeOptions.map(n=>`<option value="${n}"${n === pageSize ? " selected" : ""}>${n}</option>`).join("")}</select></div></div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form><div class="tm-table-wrap"><table class="tm-table tm-subs-table"><thead><tr>${["subs.id","subs.user","subs.problem","subs.date","subs.language","subs.result","subs.score"].map(k=>`<th>${text(k as DictKey)}</th>`).join("")}<th class="tm-col-eye"><span class="sr-only">${text("subs.details")}</span></th></tr></thead><tbody>${rows.map(s=>`<tr><td class="tm-code-muted">#${esc(s.id)}</td><td>${esc(s.user_display_name ?? s.user ?? "—")}</td><td>${esc(s.problem_name ?? s.problem ?? "—")}</td><td>${esc(ago(s.date))}</td><td>${esc(s.language ?? "—")}</td><td><span class="tm-result-pill${s.result === "AC" ? " ok" : !s.is_terminal ? " pending" : " bad"}">${esc(s.result ?? s.status ?? "—")}${!s.is_terminal && s.current_testcase ? ` · #${esc(s.current_testcase)}` : ""}</span></td><td>${esc(s.points ?? "—")}</td><td class="tm-col-eye"><button class="tm-icon-button" data-sub="${s.id}" aria-expanded="false" title="${text("subs.details")}" aria-label="${text("subs.details")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.5 10.5 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.5 10.5 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></svg></button></td></tr>`).join("")}</tbody></table>${rows.length ? "" : empty()}</div></section>`;
+    const clearFilter = host.querySelector<HTMLButtonElement>('[data-action="clear"]');
+    if (clearFilter) clearFilter.onclick = () => this.go("submissions", {});
     host.querySelector<HTMLFormElement>("form")!.onsubmit = e => { e.preventDefault(); this.go("submissions",Object.fromEntries(new FormData(e.currentTarget as HTMLFormElement)) as Record<string,string>); };
     host.querySelectorAll<HTMLButtonElement>("[data-sub]").forEach(b => b.onclick = async () => {
       const existing = host.querySelector(`[data-detail="${b.dataset.sub}"]`);
       if (existing) { existing.remove(); b.setAttribute("aria-expanded","false"); return; }
       const row = document.createElement("tr"); row.dataset.detail = b.dataset.sub;
-      const cell = row.insertCell(); cell.colSpan = 9; cell.innerHTML = loading(); b.closest("tr")!.after(row); b.setAttribute("aria-expanded","true");
+      const cell = row.insertCell(); cell.colSpan = 8; cell.innerHTML = loading(); b.closest("tr")!.after(row); b.setAttribute("aria-expanded","true");
       const summary = rows.find(s=>s.id === Number(b.dataset.sub));
       if (summary?.can_view_detail === false) { cell.innerHTML = empty("subs.noDetails"); return; }
       try {

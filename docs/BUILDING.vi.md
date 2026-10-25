@@ -45,6 +45,10 @@ npm run tauri dev     # shell dev với hot reload
 npm run tauri build   # bundle release; targets: "all" (xem src-tauri/tauri.conf.json)
 ```
 
+Ghi chú cache trên Windows: workspace này để cache của cargo ngoài cây mã nguồn —
+đặt `CARGO_TARGET_DIR=C:\rust-target` (PowerShell: `$env:CARGO_TARGET_DIR='C:\rust-target'`)
+trước khi build. Cây mã nguồn gọn, và các lần build lại dùng chung artifact.
+
 Bundle theo nền tảng: Windows → MSI (WiX) + installer NSIS; macOS → .app/.dmg;
 Linux → .deb/.appimage. `productName: delcc`, identifier `vn.delcc.app` — đổi
 identifier tức là đổi thư mục dữ liệu WebView (`%LOCALAPPDATA%/<identifier>` trên
