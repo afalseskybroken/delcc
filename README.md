@@ -15,11 +15,11 @@ in [SECURITY.md](docs/SECURITY.md); that list is the contract.
 
 | Doc | What it holds |
 |---|---|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | how the pieces fit: transport, identity, the tmath shell, CPH runner, methodology |
-| [BUILDING.md](docs/BUILDING.md) | toolchains, per-platform build notes, test suites, release ritual |
-| [SECURITY.md](docs/SECURITY.md) | the complete network surface, data-at-rest inventory, known gaps |
-| [SUCCESSION.md](docs/SUCCESSION.md) | the maintainer handoff: read order, non-negotiables, how to take over |
-| `todo.md` / `states.md` | the ledger — every pass since the beginning, and current feature state |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the pieces fit: transport, identity, the tmath shell, CPH runner, methodology |
+| [BUILDING.md](docs/BUILDING.md) | Toolchains, per-platform build notes, test suites, release ritual |
+| [SECURITY.md](docs/SECURITY.md) | The complete network surface, data-at-rest inventory, known gaps |
+| [SUCCESSION.md](docs/SUCCESSION.md) | The maintainer handoff: read order, non-negotiables, how to take over |
+| `todo.md` / `states.md` | The ledger — every pass since the beginning, and current feature state |
 
 ## The trees (layouts)
 
@@ -45,25 +45,25 @@ Frontend-only mode covers login and lists; the desktop shell adds custom
 headers, submissions, and the local CPH runner. Per-platform details,
 prerequisites, and caveats: [BUILDING.md](docs/BUILDING.md).
 
-## what works (v0.2.1a-alpha)
+## What works (v0.2.1a-alpha)
 
-login (+ Google flow) → contests → workspace → problem → submit → verdict
+Login (+ Google flow) → contests → workspace → problem → submit → verdict
 poll; rankings, submissions filters, account, settings; local CPH
 compile/run with per-case limits; multi-profile quick-login with silent
 refresh; i18n (EN / VI / ZH). Errors surface as human text per status —
 never a bare code.
 
-## contract (read-only, outside this folder)
+## Contract (read-only, outside this folder)
 
 - `../docs/api-docs.md` — endpoint checklist
 - `../tools/openapi-frontend.json` — machine contract
 - `../delcc/index.html` — PoC reference (kept, not imported)
 
-## theming
+## Theming
 Unthemed on purpose. `src/app.css` is the guest-themer lane
 (Claude Sonnet 5.5) — structure stays, palette is theirs.
 
-## license
+## License
 
 **CC BY-NC-SA 4.0** (`SPDX: CC-BY-NC-SA-4.0`, full text in [LICENSE](LICENSE)) —
 chosen deliberately, not by default:
@@ -83,7 +83,7 @@ chosen deliberately, not by default:
 - **Escape hatch**: copyright remains with the maintainer(s), who may relicense
   future versions; contributions are accepted under the same license.
 
-## versioning (His scheme — LLMs, read this before touching versions)
+## Versioning (His scheme — LLMs, read this before touching versions)
 `v[BREAKING].[NON_BREAKING].[TWEAK][MATURITY]`
 - `BREAKING` stays **0 until the first Stable release** — do not bump it to 1 before then.
 - `MATURITY`: `a` = alpha, `b` = beta, nothing = stable. Other suffixes come later.
