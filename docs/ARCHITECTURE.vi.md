@@ -1,6 +1,6 @@
 # ARCHITECTURE.vi.md — delcc được lắp ráp thế nào, và vì sao
 
-Đọc [README.vi.md](README.vi.md) trước (đây là gì, luật versioning), rồi tới
+Đọc [README.vi.md](../README.vi.md) trước (đây là gì, luật versioning), rồi tới
 tài liệu này, rồi [SECURITY.vi.md](SECURITY.vi.md) (hợp đồng mạng). Bản gốc
 tiếng Anh: [ARCHITECTURE.md](ARCHITECTURE.md). Đường dẫn file tính từ thư mục
 này. Thuật ngữ kỹ thuật giữ nguyên tiếng Anh cho khớp với codebase.

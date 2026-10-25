@@ -20,7 +20,7 @@ That is the whole story — you lose nothing by starting here.
 
 ## Read order for a new maintainer
 
-1. [README.md](README.md) — what this is, how to run it, the versioning law.
+1. [README.md](../README.md) — what this is, how to run it, the versioning law.
 2. [ARCHITECTURE.md](ARCHITECTURE.md) — how the pieces fit and why they are that way.
 3. [BUILDING.md](BUILDING.md) — toolchains, per-platform notes, release gates.
 4. [SECURITY.md](SECURITY.md) — the honest-client contract and the current threat model.
@@ -88,7 +88,7 @@ thing worth inheriting.
 ## If the maintainer disappears tomorrow
 
 Fork it — that is what the license is for. delcc is **CC BY-NC-SA 4.0**
-([LICENSE](LICENSE)): any fork inherits non-commercial + share-alike, so a
+([LICENSE](../LICENSE)): any fork inherits non-commercial + share-alike, so a
 closed fork is legally excluded from the start, not just frowned upon. The repo
 stands on its own. The docs in this set plus the ledger contain the operating
 knowledge. Start a `todo.md` pass entry with your name on it — that is how

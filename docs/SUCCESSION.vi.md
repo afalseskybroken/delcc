@@ -20,7 +20,7 @@ bắt đầu từ đây.
 
 ## Thứ tự đọc cho maintainer mới
 
-1. [README.vi.md](README.vi.md) — đây là gì, chạy thế nào, luật versioning.
+1. [README.vi.md](../README.vi.md) — đây là gì, chạy thế nào, luật versioning.
 2. [ARCHITECTURE.vi.md](ARCHITECTURE.vi.md) — các mảnh ghép và lý do chúng vậy.
 3. [BUILDING.vi.md](BUILDING.vi.md) — toolchain, ghi chú theo nền tảng, gate phát hành.
 4. [SECURITY.vi.md](SECURITY.vi.md) — hợp đồng client trung thực và threat model hiện tại.
@@ -87,7 +87,7 @@ Phương pháp đó — không phải tính năng nào cả — mới là thứ 
 ## Nếu maintainer biến mất ngày mai
 
 Fork nó — đó chính là lý do giấy phép tồn tại. delcc là **CC BY-NC-SA 4.0**
-([LICENSE](LICENSE)): mọi fork kế thừa non-commercial + share-alike, nên fork
+([LICENSE](../LICENSE)): mọi fork kế thừa non-commercial + share-alike, nên fork
 đóng bị loại trừ về pháp lý ngay từ đầu, không chỉ bị nhíu mày. Repo tự đứng
 được. Các doc trong bộ này cộng sổ cái chứa toàn bộ tri thức vận hành. Mở một
 pass entry `todo.md` với tên của bạn — mọi maintainer ở đây ký công việc của họ

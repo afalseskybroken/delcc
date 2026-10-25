@@ -75,7 +75,7 @@ P1 does not imply that exploitation against a deployed system was demonstrated.
 
 ### F01 — Refresh completion crosses session boundaries
 
-**Location:** [auth.ts:53](src/lib/auth.ts:53), with session replacement at [auth.ts:48](src/lib/auth.ts:48) and logout at [auth.ts:66](src/lib/auth.ts:66).
+**Location:** [auth.ts:53](../src/lib/auth.ts#L53), with session replacement at [auth.ts:48](../src/lib/auth.ts#L48) and logout at [auth.ts:66](../src/lib/auth.ts#L66).
 
 Start a refresh for account A, then log out or seed account B before the response completes. The old promise unconditionally saves its result; its catch unconditionally saves null. The global pending-refresh promise also allows B to join A's refresh.
 
@@ -87,7 +87,7 @@ Start a refresh for account A, then log out or seed account B before the respons
 
 ### F02 — A 401 retry can submit as a different account
 
-**Location:** [api.ts:148](src/lib/api.ts:148), [auth.ts:64](src/lib/auth.ts:64).
+**Location:** [api.ts:148](../src/lib/api.ts#L148), [auth.ts:64](../src/lib/auth.ts#L64).
 
 An A-authenticated request returns 401 after the user has switched to B. The parameterless refresh hook refreshes the current session, then replays the original method/body using that token.
 
@@ -99,7 +99,7 @@ An A-authenticated request returns 401 after the user has switched to B. The par
 
 ### F03 — WIP profile lock can be removed from the login screen
 
-**Location:** [main.ts:802](src/main.ts:802), especially [main.ts:823](src/main.ts:823); resume paths at [main.ts:785](src/main.ts:785) and [main.ts:798](src/main.ts:798).
+**Location:** [main.ts:802](../src/main.ts#L802), especially [main.ts:823](../src/main.ts#L823); resume paths at [main.ts:785](../src/main.ts#L785) and [main.ts:798](../src/main.ts#L798).
 
 For an existing locked profile, the lock button clears locked, lockHash, and savedPwEnc without verifying the lock password. It retains the stored token. Selecting the now-unlocked profile again or reopening the application can resume that token.
 
@@ -111,7 +111,7 @@ For an existing locked profile, the lock button clears locked, lockHash, and sav
 
 ### F10 — Temporary refresh failures erase credentials
 
-**Location:** [auth.ts:58](src/lib/auth.ts:58).
+**Location:** [auth.ts:58](../src/lib/auth.ts#L58).
 
 The refresh catch deletes the session for every error, including offline transport, timeout, rate limiting, or server failure. A boot restore or scheduled refresh can therefore force reauthentication even though the refresh credential has not been rejected.
 
@@ -121,7 +121,7 @@ The refresh catch deletes the session for every error, including offline transpo
 
 ### F11 — Google cancellation is ignored after awaited requests
 
-**Location:** [google.ts:35](src/lib/google.ts:35), [google.ts:48](src/lib/google.ts:48), [main.ts:588](src/main.ts:588).
+**Location:** [google.ts:35](../src/lib/google.ts#L35), [google.ts:48](../src/lib/google.ts#L48), [main.ts:588](../src/main.ts#L588).
 
 Cancelling during googleStart still permits its later response to call onUrl. Cancelling during googleExchange still permits a returned token. Baseplate/WIP seeds that token and finishes login without a final abort check. TMATH already checks before seeding, but its URL callback remains exposed to the first race.
 
@@ -133,7 +133,7 @@ Cancelling during googleStart still permits its later response to call onUrl. Ca
 
 ### F12 — Boot rotation misses the saved profile
 
-**Location:** [app.ts:85](src/tmath/app.ts:85), [app.ts:111](src/tmath/app.ts:111).
+**Location:** [app.ts:85](../src/tmath/app.ts#L85), [app.ts:111](../src/tmath/app.ts#L111).
 
 The token listener persists rotation only when this.user.username matches the active profile. Boot refresh happens while this.user is null; identify follows it. The current auth token rotates, but the saved profile retains its old token.
 
@@ -149,11 +149,11 @@ The token listener persists rotation only when this.user.username matches the ac
 
 ### F04 — Problem I/O metadata is interpolated as markup
 
-**Location:** [solve.ts:337](src/tmath/solve.ts:337), consumed at [solve.ts:359](src/tmath/solve.ts:359).
+**Location:** [solve.ts:337](../src/tmath/solve.ts#L337), consumed at [solve.ts:359](../src/tmath/solve.ts#L359).
 
 ioCell returns API-provided input/output strings unescaped in both file-method and methodless branches. They are inserted into host.innerHTML outside the sanitized statement renderer.
 
-**Observed:** a harmless marker was returned as File: <b id="audit-marker">file.in</b>, without escaping. This confirms markup injection. Script execution and an attacker's ability to author this API metadata were not exercised. [tauri.conf.json:22](src-tauri/tauri.conf.json:22) supplies no CSP mitigation.
+**Observed:** a harmless marker was returned as File: <b id="audit-marker">file.in</b>, without escaping. This confirms markup injection. Script execution and an attacker's ability to author this API metadata were not exercised. [tauri.conf.json:22](../src-tauri/tauri.conf.json#L22) supplies no CSP mitigation.
 
 **Bugfix path:** escape every metadata value at the HTML boundary, or create text nodes.
 
@@ -161,7 +161,7 @@ ioCell returns API-provided input/output strings unescaped in both file-method a
 
 ### F05 — CPH can hang after a parent process exits
 
-**Location:** [cph.rs:442](src-tauri/src/cph.rs:442), especially PID reset and joins at [cph.rs:462](src-tauri/src/cph.rs:462).
+**Location:** [cph.rs:442](../src-tauri/src/cph.rs#L442), especially PID reset and joins at [cph.rs:462](../src-tauri/src/cph.rs#L462).
 
 Direct-child exit ends the deadline/cancel loop. The code clears the PID and joins stdin/stdout/stderr threads without a deadline. A surviving descendant holding inherited pipes prevents EOF. Stop no longer has a polled cancellation path. The optional Windows Job handle is dropped only after those joins, too late to terminate the descendant.
 
@@ -173,7 +173,7 @@ Direct-child exit ends the deadline/cancel loop. The code clears the PID and joi
 
 ### F06 — LOG_CAP does not bound host memory
 
-**Location:** [cph.rs:428](src-tauri/src/cph.rs:428), [cph.rs:386](src-tauri/src/cph.rs:386).
+**Location:** [cph.rs:428](../src-tauri/src/cph.rs#L428), [cph.rs:386](../src-tauri/src/cph.rs#L386).
 
 Both output-reader threads use read_to_end into growing vectors. Clipping occurs only after capture finishes. A program or compiler emitting output quickly can exhaust the desktop process's memory before timeout. A child-process memory cap does not bound these host allocations.
 
@@ -185,7 +185,7 @@ Both output-reader threads use read_to_end into growing vectors. Clipping occurs
 
 ### F30 — Presentation clipping corrupts verdict comparison
 
-**Location:** [cph.rs:494](src-tauri/src/cph.rs:494), [cph.rs:719](src-tauri/src/cph.rs:719).
+**Location:** [cph.rs:494](../src-tauri/src/cph.rs#L494), [cph.rs:719](../src-tauri/src/cph.rs#L719).
 
 run_one clips stdout to LOG_CAP and adds a truncation annotation before the judge compares it with expected output. Identical output beyond 65,536 bytes therefore becomes WA.
 
@@ -197,7 +197,7 @@ run_one clips stdout to LOG_CAP and adds a truncation annotation before the judg
 
 ### F31 — Leading whitespace is normalized inconsistently
 
-**Location:** [cph.rs:717](src-tauri/src/cph.rs:717), [cph.rs:631](src-tauri/src/cph.rs:631).
+**Location:** [cph.rs:717](../src-tauri/src/cph.rs#L717), [cph.rs:631](../src-tauri/src/cph.rs#L631).
 
 Expected output passes through str::trim before normalize, while stdout only gets trailing-whitespace normalization. Identical values beginning with spaces can be judged WA.
 
@@ -209,7 +209,7 @@ Expected output passes through str::trim before normalize, while stdout only get
 
 ### F32 — Toolchain detection can wait forever
 
-**Location:** [cph.rs:256](src-tauri/src/cph.rs:256).
+**Location:** [cph.rs:256](../src-tauri/src/cph.rs#L256).
 
 Version probes call Command.output without timeout, capture bound, or cancellation. Probes are sequential, so one hanging executable prevents later toolchains from being reported. The active-run Stop mechanism does not own these probes.
 
@@ -223,7 +223,7 @@ Version probes call Command.output without timeout, capture bound, or cancellati
 
 ### F09 — Old problem/contest operations overwrite the current context
 
-**Location:** [main.ts:1118](src/main.ts:1118), [main.ts:616](src/main.ts:616), [main.ts:1183](src/main.ts:1183), [main.ts:1230](src/main.ts:1230).
+**Location:** [main.ts:1118](../src/main.ts#L1118), [main.ts:616](../src/main.ts#L616), [main.ts:1183](../src/main.ts#L1183), [main.ts:1230](../src/main.ts#L1230).
 
 openProblem assigns S.problem before awaiting detail, then commits statement/editor/CPH state without checking whether another problem was selected. openContest similarly commits participation and problem rows after newer selections. Submit uses the current global S.problem/S.contest, not the context that produced the displayed statement.
 
@@ -237,7 +237,7 @@ An old verdict watcher is also not cancelled when opening a new problem without 
 
 ### F13 — A search change is dropped during public loading
 
-**Location:** [main.ts:1081](src/main.ts:1081), [main.ts:1113](src/main.ts:1113).
+**Location:** [main.ts:1081](../src/main.ts#L1081), [main.ts:1113](../src/main.ts#L1113).
 
 relaunchPublic resets the list/page but leaves pstate.loading true. loadProblemsPage then refuses the new search request. The old request subsequently appends its rows into the reset state; later pages may use the new filter.
 
@@ -249,7 +249,7 @@ relaunchPublic resets the list/page but leaves pstate.loading true. loadProblems
 
 ### F14 — Old list responses repaint newer pages
 
-**Location:** [main.ts:480](src/main.ts:480), with the same unguarded pattern at [main.ts:951](src/main.ts:951).
+**Location:** [main.ts:480](../src/main.ts#L480), with the same unguarded pattern at [main.ts:951](../src/main.ts#L951).
 
 Concurrent submissions loads have no request generation. Their completions paint whichever response arrives last, while the page label and saved filters are read from current mutable UI state. Contest list loading has the same late-response ownership problem.
 
@@ -261,7 +261,7 @@ Concurrent submissions loads have no request generation. Their completions paint
 
 ### F15 — CPH work can commit into another problem's state
 
-**Location:** [main.ts:1330](src/main.ts:1330), [main.ts:1449](src/main.ts:1449), [main.ts:1600](src/main.ts:1600), [main.ts:1648](src/main.ts:1648).
+**Location:** [main.ts:1330](../src/main.ts#L1330), [main.ts:1449](../src/main.ts#L1449), [main.ts:1600](../src/main.ts#L1600), [main.ts:1648](../src/main.ts#L1648).
 
 Opening another problem resets the global CPH state and running flag while old runs/imports remain pending. Their continuations mutate current cphUi and save through its current problemCode.
 
@@ -273,7 +273,7 @@ Opening another problem resets the global CPH state and running flag while old r
 
 ### F28 — Mixed math is processed in the wrong order
 
-**Location:** [main.ts:1719](src/main.ts:1719).
+**Location:** [main.ts:1719](../src/main.ts#L1719).
 
 collectMath scans all display formulas before inline formulas while sharing a single last position. Inline formulas earlier than a later display formula are then skipped.
 
@@ -287,7 +287,7 @@ collectMath scans all display formulas before inline formulas while sharing a si
 
 ### F16 — Import capacity counts each addition twice
 
-**Location:** [cph.ts:83](src/lib/cph.ts:83), [cph.ts:95](src/lib/cph.ts:95).
+**Location:** [cph.ts:83](../src/lib/cph.ts#L83), [cph.ts:95](../src/lib/cph.ts#L95).
 
 The cap checks existing.length + added, but existing grows on every accepted case and added also increments.
 
@@ -299,7 +299,7 @@ The cap checks existing.length + added, but existing grows on every accepted cas
 
 ### F17 — Async import uses event.currentTarget after dispatch
 
-**Location:** [solve.ts:429](src/tmath/solve.ts:429), [solve.ts:442](src/tmath/solve.ts:442).
+**Location:** [solve.ts:429](../src/tmath/solve.ts#L429), [solve.ts:442](../src/tmath/solve.ts#L442).
 
 The handler awaits file.text and later reads e.currentTarget again. Browser dispatch clears currentTarget once the synchronous handler returns.
 
@@ -311,7 +311,7 @@ The handler awaits file.text and later reads e.currentTarget again. Browser disp
 
 ### F18 — Pending imports ignore disposal and revision changes
 
-**Location:** [solve.ts:431](src/tmath/solve.ts:431).
+**Location:** [solve.ts:431](../src/tmath/solve.ts#L431).
 
 Disposal is checked before file reading but not after it. The continuation imports into shared storage, reloads cases, and repaints even after disposal. It also does not increment revision, allowing a run started during the file read to finish without acknowledging the replaced cases.
 
@@ -323,7 +323,7 @@ Disposal is checked before file reading but not after it. The continuation impor
 
 ### F19 — Unscored cases become editable and scoreable
 
-**Location:** [solve.ts:101](src/tmath/solve.ts:101), [solve.ts:124](src/tmath/solve.ts:124), [solve.ts:136](src/tmath/solve.ts:136).
+**Location:** [solve.ts:101](../src/tmath/solve.ts#L101), [solve.ts:124](../src/tmath/solve.ts#L124), [solve.ts:136](../src/tmath/solve.ts#L136).
 
 controls re-enables all case textareas when idle. Its corrective loop searches for data-case rows, but the current picker never renders that attribute. A null-expected textarea becomes enabled while its scoring checkbox remains unchecked; typing changes expected into a string.
 
@@ -335,7 +335,7 @@ controls re-enables all case textareas when idle. Its corrective loop searches f
 
 ### F20 — Picker navigation discards detailed results
 
-**Location:** [solve.ts:122](src/tmath/solve.ts:122), [solve.ts:247](src/tmath/solve.ts:247).
+**Location:** [solve.ts:122](../src/tmath/solve.ts#L122), [solve.ts:247](../src/tmath/solve.ts#L247).
 
 Run completion paints details only for the currently active case. Picker changes replace that container with an empty element. runMarks stores verdict strings, not stdout/stderr/results.
 
@@ -347,7 +347,7 @@ Run completion paints details only for the currently active case. Picker changes
 
 ### F21 — Monaco readiness does not refresh toolbar controls
 
-**Location:** [solve.ts:99](src/tmath/solve.ts:99), [solve.ts:288](src/tmath/solve.ts:288), [solve.ts:462](src/tmath/solve.ts:462).
+**Location:** [solve.ts:99](../src/tmath/solve.ts#L99), [solve.ts:288](../src/tmath/solve.ts#L288), [solve.ts:462](../src/tmath/solve.ts#L462).
 
 Detection can finish while Monaco is still importing, causing controls to disable undo/redo/find. Successful mountEditor assigns editor but never reruns controls. A successful retry from fallback has the same issue.
 
@@ -357,7 +357,7 @@ Detection can finish while Monaco is still importing, causing controls to disabl
 
 ### F22 — Old compile completion looks current after edits
 
-**Location:** [solve.ts:170](src/tmath/solve.ts:170), compared with run revision tracking at [solve.ts:226](src/tmath/solve.ts:226).
+**Location:** [solve.ts:170](../src/tmath/solve.ts#L170), compared with run revision tracking at [solve.ts:226](../src/tmath/solve.ts#L226).
 
 Editing/switching language is possible while compiling. Those changes mark the status stale, but compileSource captures no revision and overwrites the status when the old compilation finishes.
 
@@ -367,7 +367,7 @@ Editing/switching language is possible while compiling. Those changes mark the s
 
 ### F23 — Non-curated fonts are lost on settings remount
 
-**Location:** [settings.ts:10](src/tmath/settings.ts:10), [settings.ts:19](src/tmath/settings.ts:19), [app.ts:154](src/tmath/app.ts:154).
+**Location:** [settings.ts:10](../src/tmath/settings.ts#L10), [settings.ts:19](../src/tmath/settings.ts#L19), [app.ts:154](../src/tmath/app.ts#L154).
 
 Choosing an enumerated font saves preferences and remounts settings. Initial selects contain only curated defaults, so a saved external font has no matching option. The select chooses its first option; later enumeration preserves that wrong value, and the next unrelated change saves it over the chosen font.
 
@@ -379,7 +379,7 @@ Choosing an enumerated font saves preferences and remounts settings. Initial sel
 
 ### F24 — Math work limits are applied after expensive scanning
 
-**Location:** [statement.ts:67](src/tmath/statement.ts:67), [statement.ts:123](src/tmath/statement.ts:123), [statement.ts:205](src/tmath/statement.ts:205).
+**Location:** [statement.ts:67](../src/tmath/statement.ts#L67), [statement.ts:123](../src/tmath/statement.ts#L123), [statement.ts:205](../src/tmath/statement.ts#L205).
 
 Each unmatched math opener scans up to another 32,000 characters. The overall size/count limit is checked only after protection and Markdown parsing.
 
@@ -391,7 +391,7 @@ Each unmatched math opener scans up to another 32,000 characters. The overall si
 
 ### F40 — Valid empty-stdin tests do not round-trip
 
-**Location:** [cph.ts:84](src/lib/cph.ts:84).
+**Location:** [cph.ts:84](../src/lib/cph.ts#L84).
 
 The exporter and runner support an empty stdin string, but import rejects every input of length zero.
 
@@ -405,7 +405,7 @@ The exporter and runner support an empty stdin string, but import rejects every 
 
 ### F25 — Page-title refresh buttons are never bound
 
-**Location:** [app.ts:150](src/tmath/app.ts:150), [app.ts:194](src/tmath/app.ts:194), [app.ts:207](src/tmath/app.ts:207).
+**Location:** [app.ts:150](../src/tmath/app.ts#L150), [app.ts:194](../src/tmath/app.ts#L194), [app.ts:207](../src/tmath/app.ts#L207).
 
 shell calls bindBanner while tm-content is empty. The refresh query finds nothing. Contests, problems, rankings, and account insert their page-title refresh buttons only afterward, with no subsequent binding.
 
@@ -415,7 +415,7 @@ shell calls bindBanner while tm-content is empty. The refresh query finds nothin
 
 ### F26 — Deduplication incorrectly controls server pagination
 
-**Location:** [app.ts:290](src/tmath/app.ts:290), [app.ts:319](src/tmath/app.ts:319), [app.ts:278](src/tmath/app.ts:278).
+**Location:** [app.ts:290](../src/tmath/app.ts#L290), [app.ts:319](../src/tmath/app.ts#L319), [app.ts:278](../src/tmath/app.ts#L278).
 
 The recent-contest list removes contests also shown in active groups, then passes the reduced count to the pager. A full server page with any overlap looks like a short final page.
 
@@ -427,7 +427,7 @@ The recent-contest list removes contests also shown in active groups, then passe
 
 ### F27 — Workspace countdown leaks after every navigation
 
-**Location:** [app.ts:390](src/tmath/app.ts:390), [app.ts:405](src/tmath/app.ts:405).
+**Location:** [app.ts:390](../src/tmath/app.ts#L390), [app.ts:405](../src/tmath/app.ts#L405).
 
 workspace creates a one-second interval but never registers clearInterval in the view disposer. Problem-tab changes and workspace refreshes create more intervals, retaining old host elements and executing indefinitely. App destruction also leaves them running.
 
@@ -437,7 +437,7 @@ workspace creates a one-second interval but never registers clearInterval in the
 
 ### F29 — Authored iframe embeds remain escaped text
 
-**Location:** [app.ts:576](src/tmath/app.ts:576).
+**Location:** [app.ts:576](../src/tmath/app.ts#L576).
 
 mdInline first converts quotes into &quot;, then its iframe regex looks for literal quotes around src. A normal authored iframe therefore never matches the documented explicit-embed rule.
 
@@ -449,7 +449,7 @@ mdInline first converts quotes into &quot;, then its iframe regex looks for lite
 
 ### F41 — Countdown label queries a nonexistent child
 
-**Location:** [app.ts:376](src/tmath/app.ts:376), [app.ts:386](src/tmath/app.ts:386).
+**Location:** [app.ts:376](../src/tmath/app.ts#L376), [app.ts:386](../src/tmath/app.ts#L386).
 
 The data-clock-label element is already the span containing the label. tick searches for another span inside it and therefore never updates “unknown”, although the numeric clock changes.
 
@@ -459,7 +459,7 @@ The data-clock-label element is already the span containing the label. tick sear
 
 ### F42 — Update banner CSS defeats hidden state
 
-**Location:** [app.css:85](src/app.css:85), [index.html:13](index.html:13), [main.ts:1313](src/main.ts:1313).
+**Location:** [app.css:85](../src/app.css#L85), [index.html:13](../index.html#L13), [main.ts:1313](../src/main.ts#L1313).
 
 The author rule sets .update-banner to display:flex without a hidden override. That overrides the native hidden display behavior, while initialization and dismissal rely on the hidden attribute. Baseplate/WIP can show the initial checking banner and keep it visible after dismissal. TMATH explicitly hides this outer banner separately.
 
@@ -471,7 +471,7 @@ The author rule sets .update-banner to display:flex without a hidden override. T
 
 ### F07 — Unvalidated chunk IDs control recursive deletion
 
-**Location:** [unwrap-bundle.mjs:19](tools/unwrap-bundle.mjs:19).
+**Location:** [unwrap-bundle.mjs:19](tools/unwrap-bundle.mjs#L19).
 
 chunkId is interpolated into the output path before recursive removal. A value such as “..” resolves outside the intended return directory. Even an ordinary invalid bundle deletes the previous chunk return before validation rejects it.
 
@@ -483,7 +483,7 @@ chunkId is interpolated into the output path before recursive removal. A value s
 
 ### F08 — File destinations escape the extraction boundary
 
-**Location:** [unwrap-bundle.mjs:29](tools/unwrap-bundle.mjs:29).
+**Location:** [unwrap-bundle.mjs:29](tools/unwrap-bundle.mjs#L29).
 
 Zone validation tests the raw string prefix, while path.join later normalizes traversal. Disallowed paths are still written after merely incrementing a violation counter.
 
@@ -495,7 +495,7 @@ Zone validation tests the raw string prefix, while path.join later normalizes tr
 
 ### F33 — Exported single files become nested directories
 
-**Location:** [export-agent-tree.mjs:58](tools/export-agent-tree.mjs:58).
+**Location:** [export-agent-tree.mjs:58](tools/export-agent-tree.mjs#L58).
 
 For file entries, set.to already contains the filename, but the code appends its basename again. Cargo.toml becomes Cargo.toml/Cargo.toml; API context and other single files are similarly malformed. With frontend export enabled, a later copy can collide with the directory created where api.ts should be.
 
@@ -507,7 +507,7 @@ For file entries, set.to already contains the filename, but the code appends its
 
 ### F34 — Nested Markdown fences truncate returned files
 
-**Location:** [unwrap-bundle.mjs:22](tools/unwrap-bundle.mjs:22), [unwrap-bundle.mjs:31](tools/unwrap-bundle.mjs:31).
+**Location:** [unwrap-bundle.mjs:22](tools/unwrap-bundle.mjs#L22), [unwrap-bundle.mjs:31](tools/unwrap-bundle.mjs#L31).
 
 The parser splits every FILE header regardless of fence state and captures only the first triple-backtick-delimited block. Valid Markdown containing a longer outer fence and inner code fences is truncated; literal FILE lines inside content can become false sections.
 
@@ -519,7 +519,7 @@ The parser splits every FILE header regardless of fence state and captures only 
 
 ### F35 — E2E success does not require a terminal verdict
 
-**Location:** [delcc-e2e.py:234](tools/delcc-e2e.py:234), pending statuses at [delcc-e2e.py:52](tools/delcc-e2e.py:52).
+**Location:** [delcc-e2e.py:234](tools/delcc-e2e.py#L234), pending statuses at [delcc-e2e.py:52](tools/delcc-e2e.py#L52).
 
 The polling loop does not validate HTTP status, omits compact pending codes such as QU, ignores is_terminal, and returns True even after all polls are exhausted.
 
@@ -531,7 +531,7 @@ The polling loop does not validate HTTP status, omits compact pending codes such
 
 ### F36 — Contest E2E polls source data as a verdict
 
-**Location:** [delcc-e2e.py:231](tools/delcc-e2e.py:231), [api.ts:208](src/lib/api.ts:208). Contract: [openapi-frontend.json](../tools/openapi-frontend.json).
+**Location:** [delcc-e2e.py:231](tools/delcc-e2e.py#L231), [api.ts:208](../src/lib/api.ts#L208). Contract: [openapi-frontend.json](../tools/openapi-frontend.json).
 
 The problem-scoped singular submission endpoint used by the tool does exist, but the checked-in contract identifies it as a submission-source read. Its response contains source/language/IDs and no status or is_terminal. The contest-scoped plural submissions/{submission_id} endpoint supplies submission details.
 
@@ -543,7 +543,7 @@ The problem-scoped singular submission endpoint used by the tool does exist, but
 
 ### F37 — Solve browser tests contain stale expectations
 
-**Location:** [test-tmath-solve.mjs:132](scripts/test-tmath-solve.mjs:132), [test-tmath-solve.mjs:155](scripts/test-tmath-solve.mjs:155).
+**Location:** [test-tmath-solve.mjs:132](../scripts/test-tmath-solve.mjs#L132), [test-tmath-solve.mjs:155](../scripts/test-tmath-solve.mjs#L155).
 
 The test expects two tabs globally, but the fixture now has two sample tabs plus Input/Output tabs. It also clicks Submit twice and expects one request without accepting the new confirmation dialog; the current flow sends no request until confirmation.
 
@@ -555,7 +555,7 @@ The test expects two tabs globally, but the fixture now has two sample tabs plus
 
 ### F38 — Statement fixture is behind Vite's page fallback
 
-**Location:** [test-tmath-statement.mjs:10](scripts/test-tmath-statement.mjs:10).
+**Location:** [test-tmath-statement.mjs:10](../scripts/test-tmath-statement.mjs#L10).
 
 The test appends fixture middleware after createServer returns. The installed Vite implementation already installed SPA fallback and index-HTML middleware before returning, so the fixture request can be served as the application page first, without the expected host.
 
@@ -567,7 +567,7 @@ The test appends fixture middleware after createServer returns. The installed Vi
 
 ### F39 — Historical patch replay is not idempotent
 
-**Location:** [fixpass-n16.mjs:9](tools/fixpass-n16.mjs:9).
+**Location:** [fixpass-n16.mjs:9](tools/fixpass-n16.mjs#L9).
 
 The edit helper tests oldStr before newStr, while the new overlay markup still contains the old anchor. Replaying the patch inserts another overlay instead of skipping an already-applied change.
 
@@ -583,7 +583,7 @@ The edit helper tests oldStr before newStr, while the new overlay markup still c
 
 **Priority:** P2 follow-up; **evidence:** H for practical execution impact, R for emitted markup.
 
-**Location:** [app.ts:581](src/tmath/app.ts:581).
+**Location:** [app.ts:581](../src/tmath/app.ts#L581).
 
 Escaping characters does not validate URL schemes. The Markdown renderer emits arbitrary link/image URL values directly. An offline probe produced a link with href="javascript:void%200". The renderer also performs subsequent regex replacements over generated markup, so nested Markdown needs structural validation.
 

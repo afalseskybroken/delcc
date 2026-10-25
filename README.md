@@ -7,7 +7,7 @@ competitive programming judge (`oj.tmathcoding.vn`), built because the official
 client is closed-source and some of its users wanted one they could read, audit,
 and fix. It talks only to the judge's documented API — no telemetry, no
 analytics, no undocumented behavior. Every network call it can make is listed
-in [SECURITY.md](SECURITY.md); that list is the contract.
+in [SECURITY.md](docs/SECURITY.md); that list is the contract.
 
 *Người dùng Việt Nam? Xem [README.vi.md](README.vi.md).*
 
@@ -15,10 +15,10 @@ in [SECURITY.md](SECURITY.md); that list is the contract.
 
 | Doc | What it holds |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | how the pieces fit: transport, identity, the tmath shell, CPH runner, methodology |
-| [BUILDING.md](BUILDING.md) | toolchains, per-platform build notes, test suites, release ritual |
-| [SECURITY.md](SECURITY.md) | the complete network surface, data-at-rest inventory, known gaps |
-| [SUCCESSION.md](SUCCESSION.md) | the maintainer handoff: read order, non-negotiables, how to take over |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | how the pieces fit: transport, identity, the tmath shell, CPH runner, methodology |
+| [BUILDING.md](docs/BUILDING.md) | toolchains, per-platform build notes, test suites, release ritual |
+| [SECURITY.md](docs/SECURITY.md) | the complete network surface, data-at-rest inventory, known gaps |
+| [SUCCESSION.md](docs/SUCCESSION.md) | the maintainer handoff: read order, non-negotiables, how to take over |
 | `todo.md` / `states.md` | the ledger — every pass since the beginning, and current feature state |
 
 ## The trees (layouts)
@@ -43,7 +43,7 @@ npm run tauri build  # release bundle (MSI/NSIS on Windows)
 
 Frontend-only mode covers login and lists; the desktop shell adds custom
 headers, submissions, and the local CPH runner. Per-platform details,
-prerequisites, and caveats: [BUILDING.md](BUILDING.md).
+prerequisites, and caveats: [BUILDING.md](docs/BUILDING.md).
 
 ## what works (v0.2.1a-alpha)
 

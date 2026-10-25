@@ -2,7 +2,7 @@
 
 *Người dùng Việt Nam? Xem [ARCHITECTURE.vi.md](ARCHITECTURE.vi.md).*
 
-Read [README.md](README.md) first (what this is, versioning law), then this,
+Read [README.md](../README.md) first (what this is, versioning law), then this,
 then [SECURITY.md](SECURITY.md) (the network contract). File paths are relative
 to this folder.
 

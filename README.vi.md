@@ -10,21 +10,21 @@ là closed-source và một bộ phận người dùng muốn có thứ gì đó
 toán được, tự sửa được. delcc chỉ nói chuyện với API công khai đã được tài liệu
 hoá của sàn — không telemetry, không analytics, không hành vi ẩn. Toàn bộ các
 lượt gọi mạng mà delcc có thể thực hiện được liệt kê trong
-[SECURITY.md](SECURITY.md); danh sách đó chính là lời cam kết.
+[SECURITY.md](docs/SECURITY.md); danh sách đó chính là lời cam kết.
 
-Bộ tài liệu kỹ thuật có bản tiếng Việt đầy đủ: [ARCHITECTURE.vi.md](ARCHITECTURE.vi.md)
-· [BUILDING.vi.md](BUILDING.vi.md) · [SECURITY.vi.md](SECURITY.vi.md) ·
-[SUCCESSION.vi.md](SUCCESSION.vi.md). Bản gốc tiếng Anh luôn là bản chuẩn khi
+Bộ tài liệu kỹ thuật có bản tiếng Việt đầy đủ: [ARCHITECTURE.vi.md](docs/ARCHITECTURE.vi.md)
+· [BUILDING.vi.md](docs/BUILDING.vi.md) · [SECURITY.vi.md](docs/SECURITY.vi.md) ·
+[SUCCESSION.vi.md](docs/SUCCESSION.vi.md). Bản gốc tiếng Anh luôn là bản chuẩn khi
 mâu thuẫn.
 
 ## Bản đồ tài liệu
 
 | Tài liệu | Nội dung |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Kiến trúc: transport, định danh, shell tmath, trình chạy CPH, phương pháp luận |
-| [BUILDING.md](BUILDING.md) | Công cụ build theo từng nền tảng, bộ test, nghi thức phát hành |
-| [SECURITY.md](SECURITY.md) | Toàn bộ bề mặt mạng, dữ liệu lưu trữ tại máy, các điểm yếu đã biết |
-| [SUCCESSION.md](SUCCESSION.md) | Bàn giao maintainer: thứ tự đọc, những điều bất di bất dịch |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Kiến trúc: transport, định danh, shell tmath, trình chạy CPH, phương pháp luận |
+| [BUILDING.md](docs/BUILDING.md) | Công cụ build theo từng nền tảng, bộ test, nghi thức phát hành |
+| [SECURITY.md](docs/SECURITY.md) | Toàn bộ bề mặt mạng, dữ liệu lưu trữ tại máy, các điểm yếu đã biết |
+| [SUCCESSION.md](docs/SUCCESSION.md) | Bàn giao maintainer: thứ tự đọc, những điều bất di bất dịch |
 | `todo.md` / `states.md` | Nhật ký dự án — mọi pass từ đầu đến nay, và trạng thái tính năng |
 
 ## Các "tree" (layout)
