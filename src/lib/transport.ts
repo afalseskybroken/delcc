@@ -64,7 +64,7 @@ export async function siteGet(path: string): Promise<TransportResponse> {
     const env = JSON.parse(raw) as { status: number; body: string };
     return { status: env.status, json: {}, text: env.body };
   }
-  const r = await fetch(`https://oj.tmathcoding.vn${path}`, { headers: { Accept: "text/html" } });
+  const r = await fetch(`https://oj.tmathcoding.vn${path}`, { headers: { Accept: "text/html" }, signal: AbortSignal.timeout(10_000) });
   return { status: r.status, json: {}, text: await r.text().catch(() => "") };
 }
 export async function getLayout(): Promise<string> {

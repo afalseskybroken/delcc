@@ -28,7 +28,7 @@ let store: AvatarMap = (() => {
     const out: AvatarMap = {};
     for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
       const e = v as { h?: unknown; t?: unknown };
-      if (NAME.test(k) && typeof e?.h === "string" && HASH.test(e.h))
+      if (NAME.test(k) && typeof e?.h === "string" && HASH.test(e.h) && e.h !== PLACEHOLDER_HASH)
         out[k] = { h: e.h, t: typeof e.t === "number" ? e.t : 0 };
     }
     return out;

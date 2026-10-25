@@ -439,6 +439,9 @@ export class TmathApp {
         }
       }
       this.problemsIndex = { complete: listComplete && triedComplete && failures === 0, items, solved, attempted };
+      // a partial scan (some pages failed) must not wedge the sweep promise as
+      // resolved forever — clear it so the next visit retries (attempts cap bounds us)
+      if (!this.problemsIndex.complete) this.problemsSweep = null;
       for (const cb of this.problemsProgress) cb();
       this.problemsProgress = [];
       if (this.problemsIndex.complete && this.route === "problems") void this.render();
