@@ -1,0 +1,24 @@
+{
+  "name": "delcc-app",
+  "private": true,
+  "version": "0.2.1-alpha",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@types/katex": "^0.16.8",
+    "dompurify": "^3.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.4",
+    "katex": "^0.16.11",
+    "monaco-editor": "0.47.0"
+  }
+}

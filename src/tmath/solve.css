@@ -1,0 +1,93 @@
+body[data-persona="tmath"] .tm-solve-view { min-width: 0; }
+body[data-persona="tmath"] .tm-solve .tm-pane-header .tm-button { font-size: 11px; min-height: 28px; padding: 4px 6px; white-space: normal; }
+/* official limits grid (rE in the 1.0.9 bundle): tinted 2x2 cell panel */
+body[data-persona="tmath"] .tm-problem-limits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 24px; margin: 0 0 16px; padding: 12px; border: 0; border-radius: 8px; background: color-mix(in srgb, var(--tmath-muted) 50%, transparent); font-size: 14px; }
+body[data-persona="tmath"] .tm-problem-limits .tm-limit-cell { min-width: 0; }
+body[data-persona="tmath"] .tm-problem-limits dt { color: var(--tmath-muted-foreground); font-size: 12px; }
+body[data-persona="tmath"] .tm-problem-limits dd { margin: 2px 0 0; font-weight: 500; overflow-wrap: break-word; }
+body[data-persona="tmath"] .tm-page-title-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+body[data-persona="tmath"] .tm-language { display: flex; gap: 8px; align-items: center; }
+body[data-persona="tmath"] .tm-editor-container { min-width: 0; }
+body[data-persona="tmath"] #app .tm-source-fallback { display: block; width: 100%; min-height: 440px; resize: vertical; border: 0; border-radius: 0; padding: 16px; font-family: var(--tmath-font-mono); }
+body[data-persona="tmath"] #app .tm-solve [hidden] { display: none !important; }
+body[data-persona="tmath"] .tm-submit-bar { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; border-top: 1px solid var(--tmath-border); }
+body[data-persona="tmath"] .tm-submit-bar [data-draft] { flex: 1; font-size: 11px; }
+body[data-persona="tmath"] .tm-solve-feedback:not(:empty), body[data-persona="tmath"] [data-editor-message]:not(:empty) { margin: 12px; }
+body[data-persona="tmath"] .tm-runner summary { cursor: pointer; }
+body[data-persona="tmath"] .tm-runner > summary { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+body[data-persona="tmath"] .tm-check { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; }
+body[data-persona="tmath"] .tm-check input { width: auto; min-height: 0; }
+body[data-persona="tmath"] .tm-case-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+body[data-persona="tmath"] .tm-runner .tm-case-inputs textarea { min-height: 90px; max-height: 320px; font: 12px/1.5 var(--tmath-font-mono); resize: vertical; }
+body[data-persona="tmath"] .tm-runner [data-local-summary]:empty, body[data-persona="tmath"] .tm-runner [data-compile]:empty { display: none; }
+body[data-persona="tmath"] .tm-runner [data-limit] { max-width: 180px; }
+body[data-persona="tmath"] .tm-statement { --tm-border: var(--tmath-border); --tm-primary: var(--tmath-primary); --tm-panel: var(--tmath-card); --tm-muted: var(--tmath-muted-foreground); --tm-soft: var(--tmath-muted); font-family: var(--tm-statement-font, var(--tmath-font)); font-size: var(--tm-statement-size, 16px); }
+/* The legacy shell's form/heading resets must not resize Monaco's input or
+   flatten the server-authored statement hierarchy. */
+body[data-persona="tmath"] #app .tm-statement :is(h1,h2,h3,h4) { margin: 1.3em 0 .5em; line-height: 1.35; font-weight: 650; }
+body[data-persona="tmath"] #app .tm-statement h1 { font-size: 1.65em; }
+body[data-persona="tmath"] #app .tm-statement h2 { font-size: 1.35em; }
+body[data-persona="tmath"] #app .tm-statement h3 { font-size: 1.12em; }
+body[data-persona="tmath"] #app .tm-statement p { margin: .8em 0; }
+/* audit round #7: official oE anatomy — mode strip border-y (carve mode-strip band), I/O as plain
+   p-3 region (official has NO sub-card), action strip = border-t p-3 full-bleed */
+body[data-persona="tmath"] .tm-mode-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 4px 12px; border-top: 1px solid var(--tmath-border); border-bottom: 1px solid var(--tmath-border); background: color-mix(in srgb, var(--tmath-muted) 40%, transparent); }
+body[data-persona="tmath"] .tm-mode-strip [data-draft] { font-size: 12px; color: var(--tmath-muted-foreground); }
+body[data-persona="tmath"] .tm-mode-strip .tm-button { margin-left: auto; min-height: 0; padding: 3px 8px; border-radius: 8px; font-size: 12px; }
+body[data-persona="tmath"] .tm-io-first { min-width: 0; padding: 12px 16px 0; display: flex; flex-direction: column; gap: 10px; }
+body[data-persona="tmath"] .tm-io-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+body[data-persona="tmath"] .tm-io-grid { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+body[data-persona="tmath"] .tm-io-strip { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 8px; margin: 8px -16px 0; padding: 8px 16px; border-top: 1px solid var(--tmath-border); }
+body[data-persona="tmath"] .tm-io-strip .tm-button { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 4px 10px; }
+body[data-persona="tmath"] .tm-io-strip [data-submit] { margin-left: auto; }
+body[data-persona="tmath"] .tm-runner .tm-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+body[data-persona="tmath"] .tm-runner .tm-toolbar .tm-button { min-height: 28px; padding: 4px 10px; font-size: 12px; }
+body[data-persona="tmath"] .tm-runner > p { margin: 6px 0; font-size: 12px; }
+body[data-persona="tmath"] .tm-runner .tm-case-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 8px 0; }
+body[data-persona="tmath"] .tm-runner .tm-case-picker .tm-field { margin: 0; }
+body[data-persona="tmath"] .tm-runner .tm-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+body[data-persona="tmath"] .tm-runner .tm-toolbar .tm-button { min-height: 28px; padding: 4px 10px; font-size: 12px; }
+body[data-persona="tmath"] .tm-runner > p { margin: 6px 0; font-size: 12px; }
+body[data-persona="tmath"] .tm-runner .tm-case-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 8px 0; }
+body[data-persona="tmath"] .tm-runner .tm-case-picker .tm-field { margin: 0; } /* official: Nộp bài is ml-auto, Compile/Run/Stop stay left */
+body[data-persona="tmath"] [data-submissions-left] { margin: 8px 0 0; font-size: 12px; } /* official: text-xs muted status under the strip */
+/* official iE confirm dialog: bg-black/50 overlay, rounded-xl border bg-background p-6 shadow-lg, max-w-md, title text-lg/semibold, body text-sm muted, actions mt-6 justify-end gap-2 */
+body[data-persona="tmath"] dialog.tm-confirm { position: fixed; inset: 0; margin: auto; width: calc(100% - 2rem); max-width: 448px; height: fit-content; padding: 24px; border: 1px solid var(--tmath-border); border-radius: 12px; background: var(--tmath-background); color: var(--tmath-foreground); box-shadow: 0 10px 15px -3px rgb(0 0 0 / .1), 0 4px 6px -4px rgb(0 0 0 / .1); }
+body[data-persona="tmath"] dialog.tm-confirm::backdrop { background: rgb(0 0 0 / .5); }
+body[data-persona="tmath"] #app dialog.tm-confirm h2 { margin: 0; font-size: 18px; line-height: 28px; font-weight: 600; color: var(--tmath-foreground); }
+body[data-persona="tmath"] #app dialog.tm-confirm p { margin: 8px 0 0; font-size: 14px; line-height: 20px; color: var(--tmath-muted-foreground); overflow-wrap: anywhere; }
+body[data-persona="tmath"] dialog.tm-confirm .tm-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+body[data-persona="tmath"] dialog.tm-confirm .tm-confirm-actions .tm-button { padding: 8px 16px; }
+body[data-persona="tmath"] .tm-runner > summary { display: none; }
+/* official TabsList rhythm (carve J_/Y_/X_ defaults): muted 36px segmented control, active = card + shadow */
+body[data-persona="tmath"] .tm-io-tabs { display: inline-flex; align-items: center; height: 30px; padding: 2px; border-radius: 9px; background: var(--tmath-muted); color: var(--tmath-muted-foreground); }
+body[data-persona="tmath"] .tm-io-tab { display: inline-flex; flex: 1; align-items: center; justify-content: center; height: calc(100% - 2px); min-width: 64px; padding: 3px 14px; border: 1px solid transparent; border-radius: 7px; background: transparent; font-size: 12px; font-weight: 500; color: color-mix(in srgb, var(--tmath-foreground) 60%, transparent); transition: color .15s, background-color .15s; cursor: pointer; }
+body[data-persona="tmath"] .tm-io-tab:hover { color: var(--tmath-foreground); }
+body[data-persona="tmath"] .tm-io-tab.current { background: var(--tmath-card); color: var(--tmath-foreground); box-shadow: 0 1px 2px rgba(0, 0, 0, .05); }
+html.dark body[data-persona="tmath"] .tm-io-tab.current { background: color-mix(in srgb, var(--tmath-muted) 30%, var(--tmath-card)); }
+body[data-persona="tmath"] .tm-io-first textarea[data-manual-stdin] { min-height: 110px; max-height: 320px; font: 12px/1.5 var(--tmath-font-mono); resize: vertical; width: 100%; }
+body[data-persona="tmath"] .tm-io-first [data-manual-stdout] { max-height: 320px; overflow: auto; font: 12px/1.5 var(--tmath-font-mono); margin: 0; }
+body[data-persona="tmath"] .tm-io-first [data-limit] { max-width: 120px; }
+body[data-persona="tmath"] .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+body[data-persona="tmath"] #app .monaco-editor textarea.inputarea { min-height: 0; padding: 0; border: 0; border-radius: 0; outline: none; background: transparent; color: transparent; }
+@media (max-width: 700px) { body[data-persona="tmath"] .tm-case-inputs { grid-template-columns: 1fr; } }
+
+/* ---- editor header (pass #9f, carve: official bundle @786849-789200 + button base @412713) ----
+   official: row = px-4 py-3 justify-between; left = gap-2 text-sm font-semibold, icon size-4
+   text-primary; actions = flex gap-1; buttons = ghost/icon-sm 32×32 borderless, hover bg-accent,
+   disabled opacity .5. Previous state = zero styles in OUR tree AND Claude's (frontend-sweep
+   gap) — He's shot: "missing margins + off-center glyph Crazy". */
+body[data-persona="tmath"] .tm-solve .tm-editor-title { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+body[data-persona="tmath"] .tm-solve .tm-editor-icon { display: inline-flex; align-items: center; color: var(--tmath-primary); }
+body[data-persona="tmath"] .tm-solve .tm-editor-icon svg { display: block; }
+body[data-persona="tmath"] .tm-solve .tm-editor-filename { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body[data-persona="tmath"] .tm-solve .tm-editor-actions { display: flex; align-items: center; gap: 4px; }
+body[data-persona="tmath"] #app .tm-solve .tm-icon-button {
+  appearance: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; flex-shrink: 0; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--tmath-foreground); cursor: pointer; outline: none;
+}
+body[data-persona="tmath"] .tm-solve .tm-icon-button svg { display: block; pointer-events: none; width: 16px; height: 16px; }
+body[data-persona="tmath"] .tm-solve .tm-icon-button:hover:not(:disabled) { background: var(--tmath-accent); color: var(--tmath-foreground); }
+body[data-persona="tmath"] .tm-solve .tm-icon-button:focus-visible { outline: 2px solid var(--tmath-ring); outline-offset: 1px; }
+body[data-persona="tmath"] .tm-solve .tm-icon-button:disabled { opacity: .5; pointer-events: none; }

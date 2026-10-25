@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "delcc",
+  "version": "0.2.1-alpha",
+  "identifier": "vn.delcc.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "delcc \u2014 custom frontend",
+        "width": 1100,
+        "height": 750,
+        "label": "main"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.ico"
+    ],
+    "publisher": "delcc (community client, not TMATH)",
+    "shortDescription": "delcc \u2014 custom OJ client",
+    "longDescription": "Alternate frontend for oj.tmathcoding.vn. Not TMATH's work. Inspectable fetch, no capture tricks, no forced updates.",
+    "copyright": "delcc"
+  }
+}

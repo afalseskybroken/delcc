@@ -1,0 +1,105 @@
+# delcc — client độc lập, minh bạch cho TMATH
+
+> *"and in that light, I find deliverance"*
+>
+> *— và trong ánh sáng ấy, tôi tìm thấy sự giải thoát*
+
+Đây **không phải** sản phẩm của TMATH. delcc là một client desktop độc lập cho
+sàn lập trình thi đấu TMATH (`oj.tmathcoding.vn`), ra đời vì client chính thức
+là closed-source và một bộ phận người dùng muốn có thứ gì đó họ đọc được, kiểm
+toán được, tự sửa được. delcc chỉ nói chuyện với API công khai đã được tài liệu
+hoá của sàn — không telemetry, không analytics, không hành vi ẩn. Toàn bộ các
+lượt gọi mạng mà delcc có thể thực hiện được liệt kê trong
+[SECURITY.md](SECURITY.md); danh sách đó chính là lời cam kết.
+
+Bộ tài liệu kỹ thuật có bản tiếng Việt đầy đủ: [ARCHITECTURE.vi.md](ARCHITECTURE.vi.md)
+· [BUILDING.vi.md](BUILDING.vi.md) · [SECURITY.vi.md](SECURITY.vi.md) ·
+[SUCCESSION.vi.md](SUCCESSION.vi.md). Bản gốc tiếng Anh luôn là bản chuẩn khi
+mâu thuẫn.
+
+## Bản đồ tài liệu
+
+| Tài liệu | Nội dung |
+|---|---|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Kiến trúc: transport, định danh, shell tmath, trình chạy CPH, phương pháp luận |
+| [BUILDING.md](BUILDING.md) | Công cụ build theo từng nền tảng, bộ test, nghi thức phát hành |
+| [SECURITY.md](SECURITY.md) | Toàn bộ bề mặt mạng, dữ liệu lưu trữ tại máy, các điểm yếu đã biết |
+| [SUCCESSION.md](SUCCESSION.md) | Bàn giao maintainer: thứ tự đọc, những điều bất di bất dịch |
+| `todo.md` / `states.md` | Nhật ký dự án — mọi pass từ đầu đến nay, và trạng thái tính năng |
+
+## Các "tree" (layout)
+
+delcc khởi động một trong ba layout (`src/main.ts`):
+
+- **tmath** (`src/tmath/`) — nhánh đồng bộ chính thức: phản chiếu cấu trúc của
+  client chính thức để chuyển qua lại giữa hai bên không tốn công sức. Đây là
+  nhánh người dùng đang chạy.
+- **baseplate** (`src/main.ts`) — UI tab gốc ổn định; phương án dự phòng.
+- **wip** (`src/main.ts`) — bản thử nghiệm UI gốc sớm; giữ để tham chiếu.
+  Một nhánh UI gốc hoàn toàn được dự tính — xem SUCCESSION.md.
+
+## Chạy nhanh
+
+```
+cd delcc-app
+npm install
+npm run dev          # chỉ frontend, chạy trên trình duyệt thường
+npm run tauri dev    # shell desktop đầy đủ (cần Rust — xem BUILDING.md)
+npm run tauri build  # bundle phát hành (MSI/NSIS trên Windows)
+```
+
+Chế độ chỉ-frontend đủ cho đăng nhập và danh sách; shell desktop mới có custom
+headers, phần nộp bài, và trình chạy CPH cục bộ.
+
+## Tính năng hiện có (v0.2.1a-alpha)
+
+Đăng nhập (+ luồng Google) → thi → workspace → bài tập → nộp bài → poll kết
+quả; bảng xếp hạng, bộ lọc bài nộp, tài khoản, cài đặt; CPH biên dịch/chạy cục
+bộ với giới hạn theo từng test; multi-profile quick-login với silent refresh;
+i18n (EN / VI / ZH). Lỗi luôn hiện dưới dạng câu chữ dễ hiểu theo từng mã
+trạng thái — không bao giờ là mã trần.
+
+## Hợp đồng API (chỉ đọc, nằm ngoài thư mục này)
+
+- `../docs/api-docs.md` — danh mục endpoint
+- `../tools/openapi-frontend.json` — hợp đồng máy đọc được
+- `../delcc/index.html` — tham chiếu PoC (giữ lại, không import)
+
+## theming
+Cố ý chưa theme. `src/app.css` là lane cho guest-themer
+(Claude Sonnet 5.5) — cấu trúc giữ nguyên, bảng màu là của họ.
+
+## giấy phép
+
+**CC BY-NC-SA 4.0** (`SPDX: CC-BY-NC-SA-4.0`, toàn văn trong [LICENSE](LICENSE)) —
+chọn có chủ đích, không phải mặc định:
+
+- **Bạn được**: sử dụng, nghiên cứu, sửa đổi, phân phối lại, chạy ở bất cứ đâu —
+  cho mọi mục đích *phi thương mại*. Dùng trong trường học, CLB, cá nhân, cộng
+  đồng sàn thi đấu: đều ổn, không cần xin phép.
+- **Bạn không được**: thương mại hoá (bán, đóng gói vào sản phẩm có phí, vận hành
+  chủ yếu vì lợi thế thương mại) — và mọi fork/phái sinh phải mang chính giấy
+  phép này (**ShareAlike**). Fork đóng bị loại trừ ngay từ thiết kế: xây trên
+  delcc thì thay đổi của bạn cũng phải minh bạch.
+- **Nói thẳng**: đây là *source-available*, không phải open source theo OSI —
+  định nghĩa OSI cấm giới hạn lĩnh vực sử dụng, còn giới hạn không-thương-mại hoá
+  chính là điểm của dự án này. FSF khuyến cáo không dùng giấy phép CC cho code;
+  dự án vẫn chọn NC + SA vì hai ràng buộc đó là bản sắc của nó, và không có giấy
+  phép "thuần phần mềm" nào mã hoá được cả hai. Sự đánh đổi này được ghi lại,
+  không giấu.
+- **Lối thoát**: bản quyền thuộc về maintainer, người có thể cấp lại giấy phép
+  cho các phiên bản tương lai; đóng góp được nhận theo cùng giấy phép.
+
+## versioning (luật của He — LLM, đọc trước khi đụng vào phiên bản)
+`v[BREAKING].[NON_BREAKING].[TWEAK][MATURITY]`
+- `BREAKING` giữ nguyên **0 cho đến bản Stable đầu tiên** — không được nâng lên 1 trước đó.
+- `MATURITY`: `a` = alpha, `b` = beta, bỏ trống = stable. Các hậu tố khác sẽ đến sau.
+- Ví dụ: `v0.2.1a` = vẫn pre-stable, đợt non-breaking thứ 2, tweak thứ 1, alpha.
+- **Hai cách viết là chủ đích** (LLM: đừng "sửa" cái này thành cái kia):
+  - Tên release phía người dùng giữ nguyên luật: `delcc-v0.2.1a-alpha`
+    (đuôi `-alpha` là tag kênh trên thư mục/zip artifact).
+  - Trường máy (package.json / Cargo.toml / tauri.conf.json) cần semver nghiêm ngặt,
+    nên mang `0.2.1-alpha` — cùng một phiên bản, maturity viết đầy đủ.
+    Cargo từ chối thẳng `0.2.1a-alpha`; một build "thành công" với chuỗi đó là
+    false positive do exit code bị pipe nuốt mất.
+- Sổ cái release nằm ở `todo.md` (pass entry) và `../ship-staging/`.

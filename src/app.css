@@ -1,0 +1,130 @@
+/* delcc-app — contest-readability theme (guest-themer pass). app.css only; structure in main.ts untouched.
+   hierarchy: verdict (loudest, sticky) > statement (reading face) > code (mono, Monaco) > chrome (quiet).
+   palette lives in :root vars — retheme by editing the block, nothing else. dark-only: Monaco is vs-dark. */
+:root {
+  --bg: #0d0f12; --panel: #14171c; --panel-2: #191d23; --line: #262b33; --line-strong: #3a414c;
+  --text: #e6e8eb; --text-dim: #9aa3ad; --text-faint: #6b737d;
+  --accent: #6aa7ff; --ok: #4cd37b; --err: #ff6b6b; --warn: #f5c451;
+  --ui: system-ui, "Segoe UI", Roboto, sans-serif;        /* chrome + statements */
+  --mono: "Cascadia Mono", Consolas, "SF Mono", monospace; /* code, verdict, tables of numbers */
+  --radius: 8px;
+}
+* { box-sizing: border-box; }
+body { font-family: var(--ui); font-size: 14px; line-height: 1.5; background: var(--bg); color: var(--text);
+  max-width: 1040px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 18px; }
+h2 { font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim);
+  margin: 22px 0 8px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+input, select, textarea, button { font: inherit; background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 10px; }
+input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+button { cursor: pointer; } button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .4; cursor: default; }
+textarea { width: 100%; min-height: 220px; tab-size: 4; font-family: var(--mono); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th { color: var(--text-dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+td, th { border-bottom: 1px solid var(--line); padding: 7px 8px; text-align: left; }
+td { font-variant-numeric: tabular-nums; }
+tr:hover td { background: var(--panel); }
+a { color: var(--accent); cursor: pointer; text-decoration: none; } a:hover { text-decoration: underline; }
+.err { color: var(--err); } .ok { color: var(--ok); } .warn { color: var(--warn); } .muted { color: var(--text-dim); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
+.pill { border: 1px solid var(--line-strong); border-radius: 20px; padding: 1px 10px; font-size: 12px; color: var(--text-dim); }
+#pfp { min-width: 34px; text-align: center; font-weight: bold; }
+#sig, #brand { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; margin: 0 0 14px; background: var(--panel); }
+.view { display: none; } .view.active { display: block; }
+
+/* chrome: quiet tab strip */
+nav.tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 12px; }
+nav.tabs button { background: transparent; border-color: transparent; color: var(--text-dim); }
+nav.tabs button.on { color: var(--text); border-color: var(--accent); }
+nav.tabs #who { margin-left: auto; }
+
+/* statement: the reading surface */
+#stmt { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
+  padding: 16px 20px; overflow: auto; max-height: 520px; font-size: 15px; line-height: 1.65; }
+#stmt.muted { font-size: 14px; }
+#stmt h1, #stmt h2, #stmt h3, #stmt h4 { text-transform: none; letter-spacing: 0; color: var(--text); border: 0; margin: 1.1em 0 .4em; font-size: 1.05em; }
+#stmt p { margin: .6em 0; max-width: 78ch; }
+#stmt pre, #stmt code { font-family: var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+#stmt code { padding: 1px 5px; font-size: .92em; }
+#stmt pre { padding: 10px 12px; overflow: auto; font-size: 13px; line-height: 1.5; margin: .6em 0; }
+#stmt pre code { border: 0; padding: 0; background: none; }
+#stmt table { width: auto; margin: .6em 0; } #stmt td, #stmt th { border: 1px solid var(--line); }
+#stmt img { max-width: 100%; }
+
+/* code: editor frame (Monaco paints inside) */
+#monaco { border: 1px solid var(--line-strong) !important; border-radius: var(--radius) !important; overflow: hidden; }
+
+/* verdict: always visible while the code scrolls, loudest element on the screen */
+.row.actions { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 10px 0; border-bottom: 1px solid var(--line); }
+#vmsg { font-family: var(--mono); font-weight: 700; font-size: 14px; padding: 3px 10px; border-radius: 6px; }
+#vmsg:empty { display: none; }
+#vmsg.muted { background: var(--panel-2); } #vmsg.ok { background: rgba(76,211,123,.14); color: var(--ok); }
+#vmsg.err { background: rgba(255,107,107,.14); color: var(--err); }
+#vmsg:not(.muted):not(.ok):not(.err) { background: rgba(245,196,81,.12); color: var(--warn); }
+
+/* WIP home grid (sketches/home.png) */
+.home-wrap { max-width: 1100px; margin: 0 auto; }
+.home-top { display: flex; gap: 16px; align-items: center; margin-bottom: 12px; }
+#homeLogo { font-weight: bold; color: var(--text); cursor: pointer; }
+.home-tabs { display: flex; gap: 8px; margin-left: auto; }
+.home-tabs button { background: transparent; }
+.home-right { display: flex; gap: 10px; align-items: center; } #homeName { white-space: nowrap; }
+.home-banner { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 12px; }
+.home-banner h2 { margin: 0; border: 0; padding: 0; text-transform: none; letter-spacing: 0; font-size: 16px; color: var(--text); }
+.home-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.home-col { display: flex; flex-direction: column; gap: 12px; } .home-col .widget.wide { grid-column: 1 / -1; }
+.widget { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.widget-title { border-bottom: 1px solid var(--line); padding: 6px 10px; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text-dim); }
+.widget-body { padding: 10px 14px; font-size: 13px; min-height: 120px; } .widget-body > div { padding: 2px 0; }
+.widget-body.muted { color: var(--text-dim); }
+@media (max-width: 800px) { .home-grid { grid-template-columns: 1fr; } }
+
+/* update banner: informational only — no auto-download, no auto-restart, dismissable */
+.update-banner { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  border: 1px solid var(--warn); border-radius: var(--radius); background: rgba(245,196,81,.08);
+  color: var(--text); padding: 8px 14px; margin: 0 0 14px; font-size: 13px; }
+.update-banner span { flex: 1; min-width: 200px; }
+.update-banner button { padding: 4px 10px; font-size: 12px; }
+
+/* submissions: expandable per-case detail row */
+tr.sub-detail td { background: var(--panel); padding: 10px 14px; }
+table.sub-cases { margin-top: 6px; font-size: 12px; }
+table.sub-cases td, table.sub-cases th { padding: 4px 8px; }
+#subsBody a[data-sub] { font-variant-numeric: tabular-nums; }
+
+/* CPH: local compile/run panel in the solve view */
+#cphPanel { margin-top: 8px; border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; background: var(--panel); }
+.cph-case { border-top: 1px solid var(--line); padding: 8px 0; }
+.cph-case:first-child { border-top: none; }
+.cph-case .row textarea { flex: 1; min-height: 70px; font-family: var(--mono); font-size: 12px; }
+.cph-out { font-family: var(--mono); font-size: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; }
+.cph-out.err { border-color: var(--err); } .cph-out.ok { border-color: var(--ok); }
+button.on { color: var(--text); border-color: var(--accent); } /* lane 7: pressed-state for edMinimap/edWrap */
+#cphCompileLog { white-space: pre-wrap; font-family: var(--mono); font-size: 12px; }
+
+
+/* statement math (KaTeX) */
+.dmath-b { display: block; text-align: center; margin: 6px 0; overflow-x: auto; }
+.dmath .katex { font-size: 1.05em; }
+.dmath .katex-display { margin: 0; }
+
+/* ---- tmath persona scaffold (first coat) ----
+   namespaced --tmath-* tokens from lib/scheme.ts (harvested: official 1.0.9 stylesheet).
+   this repaints the existing delcc chrome when bpy[data-persona=tmath]; the structural
+   port (official topbar/sidebar/cards DOM) is a later lane. baseplate/wip unaffected. */
+body[data-persona="tmath"] {
+  background: var(--tmath-background); color: var(--tmath-foreground); font-family: var(--tmath-font);
+}
+body[data-persona="tmath"] nav.tabs {
+  background: var(--tmath-card); border-color: var(--tmath-border); color: var(--tmath-muted-foreground);
+}
+body[data-persona="tmath"] nav.tabs button { border-color: var(--tmath-border); color: var(--tmath-secondary-foreground); }
+body[data-persona="tmath"] nav.tabs button.on,
+body[data-persona="tmath"] nav.tabs button:hover:not(:disabled) {
+  background: var(--tmath-accent); color: var(--tmath-accent-foreground); border-color: var(--tmath-ring);
+}
+body[data-persona="tmath"] h2, body[data-persona="tmath"] .view { color: var(--tmath-foreground); }
+body[data-persona="tmath"] table, body[data-persona="tmath"] th, body[data-persona="tmath"] td { border-color: var(--tmath-border); }
+

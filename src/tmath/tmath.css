@@ -1,0 +1,661 @@
+﻿/* TMATH presentation, reconstructed from the local 1.0.9 frontend stylesheet.
+   Source: tmathtauriclient src/v1.0.9-extract/assets__index-Sy2kLOLY.css.
+   All application rules are scoped; the other delcc layouts keep their CSS.
+   Palette comes from lib/scheme.ts, which records the same reference tokens. */
+@font-face {
+  font-family: "Noto Sans Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./assets/noto-sans-vietnamese.woff2") format("woff2");
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+@font-face {
+  font-family: "Noto Sans Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./assets/noto-sans-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+body[data-persona="tmath"] {
+  --bg: var(--tmath-background);
+  --panel: var(--tmath-card);
+  --panel-2: var(--tmath-muted);
+  --line: var(--tmath-border);
+  --line-strong: var(--tmath-input);
+  --text: var(--tmath-foreground);
+  --text-dim: var(--tmath-muted-foreground);
+  --text-faint: var(--tmath-muted-foreground);
+  --accent: var(--tmath-primary);
+  --err: var(--tmath-destructive);
+  --ui: var(--tmath-font);
+  --mono: var(--tmath-font-mono);
+  max-width: none;
+  min-width: 320px;
+  margin: 0;
+  padding: 0;
+  background: var(--tmath-background);
+  color: var(--tmath-foreground);
+  font: 14px/1.5 var(--tmath-font);
+  font-synthesis: none;
+}
+body[data-persona="tmath"] #app { min-height: 100vh; }
+body[data-persona="tmath"] #app :is(h1, h2, h3, h4) {
+  color: var(--tmath-foreground);
+  border: 0;
+  padding: 0;
+  letter-spacing: normal;
+  text-transform: none;
+  line-height: 1.35;
+}
+body[data-persona="tmath"] #app h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.8px; }
+body[data-persona="tmath"] #app h2 { margin: 0; font-size: 16px; font-weight: 600; }
+body[data-persona="tmath"] #app h3 { margin: 0; font-size: 14px; font-weight: 600; }
+body[data-persona="tmath"] #app p { margin: 0 0 12px; }
+body[data-persona="tmath"] #app :is(input, select, textarea, button) { font: inherit; }
+body[data-persona="tmath"] #app :is(input, select, textarea) {
+  color: var(--tmath-foreground);
+  background: var(--tmath-card);
+  border: 1px solid var(--tmath-input);
+  border-radius: 8px;
+  min-height: 38px;
+  padding: 8px 11px;
+}
+body[data-persona="tmath"] #app :is(input, textarea)::placeholder { color: var(--tmath-muted-foreground); opacity: .85; }
+body[data-persona="tmath"] #app :is(input, select, textarea):focus-visible,
+body[data-persona="tmath"] #app button:focus-visible,
+body[data-persona="tmath"] #app a:focus-visible {
+  outline: 2px solid var(--tmath-ring);
+  outline-offset: 2px;
+}
+body[data-persona="tmath"] #app :is(input[type="checkbox"], input[type="radio"]) { min-height: auto; accent-color: var(--tmath-primary); }
+body[data-persona="tmath"] #app textarea { min-height: 112px; font: 12px/1.6 var(--tmath-font-mono); }
+/* native select arrows draw inside the right edge — keep option text clear of them */
+body[data-persona="tmath"] #app select { padding-right: 30px; }
+body[data-persona="tmath"] #app button:disabled { cursor: not-allowed; opacity: .5; }
+/* component metrics outrank the #app font:inherit blanket (id specificity) */
+body[data-persona="tmath"] #app .tm-button { font-size: 13px; }
+body[data-persona="tmath"] #app .tm-login-tools .tm-button { font: 12px/1 var(--tmath-font); }
+body[data-persona="tmath"] #app .theme-select { font: 12px/1 var(--tmath-font); }
+body[data-persona="tmath"] #app a { color: var(--tmath-primary); }
+body[data-persona="tmath"] #app th { text-transform: none; letter-spacing: normal; }
+body[data-persona="tmath"] #app tr:hover td { background: transparent; }
+body[data-persona="tmath"] #app [hidden] { display: none !important; }
+
+body[data-persona="tmath"] .tm-shell { --tm-sidebar-width: 240px; display: flex; min-height: 100vh; }
+body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) { --tm-sidebar-width: 76px; }
+body[data-persona="tmath"] .tm-sidebar {
+  position: fixed;
+  z-index: 20;
+  inset: 0 auto 0 0;
+  display: flex;
+  flex-direction: column;
+  width: var(--tm-sidebar-width);
+  padding: 24px 14px 16px;
+  border-right: 1px solid var(--tmath-border);
+  background: var(--tmath-card);
+  overflow-y: auto;
+  transition: width .18s;
+}
+body[data-persona="tmath"] .tm-sidebar-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; }
+body[data-persona="tmath"] .tm-wordmark { display: flex; align-items: center; gap: 11px; color: var(--tmath-primary); font-size: 32px; font-weight: 900; letter-spacing: -1.5px; }
+body[data-persona="tmath"] .tm-wordmark span { border-left: 1px solid var(--tmath-border); padding-left: 10px; font-size: 9px; font-weight: 700; letter-spacing: 2px; }
+body[data-persona="tmath"] .tm-sidebar .tm-wordmark { padding-left: 10px; font-size: 24px; }
+body[data-persona="tmath"] .tm-sidebar-toggle { display: grid; place-items: center; flex: 0 0 36px; width: 36px; height: 36px; padding: 0; border: 1px solid var(--tmath-border); border-radius: 10px; background: transparent; color: var(--tmath-muted-foreground); }
+body[data-persona="tmath"] .tm-nav-label { margin: 32px 12px 14px; color: var(--tmath-muted-foreground); font-size: 9px; letter-spacing: 1.2px; text-transform: uppercase; white-space: nowrap; }
+body[data-persona="tmath"] .tm-nav { display: grid; gap: 6px; margin-bottom: 24px; }
+body[data-persona="tmath"] .tm-nav button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  width: 100%;
+  padding: 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--tmath-muted-foreground);
+  text-align: left;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 20px;
+  transition: background .15s, color .15s;
+}
+body[data-persona="tmath"] .tm-nav button svg { flex-shrink: 0; width: 20px; height: 20px; }
+body[data-persona="tmath"] .tm-nav button:is(.tm-current, [aria-current="page"]) { color: var(--tmath-accent-foreground); background: #edf3ff; box-shadow: inset 3px 0 0 var(--tmath-primary); }
+body[data-persona="tmath"] .tm-nav button:hover:not(:disabled) { background: var(--tmath-muted); color: var(--tmath-foreground); }
+body[data-persona="tmath"] .tm-sidebar-footer { margin-top: auto; padding: 18px 10px 0; border-top: 1px solid var(--tmath-border); color: var(--tmath-muted-foreground); font-size: 10px; }
+body[data-persona="tmath"] .tm-sidebar-footer > * + * { margin-top: 8px; }
+body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) :is(.tm-wordmark, .tm-nav-label, .tm-nav button span, .tm-sidebar-footer span, .tm-sidebar-footer small) { display: none; }
+body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) .tm-sidebar-header { justify-content: center; }
+body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) .tm-nav { margin-top: 32px; }
+body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) .tm-nav button { justify-content: center; gap: 0; }
+body[data-persona="tmath"] .tm-main { flex: 1; min-width: 0; margin-left: var(--tm-sidebar-width); transition: margin-left .18s; }
+body[data-persona="tmath"] .tm-topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; min-height: 84px; padding: 16px 32px; border-bottom: 1px solid var(--tmath-border); background: var(--tmath-card); }
+body[data-persona="tmath"] .tm-topbar-page { display: flex; align-items: center; gap: 12px; min-width: 0; }
+body[data-persona="tmath"] .tm-topbar-page-icon { display: grid; place-items: center; flex-shrink: 0; width: 42px; height: 42px; border-radius: 12px; color: var(--tmath-primary); background: var(--tmath-primary); border: 1px solid var(--tmath-primary); background: color-mix(in srgb, var(--tmath-primary) 9%, var(--tmath-card)); border-color: color-mix(in srgb, var(--tmath-primary) 14%, var(--tmath-border)); }
+body[data-persona="tmath"] .tm-topbar-page-copy { display: grid; gap: 4px; min-width: 0; }
+body[data-persona="tmath"] .tm-topbar-eyebrow { color: var(--tmath-muted-foreground); font-size: 10px; font-weight: 600; letter-spacing: 1.2px; }
+body[data-persona="tmath"] .tm-topbar-title { color: var(--tmath-foreground); font-size: 17px; font-weight: 650; line-height: 1.3; letter-spacing: -.3px; }
+body[data-persona="tmath"] .tm-topbar-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; flex-shrink: 0; }
+/* official truth (He's vi-VN bar reference, pass #9e): the account chip is FLAT — avatar +
+   name sit bare on the bar, no UA button chrome (our global reset never covered buttons, so
+   Chromium's default border/ButtonFace leaked through), ghost hover, keyboard-only ring. */
+body[data-persona="tmath"] #app .tm-topbar-account { appearance: none; background: none; border: 0; padding: 2px 8px 2px 16px; border-radius: 10px; cursor: pointer; outline: none; }
+body[data-persona="tmath"] .tm-topbar-account { display: flex; align-items: center; gap: 10px; min-width: 0; border-left: 1px solid var(--tmath-border); }
+body[data-persona="tmath"] #app .tm-topbar-account:hover:not(:disabled), body[data-persona="tmath"] #app .tm-topbar-account:focus-visible { background: var(--tmath-muted); }
+body[data-persona="tmath"] #app .tm-topbar-account:focus-visible { outline: 2px solid var(--tmath-ring); outline-offset: 1px; }
+body[data-persona="tmath"] .tm-topbar-account-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+body[data-persona="tmath"] .tm-topbar-logout { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 8px 10px; border: 1px solid var(--tmath-border); border-radius: 9px; background: var(--tmath-card); color: var(--tmath-muted-foreground); font: 12px/1.3 var(--tmath-font); cursor: pointer; }
+body[data-persona="tmath"] .tm-topbar-logout:hover:not(:disabled) { border-color: var(--tmath-muted-foreground); background: var(--tmath-accent); color: var(--tmath-foreground); }
+body[data-persona="tmath"] .tm-topbar-select { display: inline-grid; place-items: center; min-width: 36px; min-height: 36px; padding: 8px 10px; border: 1px solid var(--tmath-border); border-radius: 9px; background: var(--tmath-card); color: var(--tmath-foreground); font: 12px/1.3 var(--tmath-font); cursor: pointer; }
+body[data-persona="tmath"] .tm-topbar-select:hover { border-color: var(--tmath-muted-foreground); background: var(--tmath-accent); color: var(--tmath-accent-foreground); }
+body[data-persona="tmath"] .tm-avatar { display: inline-grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; border-radius: 50%; color: var(--tmath-primary); background: color-mix(in srgb, var(--tmath-primary) 9%, var(--tmath-card)); border: 1px solid color-mix(in srgb, var(--tmath-primary) 16%, var(--tmath-border)); font-weight: 700; object-fit: cover; }
+body[data-persona="tmath"] .tm-content { max-width: 1400px; margin: 0 auto; padding: 35px 36px; }
+body[data-persona="tmath"] .tm-content > * + * { margin-top: 20px; }
+body[data-persona="tmath"] .tm-content.wide { max-width: none; }
+body[data-persona="tmath"] .tm-page-title { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 24px; padding: 26px 28px; border: 1px solid var(--tmath-selected-border); border-radius: 16px; background: linear-gradient(115deg, var(--tmath-selected-background), var(--tmath-card) 75%); box-shadow: 0 4px 18px color-mix(in srgb, var(--tmath-foreground) 3%, transparent); }
+body[data-persona="tmath"] .tm-page-title::before { position: absolute; inset: 24px auto 24px 0; width: 3px; border-radius: 0 3px 3px 0; background: var(--tmath-primary); content: ""; }
+body[data-persona="tmath"] .tm-page-title h1 { font-size: clamp(23px, 2.5vw, 30px); line-height: 1.25; }
+body[data-persona="tmath"] .tm-page-title > div:first-child { flex: 1 1 240px; min-width: 0; }
+body[data-persona="tmath"] #app .tm-page-title p { max-width: 72ch; margin: 10px 0 0; color: var(--tmath-muted-foreground); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+body[data-persona="tmath"] .tm-eyebrow { margin-bottom: 8px; color: var(--tmath-accent-foreground); font-size: 10px; font-weight: 700; line-height: 1.5; letter-spacing: 1.5px; }
+
+body[data-persona="tmath"] .tm-login-page { display: grid; grid-template-columns: 48% 52%; min-height: 100vh; }
+body[data-persona="tmath"] .tm-login-brand { position: relative; display: flex; flex-direction: column; justify-content: space-between; min-height: 100vh; padding: 50px 52px; overflow: hidden; background: linear-gradient(155deg, #0d3265, #125edc); color: white; }
+body[data-persona="tmath"] .tm-login-brand::after { position: absolute; right: -200px; bottom: -120px; width: 420px; height: 420px; border: 1px solid #ffffff1a; border-radius: 50%; box-shadow: 0 0 0 55px #ffffff06, 0 0 0 110px #ffffff04; pointer-events: none; content: ""; }
+body[data-persona="tmath"] .tm-login-brand .tm-wordmark { color: white; }
+body[data-persona="tmath"] .tm-login-brand .tm-eyebrow { color: #9bc1ff; }
+body[data-persona="tmath"] #app .tm-login-brand h1 { margin: 22px 0; color: white; font-size: 42px; line-height: 1.22; letter-spacing: -1.7px; }
+body[data-persona="tmath"] #app .tm-login-brand p { color: #bcd4fa; font-size: 15px; }
+body[data-persona="tmath"] .tm-login-foot { color: #abc8ef; font-size: 10px; letter-spacing: 1.5px; }
+body[data-persona="tmath"] .tm-login-panel { display: grid; place-items: center; padding: 35px; }
+body[data-persona="tmath"] .tm-login-card { width: 100%; max-width: 370px; margin: auto; }
+body[data-persona="tmath"] .tm-login-page > .tm-login-card { width: calc(100% - 70px); }
+body[data-persona="tmath"] #app .tm-login-card h1,
+body[data-persona="tmath"] #app .tm-login-card h2 { margin: 15px 0 12px; font-size: 30px; font-weight: 700; }
+body[data-persona="tmath"] .tm-login-tools { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 24px; }
+body[data-persona="tmath"] .tm-login-form { display: grid; gap: 18px; margin-top: 28px; }
+body[data-persona="tmath"] .tm-login-form .tm-button { width: 100%; padding: 14px; }
+body[data-persona="tmath"] .tm-login-card > .tm-muted:last-child { margin-top: 28px; font-size: 11px; }
+body[data-persona="tmath"] .tm-field { display: grid; gap: 8px; min-width: 0; color: var(--tmath-foreground); font-size: 13px; font-weight: 500; }
+body[data-persona="tmath"] .tm-field :is(input, select, textarea) { width: 100%; font-weight: 400; }
+body[data-persona="tmath"] .tm-field small { color: var(--tmath-muted-foreground); font-size: 12px; font-weight: 400; }
+body[data-persona="tmath"] .tm-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 8px 12px; border: 1px solid var(--tmath-border); border-radius: 8px; background: var(--tmath-card); color: var(--tmath-foreground); font-size: 13px; font-weight: 500; text-decoration: none; white-space: nowrap; }
+body[data-persona="tmath"] .tm-button:hover:not(:disabled) { border-color: var(--tmath-selected-border); background: var(--tmath-accent); }
+body[data-persona="tmath"] .tm-button:is(.primary, .tm-primary) { border-color: var(--tmath-primary); background: var(--tmath-primary); color: white; }
+body[data-persona="tmath"] .tm-button:is(.primary, .tm-primary):hover:not(:disabled) { background: color-mix(in srgb, var(--tmath-primary) 90%, black); }
+body[data-persona="tmath"] .tm-button:is(.ghost, .tm-ghost) { border-color: transparent; background: transparent; }
+body[data-persona="tmath"] .tm-button:is(.danger, .tm-danger) { border-color: var(--tmath-destructive); color: var(--tmath-destructive); }
+body[data-persona="tmath"] .tm-button svg { width: 16px; height: 16px; flex-shrink: 0; }
+body[data-persona="tmath"] .tm-divider { display: flex; align-items: center; gap: 12px; margin: 16px 0; color: var(--tmath-muted-foreground); font-size: 12px; }
+body[data-persona="tmath"] .tm-divider::before,
+body[data-persona="tmath"] .tm-divider::after { flex: 1; height: 1px; background: var(--tmath-border); content: ""; }
+
+body[data-persona="tmath"] .tm-card { min-width: 0; padding: 23px; border: 1px solid var(--tmath-border); border-radius: 12px; background: var(--tmath-card); box-shadow: 0 3px 8px #273e6103; overflow: hidden; }
+body[data-persona="tmath"] .tm-card:has(> .tm-table-wrap) { padding: 0; }
+body[data-persona="tmath"] .tm-card-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 24px; border-bottom: 1px solid var(--tmath-border); }
+body[data-persona="tmath"] .tm-card-body { padding: 24px; }
+body[data-persona="tmath"] .tm-card-body > * + * { margin-top: 16px; }
+body[data-persona="tmath"] .tm-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+body[data-persona="tmath"] .tm-toolbar > .tm-field { flex: 1 1 200px; }
+body[data-persona="tmath"] .tm-toolbar > input { flex: 1 1 200px; min-width: 120px; }
+body[data-persona="tmath"] .tm-table-wrap { max-width: 100%; overflow-x: auto; }
+body[data-persona="tmath"] .tm-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
+body[data-persona="tmath"] .tm-table th { padding: 12px 16px; border-bottom: 1px solid var(--tmath-border); background: var(--tmath-muted); color: var(--tmath-muted-foreground); font-size: 12px; font-weight: 600; white-space: nowrap; }
+body[data-persona="tmath"] .tm-table td { padding: 16px; border-bottom: 1px solid var(--tmath-border); vertical-align: middle; }
+body[data-persona="tmath"] .tm-table tbody tr:last-child td { border-bottom: 0; }
+body[data-persona="tmath"] .tm-table tbody tr:hover { background: color-mix(in srgb, var(--tmath-muted) 50%, transparent); }
+body[data-persona="tmath"] .tm-table :is(a, .tm-link) { border: 0; padding: 0; background: transparent; color: var(--tmath-primary); text-align: left; white-space: normal; }
+body[data-persona="tmath"] .tm-table time { color: var(--tmath-muted-foreground); font-size: 13px; white-space: nowrap; }
+body[data-persona="tmath"] .tm-badge { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 3px 9px; border: 1px solid var(--tmath-border); border-radius: 6px; background: var(--tmath-muted); color: var(--tmath-secondary-foreground); font-size: 12px; font-weight: 500; line-height: 1.4; white-space: nowrap; }
+body[data-persona="tmath"] .tm-badge:is(.ok, .accepted, .tm-success) { border-color: #16805d40; background: #16805d12; color: #16805d; }
+body[data-persona="tmath"] .tm-badge:is(.err, .rejected, .tm-error) { border-color: color-mix(in srgb, var(--tmath-destructive) 30%, transparent); background: color-mix(in srgb, var(--tmath-destructive) 8%, transparent); color: var(--tmath-destructive); }
+body[data-persona="tmath"] .tm-muted { color: var(--tmath-muted-foreground); }
+body[data-persona="tmath"] .tm-empty { padding: 36px 24px; color: var(--tmath-muted-foreground); text-align: center; font-size: 13px; }
+body[data-persona="tmath"] .tm-error,
+body[data-persona="tmath"] .tm-status { padding: 12px 16px; border: 1px solid var(--tmath-selected-border); border-radius: 8px; background: var(--tmath-accent); color: var(--tmath-accent-foreground); font-size: 13px; overflow-wrap: anywhere; }
+body[data-persona="tmath"] .tm-error { border-color: color-mix(in srgb, var(--tmath-destructive) 30%, transparent); background: color-mix(in srgb, var(--tmath-destructive) 7%, var(--tmath-card)); color: var(--tmath-destructive); }
+body[data-persona="tmath"] .tm-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 0; color: var(--tmath-muted-foreground); font-size: 13px; }
+body[data-persona="tmath"] .tm-contest-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; }
+body[data-persona="tmath"] .tm-contest-card { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; padding: 20px; border: 1px solid var(--tmath-border); border-radius: 12px; background: var(--tmath-card); }
+body[data-persona="tmath"] .tm-contest-card > div:first-child { flex: 1 1 240px; min-width: 0; }
+body[data-persona="tmath"] #app .tm-contest-card h2 { margin-bottom: 8px; font-size: 15px; }
+body[data-persona="tmath"] #app .tm-contest-card p { margin: 6px 0 0; color: var(--tmath-muted-foreground); font-size: 12px; }
+body[data-persona="tmath"] .tm-contest-group { --tm-group-color: var(--tmath-muted-foreground); border: 1px solid var(--tmath-border); border-radius: 12px; background: var(--tmath-card); overflow: hidden; }
+body[data-persona="tmath"] .tm-contest-group.active { --tm-group-color: #16805d; }
+body[data-persona="tmath"] .tm-contest-group.upcoming { --tm-group-color: #386aca; }
+body[data-persona="tmath"] .tm-contest-group-header { padding: 18px 20px; border-bottom: 1px solid var(--tmath-border); border-left: 4px solid var(--tm-group-color); color: var(--tm-group-color); background: color-mix(in srgb, var(--tm-group-color) 8%, var(--tmath-card)); }
+body[data-persona="tmath"] #app .tm-contest-group-header h2 { color: var(--tm-group-color); font-size: 15px; }
+body[data-persona="tmath"] .tm-contest-group .tm-contest-card { border: 0; border-bottom: 1px solid var(--tmath-border); border-radius: 0; }
+body[data-persona="tmath"] .tm-contest-group .tm-contest-card:last-child { border-bottom: 0; }
+
+body[data-persona="tmath"] .tm-workspace { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 16px; }
+body[data-persona="tmath"] .tm-workspace > * { min-width: 0; }
+body[data-persona="tmath"] .tm-workspace.tm-workspace-tabs { grid-template-columns: minmax(0, 1fr); }
+body[data-persona="tmath"] .tm-problem-list { display: grid; gap: 6px; padding: 12px; }
+body[data-persona="tmath"] .tm-problem-list button { padding: 10px 12px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--tmath-foreground); text-align: left; font-size: 13px; overflow-wrap: anywhere; }
+body[data-persona="tmath"] .tm-problem-list button:is(.tm-current, [aria-current="page"]) { border-color: var(--tmath-selected-border); background: var(--tmath-selected-background); color: var(--tmath-accent-foreground); }
+body[data-persona="tmath"] .tm-problem-tabs { display: flex; align-items: center; gap: 4px; padding: 4px 0 8px; border-bottom: 1px solid var(--tmath-border); overflow-x: auto; }
+body[data-persona="tmath"] .tm-problem-tabs button { flex-shrink: 0; padding: 8px 16px; border: 0; border-radius: 6px; background: transparent; color: var(--tmath-muted-foreground); }
+body[data-persona="tmath"] .tm-problem-tabs button:is(.tm-current, [aria-selected="true"]) { background: var(--tmath-muted); color: var(--tmath-foreground); box-shadow: 0 2px 0 var(--tmath-foreground); }
+body[data-persona="tmath"] .tm-solve { display: grid; grid-template-columns: minmax(0, var(--tm-statement-width, 42.5fr)) 12px minmax(0, var(--tm-editor-width, 57.5fr)); align-items: start; gap: 0; min-width: 0; }
+body[data-persona="tmath"] .tm-solve[data-dragging] { user-select: none; }
+body[data-persona="tmath"] .tm-splitter { display: flex; justify-content: center; align-self: stretch; width: 12px; min-height: 96px; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: col-resize; touch-action: none; }
+body[data-persona="tmath"] .tm-splitter::before { position: sticky; top: 45vh; width: 4px; height: 48px; margin-top: 48px; border-radius: 999px; background: var(--tmath-border); content: ""; }
+body[data-persona="tmath"] .tm-splitter:is(:hover, :focus-visible)::before,
+body[data-persona="tmath"] .tm-solve[data-dragging] .tm-splitter::before { background: var(--tmath-primary); }
+body[data-persona="tmath"] .tm-pane { min-width: 0; border: 1px solid var(--tmath-border); border-radius: 12px; background: var(--tmath-card); overflow: hidden; }
+body[data-persona="tmath"] .tm-pane-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--tmath-border); font-size: 13px; font-weight: 600; }
+body[data-persona="tmath"] .tm-pane-header select { min-height: 28px !important; padding: 3px 8px !important; padding-right: 24px !important; font-size: 12px !important; }
+body[data-persona="tmath"] .tm-pane-body { min-width: 0; padding: 16px; }
+body[data-persona="tmath"] .tm-editor { min-width: 0; height: 440px; min-height: 400px; }
+body[data-persona="tmath"] .tm-statement { min-width: 0; overflow-wrap: anywhere; font-size: 16px; line-height: 1.75; }
+body[data-persona="tmath"] .tm-statement img { max-width: 100%; height: auto; }
+body[data-persona="tmath"] .tm-runner { padding: 12px; border-top: 1px solid var(--tmath-border); }
+body[data-persona="tmath"] .tm-runner > * + * { margin-top: 12px; }
+body[data-persona="tmath"] .tm-runner textarea { width: 100%; }
+body[data-persona="tmath"] .tm-runner pre,
+body[data-persona="tmath"] .tm-submission-source { max-height: 400px; margin: 0; padding: 12px; border: 1px solid var(--tmath-border); border-radius: 8px; background: var(--tmath-muted); color: var(--tmath-foreground); font: 12px/1.6 var(--tmath-font-mono); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+body[data-persona="tmath"] .tm-settings-grid { display: grid; gap: 24px; max-width: 896px; margin-right: auto; margin-left: auto; }
+body[data-persona="tmath"] .tm-settings-section { display: grid; gap: 18px; padding: 24px; border: 1px solid var(--tmath-border); border-radius: 12px; background: var(--tmath-card); }
+body[data-persona="tmath"] .tm-settings-section > header { padding-bottom: 16px; border-bottom: 1px solid var(--tmath-border); }
+body[data-persona="tmath"] #app .tm-settings-section > header p { margin: 4px 0 0; color: var(--tmath-muted-foreground); font-size: 13px; }
+body[data-persona="tmath"] .tm-account-grid { display: grid; grid-template-columns: 280px minmax(0, 1fr); align-items: start; gap: 24px; }
+body[data-persona="tmath"] .tm-account-grid .tm-avatar { width: 80px; height: 80px; border-radius: 16px; font-size: 30px; }
+body[data-persona="tmath"] .tm-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+body[data-persona="tmath"] .tm-stat { padding: 20px; border: 1px solid var(--tmath-border); border-radius: 12px; background: var(--tmath-card); }
+body[data-persona="tmath"] .tm-stat strong { display: block; margin-top: 8px; font-size: 24px; font-variant-numeric: tabular-nums; }
+body[data-persona="tmath"] .tm-stat span { color: var(--tmath-muted-foreground); font-size: 12px; }
+html.dark body[data-persona="tmath"] .tm-badge:is(.ok, .accepted, .tm-success) { color: #86efac; background: #163e32; border-color: #20513e; }
+html.dark body[data-persona="tmath"] .tm-nav button:is(.tm-current, [aria-current="page"]) { color: #9ec5ff; background: var(--tmath-accent); }
+/* official submission-table badge texture, scoped to table cells only */
+body[data-persona="tmath"] .tm-table .tm-badge { max-width: 100%; min-height: 30px; padding: 4px 12px; gap: 6px; font-size: 14px; font-weight: 600; line-height: 20px; white-space: normal; overflow-wrap: anywhere; }
+
+/* ---- official contest-page chrome, ported from the 1.0.9 stylesheet ---- */
+body[data-persona="tmath"] .tm-current-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 22px; padding: 24px; border: 1px solid var(--tmath-selected-border); border-radius: 12px; background: linear-gradient(120deg, #edf4ff, #f8fbff); }
+body[data-persona="tmath"] .tm-current-info { flex: 320px; min-width: 0; overflow-wrap: anywhere; }
+body[data-persona="tmath"] .tm-current-details { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 16px; color: #52657b; font-size: 12px; }
+body[data-persona="tmath"] .tm-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; padding-bottom: 18px; border-bottom: 1px solid #eef1f6; }
+body[data-persona="tmath"] .tm-card-head h2 { margin: 0; font-size: 15px; }
+body[data-persona="tmath"] .tm-tag { padding: 6px 9px; border-radius: 6px; color: #4c76b9; background: #eff4ff; font-size: 10px; white-space: nowrap; }
+body[data-persona="tmath"] .tm-contest-row .tm-tag { align-self: center; }
+body[data-persona="tmath"] .tm-search-row { display: grid; gap: 8px; margin-bottom: 16px; }
+body[data-persona="tmath"] .tm-search-row > label { font-size: 13px; font-weight: 500; }
+body[data-persona="tmath"] .tm-search-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+body[data-persona="tmath"] .tm-search-controls > input { flex: 1 1 220px; min-width: 160px; }
+body[data-persona="tmath"] .tm-contest-group { --tm-group-color: var(--tmath-muted-foreground); margin-top: 24px; border: 1px solid var(--tmath-border); border-radius: 12px; background: var(--tmath-card); overflow: hidden; }
+body[data-persona="tmath"] .tm-contest-group-active { --tm-group-color: #16805d; }
+body[data-persona="tmath"] .tm-contest-group-upcoming { --tm-group-color: #386aca; }
+body[data-persona="tmath"] .tm-contest-group-ended { --tm-group-color: var(--tmath-muted-foreground); }
+body[data-persona="tmath"] .tm-contest-group-header { padding: 18px 20px; border-bottom: 1px solid var(--tmath-border); border-left: 4px solid var(--tm-group-color); background: color-mix(in srgb, var(--tm-group-color) 8%, var(--tmath-card)); }
+body[data-persona="tmath"] .tm-contest-group-header h3 { margin: 0; font-size: 15px; }
+body[data-persona="tmath"] .tm-contest-group-header p { margin: 6px 0 0; color: var(--tmath-muted-foreground); font-size: 12px; }
+body[data-persona="tmath"] .tm-contest-rows { padding: 4px 20px; }
+body[data-persona="tmath"] .tm-contest-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 20px 0; border-bottom: 1px solid var(--tmath-border); }
+body[data-persona="tmath"] .tm-contest-row:last-child { border-bottom: 0; }
+body[data-persona="tmath"] .tm-contest-icon { display: grid; place-items: center; flex-shrink: 0; width: 36px; height: 36px; border-radius: 9px; color: #2861c2; background: #eaf0ff; font-size: 20px; }
+body[data-persona="tmath"] .tm-contest-group-ended .tm-contest-icon { color: var(--tmath-muted-foreground); background: var(--tmath-muted); }
+/* dark glyph truth: official carve ".dark .contest-icon{background:var(--accent);color:var(--accent-foreground)}" —
+   before this rule the icons kept their hard-coded light chip (#eaf0ff/#2861c2) in dark mode. */
+html.dark body[data-persona="tmath"] .tm-contest-icon { color: var(--tmath-accent-foreground); background: var(--tmath-accent); border: 1px solid var(--tmath-border); }
+body[data-persona="tmath"] .tm-contest-summary { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+body[data-persona="tmath"] .tm-contest-summary strong { font-size: 14px; }
+body[data-persona="tmath"] .tm-contest-summary small { display: block; margin: 2px 0 0; color: var(--tmath-muted-foreground); font-size: 12px; }
+body[data-persona="tmath"] .tm-contest-topic { color: #4c76b9; }
+body[data-persona="tmath"] .tm-contest-join { flex-shrink: 0; margin-left: auto; }
+html.dark body[data-persona="tmath"] .tm-current-banner { border-color: #39567b; background: linear-gradient(120deg, #1b3253, #172235); }
+html.dark body[data-persona="tmath"] .tm-current-details { color: var(--tmath-foreground); }
+html.dark body[data-persona="tmath"] .tm-contest-group-active { --tm-group-color: #57d9ab; }
+html.dark body[data-persona="tmath"] .tm-contest-group-upcoming { --tm-group-color: #91b5ff; }
+html.dark body[data-persona="tmath"] .tm-tag { color: #9ec5ff; background: color-mix(in srgb, var(--tmath-accent) 60%, var(--tmath-card)); }
+html.dark body[data-persona="tmath"] .tm-contest-topic { color: #9ec5ff; }
+html.dark body[data-persona="tmath"] .tm-card-head { border-bottom-color: var(--tmath-border); }
+
+/* official login field widths (full-width controls, horizontal theme row) */
+body[data-persona="tmath"] .tm-login-card input { width: 100%; }
+body[data-persona="tmath"] .tm-login-tools .tm-button { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--tmath-border); border-radius: 8px; background: var(--tmath-card); color: var(--tmath-foreground); font-size: 12px; }
+body[data-persona="tmath"] .tm-login-tools { display: flex; justify-content: flex-end; margin-bottom: 24px; }
+
+@media (max-width: 1200px) {
+  body[data-persona="tmath"] .tm-workspace { grid-template-columns: minmax(0, 1fr); }
+  body[data-persona="tmath"] .tm-problem-list { display: flex; overflow-x: auto; }
+  body[data-persona="tmath"] .tm-problem-list button { flex: 0 0 auto; max-width: 240px; }
+}
+@media (max-width: 1050px) {
+  body[data-persona="tmath"] .tm-topbar { gap: 14px; padding: 14px 22px; }
+  body[data-persona="tmath"] .tm-topbar-actions { gap: 10px; }
+  body[data-persona="tmath"] .tm-topbar-account { padding-left: 10px; }
+  body[data-persona="tmath"] .tm-topbar-account-name { max-width: 120px; }
+  body[data-persona="tmath"] .tm-topbar-logout span { display: none; }
+  body[data-persona="tmath"] .tm-content { padding: 25px 22px; }
+  body[data-persona="tmath"] .tm-login-brand { padding: 35px; }
+  body[data-persona="tmath"] #app .tm-login-brand h1 { font-size: 34px; }
+  body[data-persona="tmath"] .tm-account-grid { grid-template-columns: minmax(0, 1fr); }
+  body[data-persona="tmath"] .tm-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1023px) {
+  body[data-persona="tmath"] .tm-solve { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  body[data-persona="tmath"] .tm-splitter { display: none; }
+}
+@media (max-width: 700px) {
+  body[data-persona="tmath"] .tm-login-page { grid-template-columns: minmax(0, 1fr); }
+  body[data-persona="tmath"] .tm-login-brand { display: none; }
+  body[data-persona="tmath"] .tm-login-panel { padding: 28px 22px; }
+  body[data-persona="tmath"] .tm-shell { --tm-sidebar-width: 76px; }
+  body[data-persona="tmath"] .tm-sidebar-header { justify-content: center; }
+  body[data-persona="tmath"] .tm-sidebar :is(.tm-wordmark, .tm-nav-label, .tm-nav button span, .tm-sidebar-footer span, .tm-sidebar-footer small) { display: none; }
+  body[data-persona="tmath"] .tm-nav { margin-top: 32px; }
+  body[data-persona="tmath"] .tm-nav button { justify-content: center; gap: 0; }
+  body[data-persona="tmath"] .tm-topbar { gap: 14px; padding: 14px; }
+  body[data-persona="tmath"] .tm-topbar-actions { justify-content: flex-end; width: 100%; }
+  body[data-persona="tmath"] .tm-topbar-account { flex: 1; }
+  body[data-persona="tmath"] .tm-topbar-account-name { max-width: 100px; }
+  body[data-persona="tmath"] .tm-content { padding: 20px 14px; }
+  body[data-persona="tmath"] .tm-page-title { align-items: flex-start; gap: 14px; padding: 20px; }
+  body[data-persona="tmath"] #app .tm-page-title h1 { font-size: 25px; }
+  body[data-persona="tmath"] .tm-page-title::before { inset-block: 20px; }
+  body[data-persona="tmath"] .tm-card-header,
+  body[data-persona="tmath"] .tm-card-body,
+  body[data-persona="tmath"] .tm-settings-section { padding: 16px; }
+  body[data-persona="tmath"] .tm-toolbar > :is(.tm-field, input) { flex-basis: 100%; }
+  body[data-persona="tmath"] .tm-table :is(th, td) { padding: 12px; }
+  body[data-persona="tmath"] .tm-editor { height: 400px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body[data-persona="tmath"] :is(.tm-sidebar, .tm-main, .tm-nav button) { transition: none; }
+}
+
+/* ---------- internal update banner (2026-10-22 audit fix) ---------- */
+/* the baseplate chrome never shows in this persona, no matter who unhides it */
+body[data-persona="tmath"] #updateBanner,
+body[data-persona="tmath"] #sig { display: none !important; }
+body[data-persona="tmath"] .tm-banner-wrap { max-width: 1400px; margin: 0 auto; padding: 35px 36px 0; }
+body[data-persona="tmath"] .tm-update-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 22px; border: 1px solid #b33352; border-radius: 12px; background: #8d2238; color: #fff; }
+body[data-persona="tmath"] .tm-update-banner b { font-size: 14px; font-weight: 650; letter-spacing: .01em; }
+body[data-persona="tmath"] .tm-update-banner p { flex: 1 1 320px; min-width: 0; margin: 6px 0 0; font-size: 13px; line-height: 1.6; opacity: .92; }
+body[data-persona="tmath"] .tm-banner-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+body[data-persona="tmath"] .tm-update-banner .tm-button { background: #ffffff26; border-color: #ffffff59; color: #fff; }
+body[data-persona="tmath"] .tm-update-banner .tm-button:hover { background: #ffffff3d; border-color: #ffffff8c; }
+html.dark body[data-persona="tmath"] .tm-update-banner { border-color: #6d2a3d; background: #3a1521; }
+html.dark body[data-persona="tmath"] .tm-update-banner .tm-button { background: #ffffff14; border-color: #ffffff2e; color: #fff; }
+@media (max-width: 1050px) {
+  body[data-persona="tmath"] .tm-banner-wrap { padding: 25px 22px 0; }
+}
+@media (max-width: 700px) {
+  body[data-persona="tmath"] .tm-banner-wrap { padding: 20px 14px 0; }
+  body[data-persona="tmath"] .tm-update-banner { align-items: flex-start; flex-direction: column; }
+}
+/* the local-judge drawer starts collapsed; open it runs the test */
+body[data-persona="tmath"] .tm-runner > summary { cursor: pointer; }
+body[data-persona="tmath"] .tm-runner > summary::marker { content: ""; }
+
+/* ---------- solve view: title block + options menu + case picker (2026-10-22 audit r2) ---------- */
+/* official contest header + tab strip (carve @808150-@811740; dark tints from .dark rules) */
+body[data-persona="tmath"] .tm-contest-head { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin: 4px 0 18px; }
+body[data-persona="tmath"] .tm-contest-head h1 { margin: 0; font-size: 21px; line-height: 1.3; font-weight: 650; }
+body[data-persona="tmath"] .tm-contest-meta { margin: 6px 0 0; font-size: 12px; color: var(--tmath-muted-foreground); }
+body[data-persona="tmath"] .tm-contest-side { display: flex; flex-direction: column; gap: 8px; align-items: stretch; flex-shrink: 0; }
+body[data-persona="tmath"] .tm-contest-clock { min-width: 220px; padding: 12px 16px; border: 1px solid var(--tmath-border); border-radius: 12px; background: var(--tmath-card); }
+body[data-persona="tmath"] .tm-clock-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--tmath-muted-foreground); }
+body[data-persona="tmath"] .tm-clock-value { margin-top: 4px; font-family: var(--tmath-font-mono); font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+body[data-persona="tmath"] .tm-clock-value.danger { color: var(--tmath-destructive); }
+body[data-persona="tmath"] .tm-button.destructive { border-color: color-mix(in srgb, var(--tmath-destructive) 40%, transparent); background: var(--tmath-destructive); color: #fff; }
+body[data-persona="tmath"] .tm-ac-banner { margin: 0 0 14px; padding: 8px 0; font-size: 13px; color: var(--tmath-muted-foreground); }
+body[data-persona="tmath"] .tm-contest-strip { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--tmath-border); padding-bottom: 8px; margin-bottom: 16px; }
+body[data-persona="tmath"] .tm-contest-scroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
+body[data-persona="tmath"] .tm-contest-tabs { display: flex; gap: 2px; }
+body[data-persona="tmath"] .tm-contest-tab { padding: 6px 16px; border-radius: 8px; border: 0; background: var(--tmath-muted); color: var(--tmath-foreground); font-size: 13px; white-space: nowrap; }
+body[data-persona="tmath"] .tm-contest-tab.active { font-weight: 650; box-shadow: inset 0 -2px 0 var(--tmath-primary); border-radius: 8px 8px 0 0; }
+body[data-persona="tmath"] .tm-contest-tab.score-full { color: #166534; background: #dcfce7; }
+body[data-persona="tmath"] .tm-contest-tab.score-partial { color: #92400e; background: #fef3c7; }
+body[data-persona="tmath"] .tm-contest-tab.score-failed { color: #b91c1c; background: #fee2e2; }
+html.dark body[data-persona="tmath"] .tm-contest-tab.score-full { color: #86efac; background: #163e32; }
+html.dark body[data-persona="tmath"] .tm-contest-tab.score-partial { color: #fcd38b; background: #44331f; }
+html.dark body[data-persona="tmath"] .tm-contest-tab.score-failed { color: #fda4af; background: #482333; border-color: #713448; }
+/* resume/prepare screen: real page margins like tm-content */
+body[data-persona="tmath"] .tm-welcome { min-height: 100vh; padding: 48px 36px; }
+body[data-persona="tmath"] #app .tm-welcome h1 { margin: 26px 0 8px; font-size: 30px; font-weight: 700; }
+body[data-persona="tmath"] #app .tm-welcome p { margin: 0; color: var(--tmath-muted-foreground); }
+/* login: official form anatomy */
+body[data-persona="tmath"] .tm-login-form label { display: grid; gap: 6px; margin-bottom: 16px; font-size: 14px; font-weight: 600; }
+body[data-persona="tmath"] .tm-login-form .tm-button.full { width: 100%; padding: 14px; }
+/* official .theme-select/.theme-menu/.theme-option values (carve css @112264-@113359) */
+body[data-persona="tmath"] .theme-select { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 8px 10px; border: 1px solid var(--tmath-border); border-radius: 8px; background: var(--tmath-card); color: var(--tmath-foreground); font: 12px var(--tmath-font); cursor: pointer; white-space: nowrap; }
+body[data-persona="tmath"] .theme-select:hover, body[data-persona="tmath"] .tm-theme-menu-root[open] > summary.theme-select { background: var(--tmath-accent); color: var(--tmath-accent-foreground); }
+body[data-persona="tmath"] .theme-select:focus-visible { outline: 2px solid var(--tmath-ring, var(--tmath-primary)); outline-offset: 3px; }
+body[data-persona="tmath"] .tm-theme-menu-root { position: relative; }
+body[data-persona="tmath"] .tm-theme-menu-root > summary { list-style: none; }
+body[data-persona="tmath"] .tm-theme-menu-root > summary::-webkit-details-marker { display: none; }
+body[data-persona="tmath"] .theme-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 100; min-width: 150px; display: flex; flex-direction: column; padding: 5px; border: 1px solid var(--tmath-border); border-radius: 10px; background: var(--tmath-card); color: var(--tmath-foreground); box-shadow: 0 8px 24px #00000024; }
+body[data-persona="tmath"] .theme-option { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px 10px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: 13px var(--tmath-font); cursor: pointer; user-select: none; text-align: left; }
+body[data-persona="tmath"] .theme-option:hover { background: var(--tmath-accent); color: var(--tmath-accent-foreground); }
+body[data-persona="tmath"] .theme-check { margin-left: auto; display: flex; }
+/* native Edge password-reveal: WebView2 paints its native widgets per color-scheme — declare it */
+body[data-persona="tmath"] { color-scheme: light; }
+html.dark body[data-persona="tmath"] { color-scheme: dark; }
+/* native reveal retired (He's go on round #6): WebView2 paints the ::-ms-reveal sprite from
+   its own assets and only half-honors "color" — var(), literals and color-scheme all deployed
+   (rounds #1-#4 plus #7e), every result read "almost invisible". The native widget is hidden;
+   the rebuilt .tm-reveal button answers to our own tokens. color-scheme declarations stay:
+   they are the correct lever for WebView2 native widgets in general (scrollbars, checkboxes).
+   GLYPHS (round #7, He's call: one glyph for both states is not good): Windows system icon
+   fonts — "Segoe Fluent Icons" (Win11) with "Segoe MDL2 Assets" (Win10) fallback, same
+   codepoints in both (MS Learn glyph tables): View = E890 (eye, hidden state), RedEye = E7B3
+   (crossed eye, text-visible state). In-app use is licensed; glyphs are painted by ::before. */
+body[data-persona="tmath"] input[type="password"]::-ms-reveal,
+body[data-persona="tmath"] input[type="password"]::-ms-clear { display: none; }
+
+body[data-persona="tmath"] .tm-pw-wrap { position: relative; display: grid; }
+body[data-persona="tmath"] .tm-pw-wrap input { padding-right: 40px; }
+body[data-persona="tmath"] #app .tm-reveal { font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets"; font-size: 13px; line-height: 1; }
+body[data-persona="tmath"] .tm-reveal {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--tmath-muted-foreground);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+  font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+  font-size: 13px; line-height: 1;
+}
+body[data-persona="tmath"] .tm-reveal::before { content: "\E890"; }
+/* text-visible state: E890 eye + our own slash bar. Glyph probes (pass #9d) showed Fluent's
+   E7B3 "RedEye" renders as a plain eye (MDL2's = filled, no slash) — the Segoe fonts on Win
+   machines do not ship a crossed eye, so the crossing is our geometry: currentColor bar. */
+body[data-persona="tmath"] .tm-reveal[aria-pressed="true"]::after,
+body[data-persona="tmath"] .tm-reveal.on::after {
+  content: "";
+  position: absolute; left: 50%; top: 50%;
+  width: 17px; height: 1.25px; border-radius: 1px;
+  background: currentColor;
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+body[data-persona="tmath"] .tm-reveal:hover { color: var(--tmath-foreground); background: var(--tmath-muted); }
+body[data-persona="tmath"] .tm-reveal[aria-pressed="true"] { color: var(--tmath-foreground); }
+body[data-persona="tmath"] .tm-reveal:focus-visible { outline: 2px solid var(--tmath-ring); }
+body[data-persona="tmath"] .tm-problem-heading { margin: 4px 0 18px; }
+body[data-persona="tmath"] .tm-problem-heading h2 { margin: 0; font-size: 21px; line-height: 1.3; font-weight: 650; }
+body[data-persona="tmath"] .tm-problem-heading .tm-muted { display: block; margin-top: 4px; font-size: 12px; font-family: ui-monospace, var(--tmath-mono, monospace); }
+body[data-persona="tmath"] .tm-menu { position: relative; }
+body[data-persona="tmath"] .tm-menu > summary { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--tmath-border); border-radius: 8px; background: var(--tmath-card); color: var(--tmath-muted-foreground); font: 12px/1 var(--tmath-font); cursor: pointer; list-style: none; }
+body[data-persona="tmath"] .tm-menu > summary::-webkit-details-marker { display: none; }
+body[data-persona="tmath"] .tm-menu > summary:hover { border-color: var(--tmath-muted-foreground); color: var(--tmath-foreground); }
+body[data-persona="tmath"] .tm-menu[open] > summary { border-color: var(--tmath-ring, var(--tmath-primary)); color: var(--tmath-foreground); }
+body[data-persona="tmath"] .tm-menu-body { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 210px; padding: 8px; border: 1px solid var(--tmath-border); border-radius: 10px; background: var(--tmath-card); box-shadow: 0 10px 28px color-mix(in srgb, #000 24%, transparent); }
+body[data-persona="tmath"] .tm-menu-body .tm-button { justify-content: flex-start; border: 1px solid var(--tmath-border); background: var(--tmath-card); }
+body[data-persona="tmath"] .tm-menu-body .tm-button:hover { border-color: var(--tmath-muted-foreground); }
+body[data-persona="tmath"] .tm-menu-body .tm-button[aria-pressed="true"] { border-color: color-mix(in srgb, var(--tmath-primary) 40%, var(--tmath-border)); color: var(--tmath-primary); }
+/* official login buttons: one height, full width, google matches primary */
+body[data-persona="tmath"] .tm-button.full { width: 100%; }
+body[data-persona="tmath"] .tm-login-card .tm-button.full { min-height: 44px; padding: 12px 14px; font-size: 14px; }
+body[data-persona="tmath"] .tm-avatar { position: relative; overflow: hidden; }
+body[data-persona="tmath"] .tm-avatar .tm-avatar-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+body[data-persona="tmath"] .tm-case-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 10px; }
+body[data-persona="tmath"] .tm-case-picker .tm-field { flex: 0 1 220px; min-width: 160px; }
+
+/* pass #12: stat tile icons + account main column + rating chart */
+body[data-persona="tmath"] .tm-stat { position: relative; }
+body[data-persona="tmath"] .tm-stat-icon { position: absolute; top: 18px; right: 16px; width: 20px; height: 20px; color: var(--tmath-primary); opacity: .75; }
+body[data-persona="tmath"] .tm-account-main { display: grid; gap: 20px; min-width: 0; }
+body[data-persona="tmath"] .tm-section-title { margin: 0 0 14px; font-size: 16px; }
+body[data-persona="tmath"] .tm-rating-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+body[data-persona="tmath"] .tm-rating-head h2 { margin: 0; font-size: 16px; }
+body[data-persona="tmath"] .tm-rating-head .tm-badge { flex: none; }
+body[data-persona="tmath"] .tm-rating-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 16px 0 6px; }
+body[data-persona="tmath"] .tm-rating-stats small { display: block; color: var(--tmath-muted-foreground); font-size: 12px; }
+body[data-persona="tmath"] .tm-rating-stats strong { display: block; margin-top: 4px; font-size: 22px; font-variant-numeric: tabular-nums; }
+body[data-persona="tmath"] .tm-rating-chart svg { display: block; width: 100%; height: 170px; margin-top: 10px; }
+body[data-persona="tmath"] .tm-rating-line { fill: none; stroke: var(--tmath-primary); stroke-width: 2.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
+body[data-persona="tmath"] .tm-rating-area { fill: color-mix(in srgb, var(--tmath-primary) 10%, transparent); stroke: none; }
+body[data-persona="tmath"] .tm-rating-empty { display: grid; place-items: center; gap: 4px; min-height: 170px; margin-top: 10px; border: 1px dashed var(--tmath-border); border-radius: 12px; padding: 22px; text-align: center; }
+body[data-persona="tmath"] .tm-rating-empty svg { color: var(--tmath-muted-foreground); opacity: .7; }
+body[data-persona="tmath"] .tm-rating-empty p { margin: 2px 0 0; }
+body[data-persona="tmath"] .tm-account-grid > section + .tm-account-main { margin-top: 0; }
+@media (max-width: 720px) { body[data-persona="tmath"] .tm-rating-stats { grid-template-columns: 1fr; } }
+
+/* pass #13: rate chart axis + segments + tooltip + rate-history + md */
+body[data-persona="tmath"] .tm-rating-chart { position: relative; }
+body[data-persona="tmath"] .tm-rating-chart svg { height: 230px; }
+body[data-persona="tmath"] .tm-rate-grid { stroke: var(--tmath-border); stroke-width: 1; vector-effect: non-scaling-stroke; }
+body[data-persona="tmath"] .tm-rate-seg { stroke-width: 2.5; vector-effect: non-scaling-stroke; stroke-linecap: round; }
+body[data-persona="tmath"] .tm-rate-dot { stroke: var(--tmath-card); stroke-width: 1.5; vector-effect: non-scaling-stroke; cursor: default; }
+body[data-persona="tmath"] .tm-rate-dot:hover { r: 5; }
+body[data-persona="tmath"] .tm-rate-y { position: absolute; transform: translateY(-50%); left: 6px; width: 38px; text-align: right; color: var(--tmath-muted-foreground); font-size: 10px; pointer-events: none; }
+body[data-persona="tmath"] .tm-rate-x { position: absolute; transform: translateX(-50%); bottom: 0; color: var(--tmath-muted-foreground); font-size: 10px; pointer-events: none; }
+body[data-persona="tmath"] .tm-rate-tip { position: absolute; transform: translate(-50%, calc(-100% - 10px)); background: var(--tmath-popover, #0b1220); color: var(--tmath-foreground); border: 1px solid var(--tmath-border); border-radius: 10px; padding: 8px 10px; font-size: 12px; line-height: 1.6; pointer-events: none; z-index: 5; box-shadow: 0 8px 24px rgb(0 0 0 / .35); white-space: nowrap; }
+body[data-persona="tmath"] .tm-rate-tip .tm-rate-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; }
+body[data-persona="tmath"] .tm-rate-tip b.up, body[data-persona="tmath"] .tm-rate-history td.up { color: #22c55e; }
+body[data-persona="tmath"] .tm-rate-tip b.down, body[data-persona="tmath"] .tm-rate-history td.down { color: #ef4444; }
+body[data-persona="tmath"] .tm-rate-history { margin-top: 12px; }
+body[data-persona="tmath"] .tm-rate-history summary { cursor: pointer; color: var(--tmath-muted-foreground); font-size: 13px; margin-bottom: 8px; }
+body[data-persona="tmath"] .tm-rate-history[open] summary { color: var(--tmath-foreground); }
+body[data-persona="tmath"] .tm-md-img { max-width: 100%; height: auto; border-radius: 8px; margin: 4px 0; }
+body[data-persona="tmath"] .tm-md { overflow-wrap: anywhere; }
+body[data-persona="tmath"] .tm-md-embed { display: block; width: 100%; aspect-ratio: 16 / 9; margin: 6px 0; border: 1px solid var(--tmath-border); border-radius: 8px; background: #000; }
+body[data-persona="tmath"] .tm-rate-hit { fill: transparent; cursor: pointer; }
+body[data-persona="tmath"] .tm-rate-marker { stroke: var(--tmath-card); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+body[data-persona="tmath"] .tm-org-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+body[data-persona="tmath"] .tm-profile-rank { margin: 6px 0 0; }
+/* pass #15: profile side column + about card + row glyphs */
+body[data-persona="tmath"] .tm-account-side { display: grid; gap: 20px; align-content: start; min-width: 0; }
+body[data-persona="tmath"] .tm-dl-row { display: flex; align-items: center; gap: 8px; }
+body[data-persona="tmath"] .tm-dl-icon { width: 15px; height: 15px; flex: none; color: var(--tmath-muted-foreground); }
+body[data-persona="tmath"] .tm-about-card .tm-md { color: var(--tmath-foreground); font-size: 13px; line-height: 1.7; }
+body[data-persona="tmath"] .tm-rate-hover { position: absolute; width: 9px; height: 9px; border-radius: 50%; transform: translate(-50%, -50%); border: 1.5px solid var(--tmath-card); pointer-events: none; z-index: 2; }
+/* pass #17: v1.0.2a polish */
+body[data-persona="tmath"] .tm-account-stats .tm-section-title { margin: 0 0 20px; font-size: 16px; font-weight: 600; }
+body[data-persona="tmath"] .tm-account-stats .tm-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+body[data-persona="tmath"] .tm-rate-count { font-size: 13px; font-weight: 400; }
+body[data-persona="tmath"] .tm-delta-up { color: #22c55e; }
+body[data-persona="tmath"] .tm-delta-down { color: #ef4444; }
+body[data-persona="tmath"] .tm-delta-flat { color: #71717a; }
+body[data-persona="tmath"] .tm-rate-x { white-space: nowrap; }
+body[data-persona="tmath"] .tm-rate-tip { z-index: 50; pointer-events: none; white-space: nowrap; box-shadow: 0 6px 20px rgba(0,0,0,0.45); }
+body[data-persona="tmath"] .tm-rate-hover { position: absolute; width: 9px; height: 9px; border-radius: 50%; transform: translate(-50%, -50%); border: 2px solid var(--tmath-card); box-shadow: 0 0 0 1.5px var(--tmath-primary); pointer-events: none; z-index: 20; }
+body[data-persona="tmath"] .tm-dl-link { color: inherit; text-decoration: none; }
+body[data-persona="tmath"] .tm-dl-link:hover { text-decoration: underline; color: var(--tmath-primary); }
+/* pass #18: audit round — official truths from the UserRatingChart + account carve */
+body[data-persona="tmath"] .tm-rate-area { pointer-events: none; }
+/* official history table (carve): thead py-2, body first col py-3 pr-3, other cells p-2 */
+body[data-persona="tmath"] .tm-rate-history .tm-table thead th { padding: 8px 12px 8px 0; }
+body[data-persona="tmath"] .tm-rate-history .tm-table td { padding: 8px 12px 8px 0; }
+body[data-persona="tmath"] .tm-rate-history .tm-table tbody td:first-child { padding: 12px 12px 12px 0; }
+/* official profile title card (carve @862148): centered column, border-b pb-5 */
+body[data-persona="tmath"] .tm-profile-head { display: grid; justify-items: center; text-align: center; border-bottom: 1px solid var(--tmath-border); padding-bottom: 20px; margin-bottom: 16px; }
+body[data-persona="tmath"] .tm-profile-head .tm-avatar { margin-bottom: 8px; }
+body[data-persona="tmath"] .tm-profile-head h2 { margin: 0; font-size: 20px; }
+body[data-persona="tmath"] .tm-profile-head p { margin: 0; font-size: 14px; }
+body[data-persona="tmath"] .tm-profile-head .tm-profile-rank { margin-top: 6px; }
+/* pass #19: audit round 3 — official truths (carve Zg/Qg/$g + account/tiles/chart chunks + css vars) */
+/* stats: header mb-3 (12px), tiles py-5 shadowless, 2x2 base -> 4x1 at 2xl (1536px) */
+body[data-persona="tmath"] .tm-account-stats .tm-section-title { margin: 0 0 12px; }
+body[data-persona="tmath"] .tm-account-stats .tm-stat { padding: 20px 24px; box-shadow: none; }
+@media (min-width: 1536px) {
+  body[data-persona="tmath"] .tm-account-stats .tm-stat-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+/* chart card head glyph (official lucide trending-up, size-4 text-primary) */
+body[data-persona="tmath"] .tm-rating-head h2 { display: flex; align-items: center; gap: 8px; }
+body[data-persona="tmath"] .tm-rate-glyph { width: 16px; height: 16px; flex: none; color: var(--tmath-primary); }
+/* official delta classes ($g): up green-500, down red-500, flat muted-foreground */
+body[data-persona="tmath"] .tm-delta-up { color: #00c758; }
+body[data-persona="tmath"] .tm-delta-down { color: #fb2c36; }
+body[data-persona="tmath"] .tm-delta-flat { color: var(--tmath-muted-foreground); }
+/* profile rows: official stacks label over value (dl grid, dt mb-1.5, dd font-medium), no indent */
+body[data-persona="tmath"] .tm-profile-dl { display: grid; gap: 0; }
+body[data-persona="tmath"] .tm-profile-dl dt { margin: 0 0 6px; }
+body[data-persona="tmath"] .tm-profile-dl dd { margin: 0 0 20px; font-weight: 500; }
+body[data-persona="tmath"] .tm-profile-dl dd:last-child { margin-bottom: 0; }
+/* Rating/Submissions stay tappable but read as plain text (official rows are not links) */
+body[data-persona="tmath"] .tm-dl-link { color: inherit; text-decoration: none; }
+body[data-persona="tmath"] .tm-dl-link:hover { text-decoration: underline; color: var(--tmath-primary); }
+/* avatar tile: official bg-accent wash + primary/15 border (blends into the card) */
+body[data-persona="tmath"] .tm-account-grid .tm-avatar { background: var(--tmath-accent); border-color: color-mix(in srgb, var(--tmath-primary) 15%, transparent); }
+/* pass #20: audit round 4 — sort bars, CPH pane reshape, settings polish, collapse cleanup */
+body[data-persona="tmath"] .tm-rate-history .tm-table thead th { background: transparent; }
+body[data-persona="tmath"] .tm-sort-bar { display: flex; align-items: center; gap: 10px; padding: 0 16px 10px; font-size: 13px; }
+body[data-persona="tmath"] .tm-sort-bar .tm-button { min-height: 26px; padding: 2px 10px; font-size: 12px; }
+body[data-persona="tmath"] .tm-table th .tm-sort-h { border: 0; padding: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+body[data-persona="tmath"] .tm-table th .tm-sort-h:hover { color: var(--tmath-primary); }
+body[data-persona="tmath"] .tm-output-box { margin: 0; padding: 10px 12px; border: 1px solid var(--tmath-border); border-radius: 8px; background: color-mix(in srgb, var(--tmath-muted) 40%, var(--tmath-card)); font-family: var(--tm-editor-font, monospace); font-size: 13px; line-height: 1.5; min-height: 64px; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) .tm-sidebar-footer :is(b, p, button) { display: none; }
+body[data-persona="tmath"] .tm-settings-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+body[data-persona="tmath"] .tm-settings-head .tm-button { flex: none; min-height: 28px; padding: 4px 10px; font-size: 12px; }
+body[data-persona="tmath"] .tm-settings-section .tm-field { margin: 0 0 14px; }
+body[data-persona="tmath"] .tm-settings-section :is(select, input[type="number"]) { width: 100%; }
+body[data-persona="tmath"] .tm-versions > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--tmath-border); }
+body[data-persona="tmath"] .tm-versions > div:last-child { border-bottom: 0; }
+body[data-persona="tmath"] .tm-versions dt { color: var(--tmath-muted-foreground); font-size: 13px; }
+body[data-persona="tmath"] .tm-versions dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+body[data-persona="tmath"] .tm-shell { font-family: var(--tm-ui-font, var(--tmath-font)); }
+body[data-persona="tmath"] .tm-account-stats .tm-section-title { margin: 0 0 16px; }
+body[data-persona="tmath"] .tm-md :is(img, iframe) { max-width: 100%; }
+body[data-persona="tmath"] .tm-md .tm-md-center { text-align: center; }
+/* pass #25: the @handle copies itself — looks identical to the old span until hover */
+body[data-persona="tmath"] .tm-handle-copy { padding: 0; border: 0; background: none; font: inherit; font-weight: 500; cursor: copy; }
+body[data-persona="tmath"] .tm-handle-copy:hover { text-decoration: underline dashed; }
+
+/* pass #25: case editor tabs (Input | Output); drawer disclaimer lives in the collapsed bar */
+body[data-persona="tmath"] .tm-case-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+body[data-persona="tmath"] .tm-case-tabs button { padding: 7px 14px; border: 1px solid transparent; border-radius: 8px 8px 0 0; background: none; color: var(--tmath-muted-foreground); font-size: 12.5px; cursor: pointer; }
+body[data-persona="tmath"] .tm-case-tabs button[aria-selected="true"] { border-color: var(--tmath-border); background: var(--tmath-card); color: var(--tmath-foreground); font-weight: 600; }
+body[data-persona="tmath"] .tm-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* pass #29: first layer = official barebone (carve @q_/Z_ tabs) — Input/Output tabs,
+   Options button right-aligned as the full-suite gateway, output pre sized like h-28/56 */
+body[data-persona="tmath"] .tm-io-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+body[data-persona="tmath"] .tm-io-tabs { margin-bottom: 0; }
+body[data-persona="tmath"] .tm-io-first .tm-output-box { min-height: 112px; max-height: 224px; }
+
+/* pass #30: per-TC options tab (verdict strip removed in #32 — the dropdown names carry it) */
+body[data-persona="tmath"] .tm-case-opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+body[data-persona="tmath"] .tm-count-pill { padding: 1px 8px; border: 1px solid var(--tmath-border); border-radius: 999px; color: var(--tmath-muted-foreground); font-size: 11px; font-weight: 500; }
+
+/* pass #34: quiet run states — green pulsing dot while busy; the only verdict words
+   left are scored ones (AC/WA/…) in dropdown titles */
+body[data-persona="tmath"] .tm-run-dot { display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: #00c758; vertical-align: middle; animation: tm-run-pulse 1s ease-in-out infinite; }
+@keyframes tm-run-pulse { 50% { opacity: .2; } }
+
+/* pass #36: per-case actual rides the case's Output tab; the score rides the pill */
+body[data-persona="tmath"] .tm-case-actual { display: grid; gap: 8px; margin-top: 12px; }
+body[data-persona="tmath"] .tm-count-pill.accepted { border-color: #00c758; color: #00c758; }
+body[data-persona="tmath"] .tm-md img.tm-md-img-link { display: inline-block; vertical-align: middle; }
+/* pass #21: the #app h2 blanket (line 54, id-specificity 1,1,2) silently zeroed every
+   class-level h2 margin below it — THREE audit rounds of stats fixes never applied.
+   ID-ranked overrides restore them (victims: stats header, login card, contest card). */
+body[data-persona="tmath"] #app .tm-account-stats .tm-section-title { margin: 0 0 16px; }
+body[data-persona="tmath"] #app .tm-login-card h2 { margin: 15px 0 12px; font-size: 30px; font-weight: 700; }
+body[data-persona="tmath"] #app .tm-contest-card h2 { margin-bottom: 8px; }
+
+/* pass #22: settings polish — preview box, sane control widths, fonts-found label */
+body[data-persona="tmath"] .tm-preview { border: 1px solid var(--tmath-border); border-radius: 10px; padding: 14px 16px; background: var(--tmath-card); }
+body[data-persona="tmath"] .tm-settings-section select { width: 100%; }
+body[data-persona="tmath"] .tm-settings-section input[type="number"] { width: 110px; }
+body[data-persona="tmath"] .tm-settings-section .tm-field { margin: 0 0 12px; }
+body[data-persona="tmath"] .tm-settings-section .tm-field small { display: block; }
+
+/* pass #25: the two font-size fields share one line; collapse on narrow widths */
+body[data-persona="tmath"] .tm-field-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0 0 12px; }
+body[data-persona="tmath"] .tm-field-row .tm-field { margin: 0; }
+body[data-persona="tmath"] .tm-field-row input[type="number"] { width: 100%; }
+@media (max-width: 560px) { body[data-persona="tmath"] .tm-field-row { grid-template-columns: 1fr; } }

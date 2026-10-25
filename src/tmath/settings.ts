@@ -1,0 +1,99 @@
+import { t, LOCALES } from "../i18n";
+import { clientVersion } from "../lib/api";
+import { cphDetect, systemFonts } from "../lib/transport";
+import { esc, text, button, errorBox, empty } from "./ui";
+import { read, write, savePreferences, type Preferences } from "./preferences";
+import manifest from "../../package.json";
+
+// pass #24 — outdo official's jailed curated lists (carve gg/_g): System stacks are the
+// DEFAULTS for the shared UI/statement font and the editor font, and the whole OS font
+// list enumerates on every Settings visit (leave/rejoin re-enumerates).
+const IS_WIN = /win/i.test(navigator.userAgent);
+const SYS_UI = IS_WIN ? "Segoe UI" : "System";
+const SYS_MONO = IS_WIN ? "Consolas" : "Monospace";
+const STATEMENT_FONTS: [string, string][] = [
+  ["__system__", `System (${SYS_UI})`],
+  ["Noto Sans Variable", "Noto Sans Variable"],
+  ["Arial", "Arial"],
+  ["Times New Roman", "Times New Roman"],
+  ["Georgia", "Georgia"],
+];
+const EDITOR_FONTS: [string, string][] = [
+  ["__sysmono__", `System Monospace (${SYS_MONO})`],
+  ["__default__", "Menlo / Consolas"],
+  ["Consolas", "Consolas"],
+  ["Menlo", "Menlo"],
+  ["Courier New", "Courier New"],
+];
+
+export function renderSettings(host: HTMLElement, prefs: Preferences, onChange: () => void): () => void {
+  let disposed = false;
+  // a saved off-list font survives remounts (audit F23) instead of silently resetting
+  const withSaved = (list: [string, string][], saved: string): [string, string][] =>
+    list.some(([k]) => k === saved) || !saved ? list : [...list, [saved, saved]];
+  const select = (id: string, values: [string, string][], selected: string) => `<select id="${id}" name="${id}">${values.map(([value, label]) => `<option value="${esc(value)}"${selected === value ? " selected" : ""}>${esc(label)}</option>`).join("")}</select>`;
+  host.innerHTML = `<div class="tm-page-title"><div><div class="tm-eyebrow">${esc(t("settings.eyebrow" as "settings.title"))}</div><h1>${text("settings.title" as "contests.title")}</h1><p class="tm-muted">${esc(t("settings.headerDesc" as "settings.title"))}</p></div></div><div class="tm-settings-grid">
+    <section class="tm-card tm-settings-section"><h2>${text("settings.appearance")}</h2><div class="tm-field"><label for="tm-theme">${text("settings.theme")}</label>${select("tm-theme", ["light","dark","system"].map(v => [v, t(`settings.${v}` as "settings.light")]), prefs.theme)}</div><div class="tm-field"><label for="tm-locale">${text("settings.language")}</label>${select("tm-locale", LOCALES.map(v => [v, {"en-US":"English","vi-VN":"Tiếng Việt","zh-CN":"简体中文"}[v]]), prefs.locale)}</div></section>
+    <section class="tm-card tm-settings-section"><h2>${text("settings.typography")}</h2><div class="tm-field"><label for="tm-statement-font">${text("settings.statementFont")}</label>${select("tm-statement-font", withSaved(STATEMENT_FONTS, prefs.statementFont), prefs.statementFont)}<small class="tm-muted" data-font-row></small></div><div class="tm-field"><label for="tm-editor-font">${text("settings.editorFont")}</label>${select("tm-editor-font", withSaved(EDITOR_FONTS, prefs.editorFont), prefs.editorFont)}</div><div class="tm-field-row"><div class="tm-field"><label for="tm-statement-size">${text("settings.statementSize")}</label><input id="tm-statement-size" type="number" min="12" max="28" value="${prefs.statementSize}"></div><div class="tm-field"><label for="tm-editor-size">${text("settings.editorSize")}</label><input id="tm-editor-size" type="number" min="10" max="28" value="${prefs.editorSize}"></div></div><label class="tm-check"><input id="tm-wrap" type="checkbox"${prefs.wordWrap ? " checked" : ""}>${text("settings.wordWrap")}</label><label class="tm-check"><input id="tm-minimap" type="checkbox"${prefs.minimap ? " checked" : ""}>${text("settings.minimap")}</label><div class="tm-preview"><small>${text("settings.preview")}</small><p class="tm-statement">a + b = c · ∑ i² · 0123456789</p><pre style="font-family:var(--tm-editor-font);font-size:${prefs.editorSize}px">int main() { return 0; }</pre></div></section>
+    <section class="tm-card tm-settings-section"><h2>${text("settings.tools")}</h2>${button("settings.detectTools", "tools")}<div id="tm-tools"></div></section>
+    <section class="tm-card tm-settings-section"><h2>${text("settings.versions")}</h2><dl class="tm-versions"><div><dt>${text("app.clientVersion")}</dt><dd><b>delcc</b> ${esc(manifest.version)}</dd></div><div><dt>${text("app.requiredVersion")}</dt><dd>${esc(clientVersion() || "—")}</dd></div></dl><p class="tm-muted">${text("app.independent")}</p></section></div>`;
+  host.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input,select").forEach(control => {
+    control.onchange = () => {
+      const val = (id: string) => (host.querySelector(`#${id}`) as HTMLInputElement).value;
+      prefs.theme = val("tm-theme") as Preferences["theme"];
+      prefs.locale = val("tm-locale") as Preferences["locale"];
+      prefs.statementFont = val("tm-statement-font"); prefs.editorFont = val("tm-editor-font");
+      prefs.statementSize = Math.max(12, Math.min(28, Number(val("tm-statement-size")) || 16));
+      prefs.editorSize = Math.max(10, Math.min(28, Number(val("tm-editor-size")) || 14));
+      prefs.wordWrap = (host.querySelector("#tm-wrap") as HTMLInputElement).checked;
+      prefs.minimap = (host.querySelector("#tm-minimap") as HTMLInputElement).checked;
+      savePreferences(prefs); onChange();
+    };
+  });
+  // enumerate the OS font list on every Settings visit (queryLocalFonts -> bridge
+  // fallback); System entries stay first, the saved value always survives (F23)
+  const fontRow = host.querySelector<HTMLElement>("[data-font-row]");
+  if (fontRow) fontRow.textContent = t("settings.fontsScanning");
+  void (async () => {
+    if (disposed) return;
+    let families: string[] = [];
+    if ("queryLocalFonts" in window) {
+      try {
+        const fonts = await (window as unknown as { queryLocalFonts(): Promise<{ family: string }[]> }).queryLocalFonts();
+        families = [...new Set(fonts.map(f => f.family))];
+        if (families.length) write("delcc-font-sources", "browser");
+      } catch { /* permission denied -> bridge */ }
+    }
+    if (!families.length) {
+      try {
+        families = await systemFonts();
+        if (families.length) write("delcc-font-sources", "os");
+      } catch { /* curated fallback stays */ }
+    }
+    if (disposed || !families.length) { if (fontRow && !disposed) fontRow.textContent = ""; return; }
+    families = families.sort((x, y) => x.localeCompare(y));
+    if (fontRow) fontRow.textContent = t("settings.fontsFound", { n: String(families.length) });
+    const rebuild = (id: string, base: [string, string][], saved: string) => {
+      const el = host.querySelector<HTMLSelectElement>(`#${id}`);
+      if (!el) return;
+      const opts = [...base];
+      for (const fam of families) if (!opts.some(([k]) => k === fam)) opts.push([fam, fam]);
+      if (!opts.some(([k]) => k === saved) && saved) opts.push([saved, saved]);
+      el.innerHTML = opts.map(([v, l]) => `<option value="${esc(v)}"${saved === v ? " selected" : ""}>${esc(l)}</option>`).join("");
+    };
+    rebuild("tm-statement-font", STATEMENT_FONTS, host.querySelector<HTMLSelectElement>("#tm-statement-font")?.value ?? "");
+    rebuild("tm-editor-font", EDITOR_FONTS, host.querySelector<HTMLSelectElement>("#tm-editor-font")?.value ?? "");
+  })();
+  const btn = host.querySelector<HTMLButtonElement>('[data-action="tools"]')!;
+  btn.onclick = async () => {
+    btn.disabled = true;
+    const out = host.querySelector<HTMLElement>("#tm-tools")!;
+    out.textContent = t("common.loading");
+    try {
+      const tools = await cphDetect(); if (disposed) return;
+      out.innerHTML = tools.length ? tools.map(tool => `<p><b>${esc(tool.label)}</b> <code>${esc(tool.binary)}</code><br><span class="tm-muted">${esc(tool.version)}</span></p>`).join("") : empty("settings.noTools");
+    } catch (e) { if (!disposed) out.innerHTML = errorBox(e); }
+    finally { if (!disposed) btn.disabled = false; }
+  };
+  return () => { disposed = true; };
+}

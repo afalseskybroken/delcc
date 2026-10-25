@@ -1,0 +1,19 @@
+# Copy this to delcc-e2e.local.toml and fill in [auth]. Burner creds only — real
+# accounts never belong in a file on disk. local.toml is gitignored (see .gitignore
+# in this folder) and the script refuses to run without it.
+
+[auth]
+username = ""
+password = ""
+
+[run]
+# Leave both empty to use the first public problem found.
+problem = ""   # problem code, e.g. "a01a00001"
+contest = ""   # contest key — only set this if you want the contest-scoped endpoints
+
+[danger]
+# submit-mock produces a REAL submission on the live tenant. This alone does nothing —
+# --allow-live-submit must ALSO be passed on the command line. Both gates, on purpose.
+allow_live_submit = false
+submit_language = "CPP20"
+submit_source = "print(\"XINCHAO!\")"

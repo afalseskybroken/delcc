@@ -1,0 +1,30 @@
+[package]
+name = "delcc-app"
+version = "0.2.1-alpha"
+description = "delcc — custom frontend (not TMATH's work)"
+authors = ["He"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+# Phase 3 [claude] lane: tauri-plugin-updater + pubkey + endpoints.
+# deliberately unwired here — the check binary must boot with zero config.
+reqwest = { version = "0.13", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# CPH lane 1 (Job Object memory cap). Behind `job-mem-cap`, OFF by default — unverified
+# FFI (no cargo on the box that wrote it) must never be able to break the exes that are
+# already proven to build. `cargo build --features job-mem-cap` opts in to test it alone.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security", "Win32_System_Registry"], optional = true }
+
+[features]
+default = ["custom-protocol", "fonts-enum"]
+custom-protocol = ["tauri/custom-protocol"]
+job-mem-cap = ["dep:windows-sys"]
+# fonts-enum: registry-only font harvest (default on; pure RegReads, no process mutation)
+fonts-enum = ["dep:windows-sys"]

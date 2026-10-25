@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>delcc — custom frontend</title>
+    <link rel="stylesheet" href="/src/app.css" />
+  </head>
+  <body>
+    <div id="sig"><b>delcc</b> <span class="pill">custom frontend · unthemed</span>
+      <div class="muted">not TMATH's work. no capture tricks, no clipboard wipes, no forced updates. inspectable fetch.</div>
+    </div>
+    <div id="updateBanner" class="update-banner" hidden>
+      <span id="updateBannerText">checking the official client release feed…</span>
+      <button id="updateOpenInstaller">open official installer</button>
+      <button id="updateDismiss" title="dismiss — won't show again for this version">dismiss</button>
+    </div>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

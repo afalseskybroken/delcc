@@ -1,0 +1,35 @@
+# delcc-app — build artifacts
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+
+# editors / OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store
+
+# ============================================================
+# PRIVATE WORKSPACE FILES — never commit these to the public repo
+# (maintainer's ledger, lane bookkeeping, workspace-only tooling.
+#  Rationale: see PUBLISH.md "scrub list" — everything below either
+#  contains lane/opsec context or third-party proprietary code.)
+# ============================================================
+todo.md
+states.md
+BUNDLE.md
+chunks/
+tools/carve-account.txt
+tools/fixpass-*.mjs
+tools/audit-b1.mjs
+tools/export-agent-tree.mjs
+tools/count10.mjs
+tools/dedupe-strip.mjs
+tools/unwrap-bundle.mjs
+scripts/test-unwrap-bundle.mjs
+tools/peek-*.mjs
+
+# captures of the official site (third-party markup) — private reference only
+users_probe.html
