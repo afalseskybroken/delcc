@@ -58,14 +58,21 @@ export async function transport(
 // pass #18: public site HTML (avatar harvest). Rust shell first — the webview fetch
 // is CORS-blocked on profile pages; plain-browser dev keeps a best-effort fetch.
 export async function siteGet(path: string): Promise<TransportResponse> {
-  const inv = await invoke();
-  if (inv) {
+  const direct = async (): Promise<TransportResponse> => {
+    const r = await fetch(`https://oj.tmathcoding.vn${path}`, { headers: { Accept: "text/html" }, signal: AbortSignal.timeout(10_000) });
+    return { status: r.status, json: {}, text: await r.text().catch(() => "") };
+  };
+  try {
+    const inv = await invoke();
+    if (!inv) return direct();
     const raw = await inv("site_fetch", { path });
     const env = JSON.parse(raw) as { status: number; body: string };
     return { status: env.status, json: {}, text: env.body };
+  } catch {
+    // shell route unavailable (command error/ACL) — the direct fetch still works
+    // wherever the site sends its CORS header
+    return direct();
   }
-  const r = await fetch(`https://oj.tmathcoding.vn${path}`, { headers: { Accept: "text/html" }, signal: AbortSignal.timeout(10_000) });
-  return { status: r.status, json: {}, text: await r.text().catch(() => "") };
 }
 export async function getLayout(): Promise<string> {
   const inv = await invoke();
