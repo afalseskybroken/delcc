@@ -23,7 +23,7 @@ serde_json = "1"
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security", "Win32_System_Registry"], optional = true }
 
 [features]
-default = ["custom-protocol", "fonts-enum"]
+default = ["custom-protocol", "fonts-enum", "job-mem-cap"]
 custom-protocol = ["tauri/custom-protocol"]
 job-mem-cap = ["dep:windows-sys"]
 # fonts-enum: registry-only font harvest (default on; pure RegReads, no process mutation)

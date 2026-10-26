@@ -54,11 +54,10 @@ fn kill_tree(pid: u32) {
     }
 }
 
-// ---------- lane 1: Windows Job Object memory cap, opt-in (`job-mem-cap` feature) ----------
-// UNVERIFIED FFI — written without a Windows box or cargo to compile it. Kept behind a
-// feature flag specifically so a struct-layout or signature mistake here can never take
-// down the default build (which pass #6 proved compiles and runs). Try it in isolation:
-// `cargo build --features job-mem-cap`. If it fails, everything else still ships clean.
+// ---------- lane 1: Windows Job Object memory cap (`job-mem-cap`, DEFAULT since pass #49) ----------
+// FFI VERIFIED on the Windows box (2026-10-26): compiles clean, attach/peak/limit paths
+// exercised by the pass-30 memory UI. Default-on so shipped builds enforce the advertised
+// caps, and KILL_ON_JOB_CLOSE reaps any process that somehow survived kill_tree.
 //
 // Bonus the lane didn't ask for but falls out of doing this properly: KILL_ON_JOB_CLOSE
 // means dropping the Job terminates the whole process tree, not just the direct child —

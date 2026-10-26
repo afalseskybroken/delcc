@@ -96,7 +96,7 @@ export interface CphToolchain { lang_key: string; label: string; binary: string;
 export interface CphCase {
   id: string; input: string; expected?: string | null; enabled?: boolean;
   timeLimitMs?: number;  // lane 2: per-case override, else the panel's limit
-  memoryLimitMb?: number; // lane 1: per-case override; only enforced with Rust's `job-mem-cap` feature
+  memoryLimitMb?: number; // lane 1: per-case override; enforced by the Windows Job Object (default since pass #49)
 }
 export interface CphCaseResult { id: string; verdict: string; stdout: string; stderr: string; time_ms: number; exit_code?: number | null }
 export interface CphRunResponse { compile_ok: boolean; compile_log: string; results: CphCaseResult[]; cancelled?: boolean }
