@@ -260,6 +260,7 @@ export const enUS: Dict = {
   "problem.emptySource": "Enter source code before submitting.",
   "problem.draftSaved": "Draft saved locally",
   "problem.run": "Run locally",
+  "problem.legacyGcc": "Your toolchain ({v}) is GCC 8.x on MinGW — its <filesystem> is broken, so #include <bits/stdc++.h> cannot compile locally (the judge compiles fine). Install GCC 9+ (w64devkit / MSYS2 / TDM-GCC) and re-run tool detection.",
   "problem.runUnavailable": "Local execution requires the desktop app and a compatible compiler or interpreter.",
   "problem.running": "Running locally…",
   "problem.judging": "Judging…",

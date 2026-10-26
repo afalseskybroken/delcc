@@ -122,9 +122,16 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     // official barebone surfaces the no-toolchain hint inline under the run strip
     const runHint = host.querySelector<HTMLElement>("[data-run-hint]");
     if (runHint) {
+      const langKey = cph.cphLangKey(language);
+      const tc = available ? cph.toolchainFor(langKey) : null;
+      const major = tc ? Number((tc.version.match(/(\d+)\.\d+/) ?? [])[1] ?? 99) : 99;
+      // GCC 8.x MinGW ships a broken <filesystem> — bits/stdc++.h (the CP reflex)
+      // cannot compile at all; the judge is unaffected. Tell the runner up front.
+      const legacyGcc = detectDone && !!tc && langKey === "cpp" && major <= 8;
       const missing = detectDone && !available;
-      runHint.hidden = !missing;
+      runHint.hidden = !(missing || legacyGcc);
       if (missing) runHint.textContent = t("problem.runUnavailable");
+      else if (legacyGcc) runHint.textContent = t("problem.legacyGcc", { v: tc!.version });
     }
   }
 

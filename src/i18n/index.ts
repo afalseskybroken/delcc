@@ -269,6 +269,7 @@ export interface Dict {
   "problem.emptySource": string;
   "problem.draftSaved": string;
   "problem.run": string;
+  "problem.legacyGcc": string;
   "problem.runUnavailable": string;
   "problem.running": string;
   "problem.judging": string;
