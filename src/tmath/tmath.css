@@ -129,6 +129,10 @@ body[data-persona="tmath"] .tm-nav button:is(.tm-current, [aria-current="page"])
 body[data-persona="tmath"] .tm-nav button:hover:not(:disabled) { background: var(--tmath-muted); color: var(--tmath-foreground); }
 body[data-persona="tmath"] .tm-sidebar-footer { margin-top: auto; padding: 18px 10px 0; border-top: 1px solid var(--tmath-border); color: var(--tmath-muted-foreground); font-size: 10px; }
 body[data-persona="tmath"] .tm-sidebar-footer > * + * { margin-top: 8px; }
+body[data-persona="tmath"] .tm-sidebar-gh { display: grid; place-items: center; width: 34px; height: 30px; padding: 0; border: 1px solid var(--tmath-border); border-radius: 8px; background: transparent; color: var(--tmath-muted-foreground); cursor: pointer; }
+body[data-persona="tmath"] .tm-sidebar-gh:hover { color: var(--tmath-foreground); background: var(--tmath-accent); }
+/* pass #48: diagnostics log viewer */
+body[data-persona="tmath"] .tm-log-view { max-height: 260px; overflow: auto; margin: 0 0 12px; padding: 12px; border: 1px solid var(--tmath-border); border-radius: 8px; background: color-mix(in srgb, var(--tmath-muted) 40%, var(--tmath-card)); color: var(--tmath-foreground); font: 11px/1.6 var(--tmath-font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) :is(.tm-wordmark, .tm-nav-label, .tm-nav button span, .tm-sidebar-footer span, .tm-sidebar-footer small) { display: none; }
 body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) .tm-sidebar-header { justify-content: center; }
 body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) .tm-nav { margin-top: 32px; }

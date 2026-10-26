@@ -155,6 +155,7 @@ export interface Dict {
   "problem.description": string;
   "app.home": string;
   "app.settings": string;
+  "app.github": string;
   "app.independent": string;
   "app.clientVersion": string;
   "app.requiredVersion": string;
@@ -321,6 +322,15 @@ export interface Dict {
   "settings.preview": string;
   "settings.tools": string;
   "settings.detectTools": string;
+  "settings.tcOverride": string;
+  "settings.tcAuto": string;
+  "settings.tcAutoMode": string;
+  "settings.tcManual": string;
+  "settings.tcHint": string;
+  "settings.logs": string;
+  "settings.logsCopy": string;
+  "settings.logsClear": string;
+  "settings.logsHint": string;
   "settings.noTools": string;
   "settings.versions": string;
   "account.title": string;

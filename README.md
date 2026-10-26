@@ -19,6 +19,7 @@ in [SECURITY.md](docs/SECURITY.md); that list is the contract.
 | [BUILDING.md](docs/BUILDING.md) | Toolchains, per-platform build notes, test suites, release ritual |
 | [SECURITY.md](docs/SECURITY.md) | The complete network surface, data-at-rest inventory, known gaps |
 | [SUCCESSION.md](docs/SUCCESSION.md) | The maintainer handoff: read order, non-negotiables, how to take over |
+| [DISTRIBUTED.md](docs/DISTRIBUTED.md) | Helping with compute or code via PRs — the worker, the doctrine, the anti-botnet checklist |
 | `todo.md` / `states.md` | The ledger — every pass since the beginning, and current feature state |
 
 ## The trees (layouts)
