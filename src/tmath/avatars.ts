@@ -10,6 +10,7 @@
 // icons — profile pages fall back to the letter via onerror instead.
 import { read, write } from "./preferences";
 import { siteGet } from "../lib/transport";
+import { logError } from "../lib/applog";
 
 const SITE = "https://oj.tmathcoding.vn";
 const CACHE_KEY = "delcc-gravatar-map";
@@ -88,7 +89,7 @@ export async function hydrateAvatars(usernames: string[]): Promise<void> {
   const run = (async () => {
     for (let base = 0; base < want.length; base += 6) {
       await Promise.allSettled(want.slice(base, base + 6).map(async n => {
-        try { harvest(await getText(`/user/${encodeURIComponent(n)}`), n); } catch { /* letter this round */ }
+        try { harvest(await getText(`/user/${encodeURIComponent(n)}`), n); } catch (e) { logError(`avatar hydrate ${n}: ${e instanceof Error ? e.message : String(e)}`); }
       }));
     }
     persist();

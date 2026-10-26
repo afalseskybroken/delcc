@@ -14,13 +14,40 @@ export { monacoLang as cphLangKey };
 const SUPPORTED = new Set(["cpp", "python", "java", "rust", "go", "pascal", "javascript"]);
 export const cphSupported = (langKey: string) => SUPPORTED.has(langKey);
 
+// manual toolchain overrides (audit: multiple GCC installs, or picking g++ over
+// gcc) — key delcc-toolchain-override:<lang>; blank/absent = auto-detected binary.
+// The override alone enables a language: the runner executes the path as-is.
+const OVERRIDE_KEY = (langKey: string) => `delcc-toolchain-override:${langKey}`;
+export const toolchainOverride = (langKey: string): string => {
+  try { return localStorage.getItem(OVERRIDE_KEY(langKey)) ?? ""; } catch { return ""; }
+};
+export const setToolchainOverride = (langKey: string, binary: string): void => {
+  try {
+    const v = binary.trim();
+    if (v) localStorage.setItem(OVERRIDE_KEY(langKey), v);
+    else localStorage.removeItem(OVERRIDE_KEY(langKey));
+  } catch { /* private mode */ }
+};
+export const CPH_LANGS: { key: string; label: string }[] = [
+  { key: "cpp", label: "C++" }, { key: "python", label: "Python" }, { key: "java", label: "Java" },
+  { key: "rust", label: "Rust" }, { key: "go", label: "Go" }, { key: "pascal", label: "Pascal" },
+  { key: "javascript", label: "JavaScript" },
+];
+
 let toolchains: CphToolchain[] | null = null;
 export async function detectOnce(): Promise<CphToolchain[]> {
   if (toolchains) return toolchains;
   toolchains = await cphDetect();
   return toolchains;
 }
-export const toolchainFor = (langKey: string) => toolchains?.find((t) => t.lang_key === langKey);
+export const toolchainFor = (langKey: string): CphToolchain | undefined => {
+  const override = toolchainOverride(langKey);
+  if (override) {
+    const detected = toolchains?.find((t) => t.lang_key === langKey);
+    return { lang_key: langKey, label: `${detected?.label ?? langKey} (manual)`, binary: override, version: detected?.version ?? "manual path" };
+  }
+  return toolchains?.find((t) => t.lang_key === langKey);
+};
 
 const tcKey = (problemCode: string) => `cph-tc:${problemCode}`;
 export function loadCases(problemCode: string): CphCase[] {

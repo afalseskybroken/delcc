@@ -9,6 +9,7 @@ import { esc, text, button, loading, errorBox, copyText } from "./ui";
 import { renderStatement, type StatementResult } from "./statement";
 import type { createEditor } from "./editor";
 import "./solve.css";
+import { logError } from "../lib/applog";
 
 export interface SolveArgs {
   code: string;
@@ -248,7 +249,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       out.textContent = [r.compile_log.trim(), r.cancelled ? t("cph.cancelled") : [exitLine(r.exit_code), `${r.time_ms} ms`].filter(Boolean).join(" · ")].filter(Boolean).join("\n\n");
       summary.textContent = [r.cancelled ? t("cph.cancelled") : r.compile_ok ? exitLine(0) : "CE", `${r.time_ms} ms`].filter(Boolean).join(" · ");
     } catch(e) {
-      if (!disposed) { const m = e instanceof Error ? e.message : String(e); summary.className = "tm-error"; summary.textContent = `${t("cph.failed")} · ${m}`; out.textContent = m; }
+      if (!disposed) { const m = e instanceof Error ? e.message : String(e); logError(`cph compile: ${m}`); summary.className = "tm-error"; summary.textContent = `${t("cph.failed")} · ${m}`; out.textContent = m; }
     }
     finally { running = false; stopping = false; if (!disposed) controls(); }
   }
@@ -328,7 +329,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       }
       paintCases();
       if (disposed) return;
-    } catch(e) { if (!disposed) { const m = e instanceof Error ? e.message : String(e); summary.className = "tm-error"; summary.textContent = `${t("cph.failed")} · ${m}`; if (single) $("[data-manual-stdout]").textContent = m; } }
+    } catch(e) { if (!disposed) { const m = e instanceof Error ? e.message : String(e); logError(`cph run: ${m}`); summary.className = "tm-error"; summary.textContent = `${t("cph.failed")} · ${m}`; if (single) $("[data-manual-stdout]").textContent = m; } }
     finally { running = false; stopping = false; if (!disposed) controls(); }
   }
 

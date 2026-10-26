@@ -5,6 +5,8 @@
 // does the talking and the page renders. Same shape the official client uses.
 export interface TransportResponse { status: number; json: any; text: string }
 
+import { logError } from "./applog";
+
 let invokeFn: null | ((cmd: string, args: any) => Promise<string>) = null;
 type InvokeFn = (cmd: string, args: any) => Promise<string>;
 let probe: Promise<InvokeFn | null> | null = null;
@@ -46,12 +48,14 @@ export async function transport(
     const env = JSON.parse(raw) as { status: number; body: string };
     let json: any = {};
     try { json = JSON.parse(env.body); } catch { json = {}; }
+    if (env.status >= 400) logError(`api ${method} ${u.pathname}${u.search} -> ${env.status}`);
     return { status: env.status, json, text: env.body };
   }
   const r = await fetch(url, { method, headers, body: bodyText });
   const text = await r.text().catch(() => "");
   let json: any = {};
   try { json = JSON.parse(text); } catch { json = {}; }
+  if (r.status >= 400) logError(`api ${method} ${url} -> ${r.status}`);
   return { status: r.status, json, text };
 }
 
