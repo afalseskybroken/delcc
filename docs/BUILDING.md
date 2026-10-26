@@ -75,6 +75,24 @@ tokens live. Do not change it casually.
 - Bundle signing/notarization (macOS) is unconfigured; unsigned binaries will
   need Gatekeeper exceptions.
 
+## Choosing a layout (compile-time)
+
+The layout is baked into the binary at build time — it is **not** a runtime
+setting. The Rust shell reads the `DELCC_LAYOUT` environment variable when
+`cargo` compiles (`src-tauri/src/main.rs`, `option_env!`), and `src/main.ts`
+boots whichever layout the shell reports:
+
+```
+DELCC_LAYOUT=tmath npm run tauri dev      # parity lane (the one users run)
+DELCC_LAYOUT=baseplate npm run tauri dev  # original stable tab UI (default)
+DELCC_LAYOUT=wip npm run tauri dev        # early original-UI iteration
+```
+
+Same for release builds: `DELCC_LAYOUT=tmath npm run tauri build`. Omitting the
+variable builds **baseplate**. PowerShell form: `$env:DELCC_LAYOUT="tmath"` before
+the build. Note the window title also switches with the layout (`tmath` presents
+as "TMATH Code Client", matching the official client's title for seamless use).
+
 ## Test suites
 
 | Suite | Command |

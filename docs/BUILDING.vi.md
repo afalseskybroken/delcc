@@ -73,6 +73,24 @@ Windows), tức là nơi profile và token sống. Đừng đổi tùy tiện.
 - Ký/notarize bundle (macOS) chưa cấu hình; binary unsigned sẽ cần Gatekeeper
   exception.
 
+## Chọn layout (thời điểm build)
+
+Layout được nướng vào binary lúc build — **không phải** thiết lập runtime. Shell
+Rust đọc biến môi trường `DELCC_LAYOUT` khi `cargo` biên dịch
+(`src-tauri/src/main.rs`, `option_env!`), và `src/main.ts` boot đúng layout mà
+shell báo:
+
+```
+DELCC_LAYOUT=tmath npm run tauri dev      # nhánh parity (bản người dùng đang chạy)
+DELCC_LAYOUT=baseplate npm run tauri dev  # UI tab gốc ổn định (mặc định)
+DELCC_LAYOUT=wip npm run tauri dev        # bản thử nghiệm UI gốc sớm
+```
+
+Build release cũng vậy: `DELCC_LAYOUT=tmath npm run tauri build`. Bỏ qua biến thì
+ra **baseplate**. PowerShell: `$env:DELCC_LAYOUT="tmath"` trước khi build. Lưu ý
+tiêu đề cửa sổ cũng đổi theo layout (`tmath` hiện as "TMATH Code Client", khớp
+tiêu đề client chính thức để dùng liền mạch).
+
 ## Bộ test
 
 | Bộ | Lệnh |
