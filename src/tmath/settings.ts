@@ -4,7 +4,7 @@ import { cphDetect, systemFonts, openExternal } from "../lib/transport";
 import { cphSupported, toolchainOverride, setToolchainOverride, CPH_LANGS } from "../lib/cph";
 import { logSnapshot, clearLog, onLog, formatEntries } from "../lib/applog";
 import { esc, text, button, errorBox, empty, copyText } from "./ui";
-import { read, write, savePreferences, type Preferences } from "./preferences";
+import { applyPreferences, read, write, savePreferences, type Preferences } from "./preferences";
 import manifest from "../../package.json";
 
 const REPO_URL = "https://github.com/afalseskybroken/delcc";
@@ -53,6 +53,9 @@ export function renderSettings(host: HTMLElement, prefs: Preferences, onChange: 
       prefs.editorSize = Math.max(10, Math.min(28, Number(val("tm-editor-size")) || 14));
       prefs.wordWrap = (host.querySelector("#tm-wrap") as HTMLInputElement).checked;
       prefs.minimap = (host.querySelector("#tm-minimap") as HTMLInputElement).checked;
+      // applyPreferences HERE (audit BUG-033, the one real find): without it the
+      // scheme/locale vars stayed stale until the next theme-menu action or restart
+      applyPreferences(prefs);
       savePreferences(prefs); onChange();
     };
   });
