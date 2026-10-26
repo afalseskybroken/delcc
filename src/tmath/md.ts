@@ -73,7 +73,7 @@ export function mdInline(s: string): string {
   const out: string[] = [];
   let prevBlock = false;
   for (const line of h.split(/\r?\n/)) {
-    const m = /^(#{1,6}) (.+)$/.exec(line);
+    const m = /^ {0,3}(#{1,6}) (.+)$/.exec(line); // CommonMark: up to 3 leading spaces
     if (m) { out.push(`<h${m[1].length}>${m[2]}</h${m[1].length}>`); prevBlock = true; continue; }
     if (out.length && !prevBlock) out.push("<br>");
     out.push(line);
