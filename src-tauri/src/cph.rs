@@ -229,12 +229,24 @@ fn set_cache(inner: &Inner, build: Build) {
     if let Some(o) = old { let _ = fs::remove_dir_all(&o.tmp); }
 }
 
-fn key_of(lang_key: &str, binary: &str, source: &str) -> u64 {
+// The build cache key must include the C++ standard (pass #52): switching the language
+// select between CPP17 and CPP20 with unchanged source must NOT reuse the old binary.
+fn key_of(lang_key: &str, binary: &str, source: &str, std: Option<&str>) -> u64 {
     let mut h = DefaultHasher::new();
     lang_key.hash(&mut h);
     binary.hash(&mut h);
     source.hash(&mut h);
+    std.hash(&mut h);
     h.finish()
+}
+
+// argv-only commands mean a hostile std cannot inject anything, but a stray flag value
+// would still produce a confusing compiler error — accept only real -std shapes.
+fn sanitize_std(std: &Option<String>) -> Option<String> {
+    match std.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) if s.len() <= 16 && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '+') => Some(s.to_string()),
+        _ => None,
+    }
 }
 
 fn new_tmp_dir(job_id: u64) -> Result<PathBuf, String> {
@@ -334,6 +346,8 @@ pub struct CphRunRequest {
     time_limit_ms: u64,
     #[serde(default)]
     memory_limit_mb: Option<u64>, // panel-wide default (lane asked for 256 as the fallback)
+    #[serde(default)]
+    std: Option<String>, // pass #52: selected C++ standard (c++03..c++20); None = compiler default
 }
 
 #[derive(Deserialize)]
@@ -342,6 +356,8 @@ pub struct CphCompileRequest {
     lang_key: String,
     binary: String,
     source: String,
+    #[serde(default)]
+    std: Option<String>,
 }
 
 // Output structs are snake_case on purpose: lib/transport.ts, lib/cph.ts, tmath/solve.ts and
@@ -696,15 +712,19 @@ fn ok_prep() -> Prep {
 // Writes the source and builds it. `check_scripts`: python/node have no build step; the explicit
 // Compile button runs a syntax check for them (official client: "Kiểm tra cú pháp" on PY3),
 // while Run skips it and lets the interpreter report any error per case, exactly as before.
-fn prepare(lang_key: &str, binary: &str, source: &str, tmp: &Path, check_scripts: bool, job: &ActiveJob) -> Result<Prep, String> {
+fn prepare(lang_key: &str, binary: &str, source: &str, tmp: &Path, check_scripts: bool, job: &ActiveJob, std: Option<&str>) -> Result<Prep, String> {
     let name = source_name(lang_key).ok_or_else(|| format!("CPH: unsupported language '{lang_key}'"))?;
     let src = tmp.join(name);
     fs::write(&src, source).map_err(|e| format!("write source: {e}"))?;
     let bin = exe_path(tmp);
     match lang_key {
         "cpp" => {
+            // pass #52: -std rides the selected judge language (c++03..c++20); None leaves the
+            // toolchain's own default — the old hardcoded -std=c++17 restricted every compile.
             let mut c = new_cmd(binary);
-            c.current_dir(tmp).arg("-O2").arg("-std=c++17").arg("-o").arg(&bin).arg(&src);
+            c.current_dir(tmp).arg("-O2");
+            if let Some(s) = std { c.arg(format!("-std={s}")); }
+            c.arg("-o").arg(&bin).arg(&src);
             compile_step(c, binary, false, None, job)
         }
         "rust" => {
@@ -759,15 +779,16 @@ fn normalize(s: &str) -> String {
 fn compile_blocking(inner: Arc<Inner>, req: CphCompileRequest) -> Result<CphCompileResponse, String> {
     let guard = JobGuard::begin(&inner)?;
     let t0 = Instant::now();
+    let std = sanitize_std(&req.std);
     let tmp = new_tmp_dir(guard.job.id)?;
-    let prep = match prepare(&req.lang_key, &req.binary, &req.source, &tmp, true, &guard.job) {
+    let prep = match prepare(&req.lang_key, &req.binary, &req.source, &tmp, true, &guard.job, std.as_deref()) {
         Ok(p) => p,
         Err(e) => { let _ = fs::remove_dir_all(&tmp); return Err(e); }
     };
     if prep.ok {
         // keep the build: a Run on unchanged source reuses it instead of invoking the compiler again
         let artifact = artifact_path(&req.lang_key, &tmp);
-        set_cache(&inner, Build { key: key_of(&req.lang_key, &req.binary, &req.source), tmp, artifact, log: prep.log.clone() });
+        set_cache(&inner, Build { key: key_of(&req.lang_key, &req.binary, &req.source, std.as_deref()), tmp, artifact, log: prep.log.clone() });
     } else {
         let _ = fs::remove_dir_all(&tmp);
     }
@@ -784,7 +805,8 @@ fn run_blocking(inner: Arc<Inner>, req: CphRunRequest) -> Result<CphRunResponse,
     let guard = JobGuard::begin(&inner)?;
     let job: &ActiveJob = &guard.job;
     let limit_ms = req.time_limit_ms.clamp(100, 10_000);
-    let key = key_of(&req.lang_key, &req.binary, &req.source);
+    let std = sanitize_std(&req.std);
+    let key = key_of(&req.lang_key, &req.binary, &req.source, std.as_deref());
 
     let hit = {
         let cache = lock(&inner.cache);
@@ -794,7 +816,7 @@ fn run_blocking(inner: Arc<Inner>, req: CphRunRequest) -> Result<CphRunResponse,
         Some(h) => h,
         None => {
             let tmp = new_tmp_dir(job.id)?;
-            let prep = match prepare(&req.lang_key, &req.binary, &req.source, &tmp, false, job) {
+            let prep = match prepare(&req.lang_key, &req.binary, &req.source, &tmp, false, job, std.as_deref()) {
                 Ok(p) => p,
                 Err(e) => { let _ = fs::remove_dir_all(&tmp); return Err(e); }
             };

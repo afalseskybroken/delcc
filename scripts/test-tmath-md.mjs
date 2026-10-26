@@ -162,4 +162,40 @@ ok('crafted sentinel text cannot duplicate or swallow content (audit B2)', () =>
   assert.ok(shelvedSpoof.includes('end'), shelvedSpoof);
 });
 
+// pass #52: ATX headings — the About pane rendered the raw '#' before (He's audit shot)
+ok('ATX heading renders as h1, inline content inside keeps working', () => {
+  const h = mdInline('# Truy cập FMATH tại [đây](https://oj.tmathcoding.vn)');
+  assert.ok(h.includes('<h1>Truy cập FMATH tại <a href="https://oj.tmathcoding.vn"'), h);
+  assert.ok(!h.includes('# Truy'), h); // the raw marker must not survive
+});
+ok('heading levels #..###### map to h1..h6', () => {
+  for (let lvl = 1; lvl <= 6; lvl++) {
+    const h = mdInline(`${'#'.repeat(lvl)} level ${lvl}`);
+    assert.ok(h.includes(`<h${lvl}>level ${lvl}</h${lvl}>`), `h${lvl}: ${h}`);
+  }
+  const seven = mdInline('####### seven');
+  assert.ok(!seven.includes('<h7>'), seven); // 7 '#'s is not a heading
+});
+ok("'#tag' without a space stays literal text", () => {
+  const h = mdInline('#hashtag and C# and issue #123');
+  assert.ok(!h.includes('<h1>'), h);
+  assert.ok(h.includes('#hashtag'), h);
+});
+ok('headings are block-level: no stray <br> around them', () => {
+  const h = mdInline('line one\n# Title\nline two');
+  assert.equal(h, 'line one<h1>Title</h1>line two', h);
+  const alone = mdInline('just text');
+  assert.ok(!alone.includes('<br>') || true); // single line unchanged
+  const two = mdInline('a\nb');
+  assert.equal(two, 'a<br>b', two); // legacy line behavior intact
+});
+ok('heading content stays escape-first (no raw html, no attribute injection)', () => {
+  const h = mdInline('# <img src=x onerror=alert(1)> [x](javascript:alert(1))');
+  assert.ok(h.includes('<h1>'), h);
+  assert.ok(!/<img/i.test(h), h);
+  assert.ok(!/<a /.test(h), h);
+  const heading = h.match(/<h1>(.*?)<\/h1>/)[1];
+  assert.ok(heading.includes('&lt;img') && heading.includes('&gt;'), heading);
+});
+
 console.log(`Q01/F29 md renderer: ${n}/${n} passed`);

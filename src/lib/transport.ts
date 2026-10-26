@@ -110,21 +110,21 @@ export async function cphDetect(): Promise<CphToolchain[]> {
 }
 
 export async function cphRun(
-  langKey: string, binary: string, source: string, cases: CphCase[], timeLimitMs: number, memoryLimitMb?: number,
+  langKey: string, binary: string, source: string, cases: CphCase[], timeLimitMs: number, memoryLimitMb?: number, std?: string,
 ): Promise<CphRunResponse> {
   const inv = await invoke();
   if (!inv) throw new Error("CPH needs the desktop shell — no local process access in a plain browser.");
   return (await inv("cph_run", {
-    req: { langKey, binary, source, cases, timeLimitMs, memoryLimitMb },
+    req: { langKey, binary, source, cases, timeLimitMs, memoryLimitMb, std: std || null },
   })) as unknown as CphRunResponse;
 }
 
 // pass #11: compile-only (explicit Compile / PY3 syntax check) and Stop. Rust keeps one job at a time;
 // cphStop flags it and the runner kills the whole process tree.
-export async function cphCompile(langKey: string, binary: string, source: string): Promise<CphCompileResponse> {
+export async function cphCompile(langKey: string, binary: string, source: string, std?: string): Promise<CphCompileResponse> {
   const inv = await invoke();
   if (!inv) throw new Error("CPH needs the desktop shell — no local process access in a plain browser.");
-  return (await inv("cph_compile", { req: { langKey, binary, source } })) as unknown as CphCompileResponse;
+  return (await inv("cph_compile", { req: { langKey, binary, source, std: std || null } })) as unknown as CphCompileResponse;
 }
 
 export async function cphStop(): Promise<boolean> {

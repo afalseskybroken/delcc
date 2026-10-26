@@ -65,5 +65,19 @@ export function mdInline(s: string): string {
   // unwrap centered blocks: their payload already ran the full pipeline (nested
   // recursion terminates — every level consumes at least one <center> pair)
   h = h.replace(/\u0001(\d+)\u0001/g, (_m, i) => `<div class="tm-md-center">${mdInline(centered[Number(i)] ?? "")}</div>`);
-  return h.replace(/\r?\n/g, "<br>");
+  // ATX headings (pass #52): a line starting with 1-6 '#' + one space is a heading.
+  // Runs LAST, on the fully rendered line, so links/bold inside headings keep working
+  // (the web client renders them; our About pane showed the raw '#' before). `#tag`
+  // without a space is NOT a heading. Everything else keeps the exact legacy
+  // line-for-line <br> behavior; block headings carry no <br> around them.
+  const out: string[] = [];
+  let prevBlock = false;
+  for (const line of h.split(/\r?\n/)) {
+    const m = /^(#{1,6}) (.+)$/.exec(line);
+    if (m) { out.push(`<h${m[1].length}>${m[2]}</h${m[1].length}>`); prevBlock = true; continue; }
+    if (out.length && !prevBlock) out.push("<br>");
+    out.push(line);
+    prevBlock = false;
+  }
+  return out.join("");
 }

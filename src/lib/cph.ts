@@ -5,6 +5,7 @@
 // this is the bit main.ts drives the panel with.
 import { cphDetect, cphRun, cphCompile, cphStop, type CphToolchain, type CphCase, type CphCaseResult, type CphRunResponse, type CphCompileResponse } from "./transport";
 import { monacoLang } from "./langmap";
+import { logInfo } from "./applog";
 
 export type { CphToolchain, CphCase, CphCaseResult, CphRunResponse, CphCompileResponse };
 export { monacoLang as cphLangKey };
@@ -38,6 +39,11 @@ let toolchains: CphToolchain[] | null = null;
 export async function detectOnce(): Promise<CphToolchain[]> {
   if (toolchains) return toolchains;
   toolchains = await cphDetect();
+  // QoL (pass #52): auto-detection prints the exact binary each language will run —
+  // surfaces in Settings → Diagnostics, so "why is Run disabled" is answerable
+  // without pressing Detect tools manually.
+  for (const tc of toolchains) logInfo(`toolchain ${tc.lang_key}: ${tc.binary} (${tc.version})`);
+  if (!toolchains.length) logInfo("toolchain detect: none found");
   return toolchains;
 }
 export const toolchainFor = (langKey: string): CphToolchain | undefined => {
@@ -63,13 +69,15 @@ export function saveCases(problemCode: string, cases: CphCase[]) {
 export const newCase = (): CphCase => ({ id: Math.random().toString(36).slice(2, 9), input: "", expected: "" });
 
 export async function runAll(
-  langKey: string, source: string, cases: CphCase[], timeLimitMs: number, memoryLimitMb?: number,
+  langKey: string, source: string, cases: CphCase[], timeLimitMs: number, memoryLimitMb?: number, std?: string,
 ): Promise<CphRunResponse> {
   const tc = toolchainFor(langKey);
   if (!tc) throw new Error(`no ${langKey} toolchain detected`);
   // enabled (mock-submit inclusion) is decided by the caller; Rust gets exactly what it's given.
   // memoryLimitMb is plumbing for lane 1 — no UI control yet (opt-in Rust feature, unverified).
-  return cphRun(langKey, tc.binary, source, cases, timeLimitMs, memoryLimitMb);
+  // std (pass #52): the selected judge language's C++ standard — c++03..c++20; absent =
+  // compiler default (the old forced -std=c++17 restricted every compile).
+  return cphRun(langKey, tc.binary, source, cases, timeLimitMs, memoryLimitMb, std);
 }
 // ---------- lane 2 (pass #10): case-pool import/export ----------
 // Append-only: every export above this line keeps its exact signature and behavior —
@@ -130,9 +138,9 @@ export function importCasePool(code: string, json: string): { added: number; ski
 // Append-only, same contract as above. compileOnly builds (or, for python/node, syntax-checks) the
 // current source and caches the build in Rust, so a following runAll on unchanged source skips
 // the compiler. stopRun cancels whatever local job is running (compile or run).
-export async function compileOnly(langKey: string, source: string): Promise<CphCompileResponse> {
+export async function compileOnly(langKey: string, source: string, std?: string): Promise<CphCompileResponse> {
   const tc = toolchainFor(langKey);
   if (!tc) throw new Error(`no ${langKey} toolchain detected`);
-  return cphCompile(langKey, tc.binary, source);
+  return cphCompile(langKey, tc.binary, source, std);
 }
 export const stopRun = (): Promise<boolean> => cphStop();

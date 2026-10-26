@@ -616,20 +616,72 @@ body[data-persona="tmath"] .tm-shell { font-family: var(--tm-ui-font, var(--tmat
 body[data-persona="tmath"] .tm-account-stats .tm-section-title { margin: 0 0 16px; }
 body[data-persona="tmath"] .tm-md :is(img, iframe) { max-width: 100%; }
 body[data-persona="tmath"] .tm-md .tm-md-center { text-align: center; }
+/* pass #52: ATX headings in About markdown (md.ts block pass) — the legacy shell's
+   heading resets would flatten these without explicit margins */
+body[data-persona="tmath"] #app .tm-md :is(h1,h2,h3,h4,h5,h6) { margin: .9em 0 .35em; line-height: 1.35; font-weight: 650; }
+body[data-persona="tmath"] #app .tm-md :is(h1,h2,h3,h4,h5,h6):first-child { margin-top: 0; }
+body[data-persona="tmath"] #app .tm-md h1 { font-size: 1.3em; }
+body[data-persona="tmath"] #app .tm-md h2 { font-size: 1.16em; }
+body[data-persona="tmath"] #app .tm-md h3 { font-size: 1.06em; }
+body[data-persona="tmath"] #app .tm-md :is(h4,h5,h6) { font-size: 1em; }
+
+/* pass #52: case/io tabs rebuilt to the official TabsList rhythm (carve J_ defaults:
+   muted segmented control, rounded-lg p-[3px], active = card + shadow). The old
+   folder-tab border inside the segmented container is exactly the "broken tab" shot. */
+body[data-persona="tmath"] .tm-case-tabs { display: inline-flex; align-items: center; height: 30px; padding: 2px; border-radius: 9px; background: var(--tmath-muted); color: var(--tmath-muted-foreground); }
+body[data-persona="tmath"] .tm-case-tabs button { display: inline-flex; flex: 1; align-items: center; justify-content: center; height: calc(100% - 2px); min-width: 64px; padding: 3px 14px; border: 1px solid transparent; border-radius: 7px; background: transparent; font: inherit; font-size: 12px; font-weight: 500; color: color-mix(in srgb, var(--tmath-foreground) 60%, transparent); transition: color .15s, background-color .15s; cursor: pointer; }
+body[data-persona="tmath"] .tm-case-tabs button:hover { color: var(--tmath-foreground); }
+body[data-persona="tmath"] .tm-case-tabs button[aria-selected="true"] { border-color: transparent; background: var(--tmath-card); color: var(--tmath-foreground); font-weight: 500; box-shadow: 0 1px 2px rgba(0, 0, 0, .05); }
+html.dark body[data-persona="tmath"] .tm-case-tabs button[aria-selected="true"] { background: color-mix(in srgb, var(--tmath-muted) 30%, var(--tmath-card)); }
+/* the per-case variant lives inside the runner panel — keep its breathing room */
+body[data-persona="tmath"] .tm-runner .tm-case-tabs { margin: 8px 0 10px; }
+
+/* pass #52: official submission anatomy (carve S_/x_/b_/g_/h_ + live schema) */
+body[data-persona="tmath"] .tm-sub-id { padding: 0; border: 0; background: none; font: inherit; font-weight: 500; color: var(--tmath-primary); cursor: pointer; }
+body[data-persona="tmath"] .tm-sub-id:hover:not(:disabled) { text-decoration: underline; }
+body[data-persona="tmath"] .tm-sub-id:disabled { color: var(--tmath-muted-foreground); opacity: .55; cursor: not-allowed; }
+body[data-persona="tmath"] .tm-col-eye .tm-icon-button:disabled { opacity: .45; pointer-events: none; }
+body[data-persona="tmath"] .tm-sub-detail-cell { padding: 4px 16px 16px; background: color-mix(in srgb, var(--tmath-muted) 30%, transparent); }
+body[data-persona="tmath"] .tm-sub-detail-summary { margin: 12px 0 10px; font-weight: 500; font-size: 13.5px; }
+body[data-persona="tmath"] .tm-sub-cases-wrap { overflow-x: auto; border: 1px solid var(--tmath-border); border-radius: 8px; background: var(--tmath-card); }
+body[data-persona="tmath"] .tm-sub-cases { width: 100%; border-collapse: collapse; font-size: 13px; }
+body[data-persona="tmath"] .tm-sub-cases :is(th,td) { padding: 9px 14px; border-bottom: 1px solid var(--tmath-border); text-align: left; }
+body[data-persona="tmath"] .tm-sub-cases thead th { background: color-mix(in srgb, var(--tmath-muted) 40%, transparent); font-size: 12px; color: var(--tmath-muted-foreground); }
+body[data-persona="tmath"] .tm-sub-cases tbody tr:last-child :is(td,th) { border-bottom: 0; }
+body[data-persona="tmath"] .tm-case-cell { font-weight: 500; white-space: nowrap; }
+body[data-persona="tmath"] .tm-case-number { font-variant-numeric: tabular-nums; }
+body[data-persona="tmath"] .tm-case-toggle { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--tmath-border); border-radius: 7px; background: var(--tmath-card); font: inherit; font-weight: 500; cursor: pointer; }
+body[data-persona="tmath"] .tm-case-toggle:hover { background: var(--tmath-accent); }
+body[data-persona="tmath"] .tm-case-toggle svg { transition: transform .15s; }
+body[data-persona="tmath"] .tm-case-toggle.open svg { transform: rotate(180deg); }
+body[data-persona="tmath"] .tm-case-panel-row > td { padding: 2px 14px 12px; }
+body[data-persona="tmath"] .tm-case-panel { margin: 8px 0 0; padding: 10px 14px; border: 1px solid var(--tmath-border); border-radius: 8px; }
+body[data-persona="tmath"] .tm-case-panel b { display: block; margin-bottom: 6px; font-size: 12.5px; }
+body[data-persona="tmath"] .tm-case-panel pre { margin: 0; font: 12px/1.55 var(--tmath-font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+body[data-persona="tmath"] .tm-case-panel.info { border-color: color-mix(in srgb, var(--tmath-primary) 35%, transparent); background: color-mix(in srgb, var(--tmath-primary) 6%, transparent); }
+body[data-persona="tmath"] .tm-case-panel.ok { border-color: color-mix(in srgb, #22c55e 40%, transparent); background: color-mix(in srgb, #22c55e 7%, transparent); }
+body[data-persona="tmath"] .tm-case-panel.bad { border-color: color-mix(in srgb, var(--tmath-destructive) 35%, transparent); background: color-mix(in srgb, var(--tmath-destructive) 6%, transparent); }
+body[data-persona="tmath"] .tm-source-actions { margin-bottom: 12px; }
+body[data-persona="tmath"] .tm-source-title { margin-top: 8px; }
+body[data-persona="tmath"] .tm-source-viewer { display: flex; overflow: auto; max-height: 72vh; border: 1px solid var(--tmath-border); border-radius: 10px; background: var(--tmath-card); }
+body[data-persona="tmath"] .tm-source-gutter { flex: 0 0 auto; margin: 0; padding: 12px 10px 12px 14px; text-align: right; color: var(--tmath-muted-foreground); font: 12px/1.55 var(--tmath-font-mono); user-select: none; }
+body[data-persona="tmath"] .tm-source-code { flex: 1 1 auto; margin: 0; padding: 12px 14px; font: 12px/1.55 var(--tmath-font-mono); }
+body[data-persona="tmath"] .tm-source-code code { white-space: pre; }
+body[data-persona="tmath"] .tm-source-viewer .tok-comment { color: #6a9955; }
+body[data-persona="tmath"] .tm-source-viewer .tok-string { color: #ce9178; }
+body[data-persona="tmath"] .tm-source-viewer .tok-kw { color: #569cd6; }
+body[data-persona="tmath"] .tm-source-viewer .tok-num { color: #b5cea8; }
+body[data-persona="tmath"] .tm-source-viewer .tok-pre { color: #c586c0; }
 /* pass #25: the @handle copies itself — looks identical to the old span until hover */
 body[data-persona="tmath"] .tm-handle-copy { padding: 0; border: 0; background: none; font: inherit; font-weight: 500; cursor: copy; }
 body[data-persona="tmath"] .tm-handle-copy:hover { text-decoration: underline dashed; }
 
-/* pass #25: case editor tabs (Input | Output); drawer disclaimer lives in the collapsed bar */
-body[data-persona="tmath"] .tm-case-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
-body[data-persona="tmath"] .tm-case-tabs button { padding: 7px 14px; border: 1px solid transparent; border-radius: 8px 8px 0 0; background: none; color: var(--tmath-muted-foreground); font-size: 12.5px; cursor: pointer; }
-body[data-persona="tmath"] .tm-case-tabs button[aria-selected="true"] { border-color: var(--tmath-border); background: var(--tmath-card); color: var(--tmath-foreground); font-weight: 600; }
+/* pass #25: case editor tabs moved to the unified .tm-case-tabs block above (pass #52) */
 body[data-persona="tmath"] .tm-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 
 /* pass #29: first layer = official barebone (carve @q_/Z_ tabs) — Input/Output tabs,
    Options button right-aligned as the full-suite gateway, output pre sized like h-28/56 */
 body[data-persona="tmath"] .tm-io-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-body[data-persona="tmath"] .tm-io-tabs { margin-bottom: 0; }
 body[data-persona="tmath"] .tm-io-first .tm-output-box { min-height: 112px; max-height: 224px; }
 
 /* pass #30: per-TC options tab (verdict strip removed in #32 — the dropdown names carry it) */

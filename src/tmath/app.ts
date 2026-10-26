@@ -77,6 +77,64 @@ const themeIconSvg = (v: string): string => v === "dark"
 const themeCheckSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>`;
 const themeChevronSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`;
 const themeTrigger = (v: string): string => `${themeIconSvg(v)}<span>${THEME_LABELS[v]}</span>${themeChevronSvg}`;
+
+// pass #52 — official submission-row glyphs (carve S_: collapsed = eye, expanded = chevron-up, 18px)
+const eyeSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.5 10.5 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.5 10.5 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></svg>`;
+const chevronUpSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>`;
+const caseChevronSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`;
+
+// official language display names (carve l_/U_: PY3 → "Python 3", CPPNN → "C++NN")
+const langName = (value: unknown): string => {
+  const k = String(value ?? "");
+  if (!k) return "—";
+  if (/^CPP/.test(k)) return `C++${k.slice(3)}`;
+  return ({ PY3: "Python 3", PY2: "Python 2", PYPY3: "PyPy 3", JAVA8: "Java 8", MONOCS: "C#", PAS: "Pascal", TEXT: "Text" } as Record<string, string>)[k] ?? k;
+};
+
+// C++ source highlighting for the source page (carve h_: CPP* languages get tokens).
+// esc-FIRST doctrine: every token's text passes esc() on emission; the only tags in the
+// output are our own <span class="tok-*">. Deliberately small: comments, strings/chars,
+// preprocessor lines, numbers, a keyword set — a wrong guess just colors plain text.
+const CPP_KEYWORDS = new Set(["alignas","alignof","and","asm","auto","bool","break","case","catch","char","class","const","consteval","constexpr","constinit","const_cast","continue","decltype","default","delete","do","double","dynamic_cast","else","enum","explicit","export","extern","false","float","for","friend","goto","if","inline","int","long","mutable","namespace","new","noexcept","not","nullptr","operator","or","private","protected","public","register","reinterpret_cast","requires","return","short","signed","sizeof","static","static_assert","static_cast","struct","switch","template","this","thread_local","throw","true","try","typedef","typeid","typename","union","unsigned","using","virtual","void","volatile","wchar_t","while","std","cout","cin","cerr","endl","vector","string","pair","map","set"]);
+const cppHighlight = (src: string): string => {
+  let out = "";
+  let i = 0;
+  const push = (cls: string, text: string): void => { out += cls ? `<span class="tok-${cls}">${esc(text)}</span>` : esc(text); };
+  while (i < src.length) {
+    const ch = src[i]!;
+    if (ch === "/" && src[i + 1] === "/") {
+      const end = src.indexOf("\n", i); const at = end < 0 ? src.length : end;
+      push("comment", src.slice(i, at)); i = at; continue;
+    }
+    if (ch === "/" && src[i + 1] === "*") {
+      const j = src.indexOf("*/", i + 2); const at = j < 0 ? src.length : j + 2;
+      push("comment", src.slice(i, at)); i = at; continue;
+    }
+    if (ch === '"' || ch === "'") {
+      let j = i + 1;
+      while (j < src.length && src[j] !== ch) { if (src[j] === "\\") j++; j++; }
+      j = Math.min(j + 1, src.length);
+      push("string", src.slice(i, j)); i = j; continue;
+    }
+    if (ch === "#" && (i === 0 || src[i - 1] === "\n")) {
+      const end = src.indexOf("\n", i); const at = end < 0 ? src.length : end;
+      push("pre", src.slice(i, at)); i = at; continue;
+    }
+    if (ch >= "0" && ch <= "9") {
+      let j = i;
+      while (j < src.length && /[0-9a-fA-FxX.uUlLeE+-]/.test(src[j]!) && !(src[j] === "+" && !/[eE]/.test(src[j - 1] ?? "")) && !(src[j] === "-" && !/[eE]/.test(src[j - 1] ?? ""))) j++;
+      push("num", src.slice(i, j)); i = j; continue;
+    }
+    if (/[A-Za-z_]/.test(ch)) {
+      let j = i;
+      while (j < src.length && /\w/.test(src[j]!)) j++;
+      const word = src.slice(i, j);
+      push(CPP_KEYWORDS.has(word) ? "kw" : "", word); i = j; continue;
+    }
+    out += esc(ch); i++;
+  }
+  return out;
+};
 // official Popover+RadioGroup anatomy ported to a native details popover; check rides the selected value
 const themeMenuHtml = (current: string): string =>
   `<details class="tm-menu tm-theme-menu-root"><summary class="theme-select" aria-label="Theme: ${THEME_LABELS[current]}" title="Theme">${themeTrigger(current)}</summary><div class="theme-menu">${["light", "dark", "system"].map(v => `<button type="button" class="theme-option" data-theme-choice="${v}">${themeIconSvg(v)}<span>${THEME_LABELS[v]}</span><span class="theme-check"${v === current ? "" : " hidden"}>${themeCheckSvg}</span></button>`).join("")}</div></details>`;
@@ -527,7 +585,10 @@ export class TmathApp {
     const chipBar = `<div class="tm-chip-row" role="group" aria-label="${text("problems.filterLabel")}">${(["all","todo","none"] as const).map(k => `<button type="button" class="tm-chip${clientMode && chip === k ? " active" : ""}" data-chip="${k}"${clientMode ? "" : " disabled"} aria-pressed="${clientMode && chip === k}">${chipLabel(k)}</button>`).join("")}${note ? `<span class="tm-chip-note"${indexReady ? "" : " data-index-note"} role="status">${esc(note)}</span>` : ""}</div>`;
     const legend = indexReady ? `<div class="tm-legend">${(["solved","attempted","none"] as const).map(k => `<span class="tm-legend-item"><span class="tm-legend-dot ${k}" aria-hidden="true"></span>${text(k === "solved" ? "problems.legendSolved" : k === "attempted" ? "problems.legendAttempted" : "problems.legendNone")}</span>`).join("")}</div>` : "";
     const activeFilter = Boolean(search || type || group);
-    host.innerHTML = this.pageTitle("problems.eyebrow","problems.title","problems.desc","problems.refresh") + `<section class="tm-card tm-card-body"><form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-problem-search">${text("problems.searchField")}</label><input id="tm-problem-search" name="search" placeholder="${text("problems.searchPlaceholder")}" value="${esc(search)}" maxlength="200"></div><div class="tm-field"><label for="tm-problem-topic">${text("problems.topic")}</label><select id="tm-problem-topic" name="type"><option value="">${text("problems.allTopics")}</option>${list<string>(topics).map(topic => `<option${topic === type ? " selected" : ""}>${esc(topic)}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-problem-group">${text("problems.group")}</label><input id="tm-problem-group" name="group" placeholder="${text("problems.group")}" value="${esc(group)}"></div></div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form>${chipBar}${legend}<div class="tm-table-wrap"><table class="tm-table tm-problem-table"><thead><tr>${[["code","problems.code"],["name","problems.name"],["points","problems.points"],["topic","problems.topic"],["solvers","problems.solvers"]].map(([k, key]) => `<th><button type="button" class="tm-sort-h" data-sort="${k}" title="${text("problems.sortHint")}">${text(key as DictKey)}${arrow(k)}</button></th>`).join("")}</tr></thead><tbody>${display.map(p => { const st = rowState(String(p.code)); return `<tr class="tm-row-${st}"><td class="tm-code-muted"><span class="tm-dot ${st}" aria-hidden="true"></span>${esc(String(p.code).toUpperCase())}</td><td><a href="#/problems?code=${encodeURIComponent(p.code)}">${esc(p.name)}</a></td><td>${esc(p.points)}</td><td>${esc(list(p.types).join(", "))}</td><td>${esc(p.user_count ?? "—")}</td></tr>`; }).join("")}</tbody></table>${display.length ? "" : empty()}</div></section>`;
+    // pass #52 (official carve, problems list component): the search form, chips and
+    // legend float FREE on the page — the bordered rounded card wraps ONLY the table.
+    // Ours boxed everything in one tm-card, so a border ringed the search area too.
+    host.innerHTML = this.pageTitle("problems.eyebrow","problems.title","problems.desc","problems.refresh") + `<form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-problem-search">${text("problems.searchField")}</label><input id="tm-problem-search" name="search" placeholder="${text("problems.searchPlaceholder")}" value="${esc(search)}" maxlength="200"></div><div class="tm-field"><label for="tm-problem-topic">${text("problems.topic")}</label><select id="tm-problem-topic" name="type"><option value="">${text("problems.allTopics")}</option>${list<string>(topics).map(topic => `<option${topic === type ? " selected" : ""}>${esc(topic)}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-problem-group">${text("problems.group")}</label><input id="tm-problem-group" name="group" placeholder="${text("problems.group")}" value="${esc(group)}"></div></div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form>${chipBar}${legend}<section class="tm-card"><div class="tm-table-wrap"><table class="tm-table tm-problem-table"><thead><tr>${[["code","problems.code"],["name","problems.name"],["points","problems.points"],["topic","problems.topic"],["solvers","problems.solvers"]].map(([k, key]) => `<th><button type="button" class="tm-sort-h" data-sort="${k}" title="${text("problems.sortHint")}">${text(key as DictKey)}${arrow(k)}</button></th>`).join("")}</tr></thead><tbody>${display.map(p => { const st = rowState(String(p.code)); return `<tr class="tm-row-${st}"><td class="tm-code-muted"><span class="tm-dot ${st}" aria-hidden="true"></span>${esc(String(p.code).toUpperCase())}</td><td><a href="#/problems?code=${encodeURIComponent(p.code)}">${esc(p.name)}</a></td><td>${esc(p.points)}</td><td>${esc(list(p.types).join(", "))}</td><td>${esc(p.user_count ?? "—")}</td></tr>`; }).join("")}</tbody></table>${display.length ? "" : empty()}</div></section>`;
     const clearFilter = host.querySelector<HTMLButtonElement>('[data-action="clear"]');
     if (clearFilter) clearFilter.onclick = () => this.go("problems", {});
     host.querySelectorAll<HTMLButtonElement>("[data-chip]").forEach(b => b.onclick = () => {
@@ -688,6 +749,14 @@ export class TmathApp {
     const filters: SubsFilterPrefs = {scope,mine:mine ? "1" : "",user:userFilter,problem,result,pageSize:String(pageSize)};
     // Resolve shared memory before the very first request, including explicit clears.
     for (const [key,v] of Object.entries(filters)) params.set(key,v);
+    // pass #52: the #ID click jumps to the official source page — a sub-route of this
+    // view (carve g_: list → source page → "Quay lại bài nộp"); sits after the shared
+    // filter memory resolves so Back restores the exact filtered list
+    const sourceParam = params.get("source");
+    if (sourceParam && /^\d+$/.test(sourceParam)) {
+      await this.submissionSource(host, params, Number(sourceParam), scope, alive);
+      return;
+    }
     let rows: any[];
     try { rows = list(await api.submissions(auth.accessToken()!,{page,page_size:pageSize,scope,problem:serverProblem,user:serverUser,result})); }
     catch (e) {
@@ -704,31 +773,37 @@ export class TmathApp {
       (!uMatch || uMatch(String(s.user_display_name ?? s.user ?? ""))));
     write(SUBS_FILTERS_KEY,JSON.stringify(filters));
     const activeFilter = Boolean(user || problem || result || mine);
-    const rowHtml = (s: any): string => `<tr><td class="tm-code-muted">#${esc(s.id)}</td><td><a href="#/account?user=${encodeURIComponent(String(s.user ?? ""))}"${ratingStyle(s.user_rating)} title="${text("account.title")}">${esc(s.user_display_name ?? s.user ?? "—")}</a></td><td><a href="#/problems?code=${encodeURIComponent(String(s.problem ?? ""))}">${esc(s.problem_name ?? s.problem ?? "—")}</a></td><td>${esc(ago(s.date))}</td><td>${esc(s.language ?? "—")}</td><td><span class="tm-result-pill${s.result === "AC" ? " ok" : !s.is_terminal ? " pending" : " bad"}">${esc(s.result ?? s.status ?? "—")}${!s.is_terminal && s.current_testcase ? ` · #${esc(s.current_testcase)}` : ""}</span></td><td>${esc(s.points ?? "—")}</td><td class="tm-col-eye"><button class="tm-icon-button" data-sub="${s.id}" aria-expanded="false" title="${text("subs.details")}" aria-label="${text("subs.details")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.5 10.5 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.5 10.5 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></svg></button></td></tr>`;
+    // pass #52 — official row anatomy (carve S_/public table): the ID is a
+    // submission-problem-link BUTTON that opens the source page (disabled + greyed
+    // when can_view_source is false), and the detail toggle is disabled while
+    // !(is_terminal && can_view_detail) with the official reasons.
+    const detailEnabled = (s: any): boolean => !!(s.is_terminal && s.can_view_detail);
+    const rowHtml = (s: any): string => `<tr><td><button type="button" class="tm-sub-id" data-source="${esc(s.id)}"${s.can_view_source ? "" : " disabled"} title="${text(s.can_view_source ? "subs.viewSource" : "subs.noSourcePermission")}" aria-label="${text("subs.viewSource")} #${esc(s.id)}">#${esc(s.id)}</button></td><td><a href="#/account?user=${encodeURIComponent(String(s.user ?? ""))}"${ratingStyle(s.user_rating)} title="${esc(String(s.user_display_name ?? s.user ?? "—"))} (@${esc(String(s.user ?? ""))})">${esc(s.user_display_name ?? s.user ?? "—")}</a></td><td><a href="#/problems?code=${encodeURIComponent(String(s.problem ?? ""))}">${esc(s.problem_name ?? s.problem ?? "—")}</a></td><td>${esc(ago(s.date))}</td><td>${esc(langName(s.language))}</td><td><span class="tm-result-pill${s.result === "AC" ? " ok" : !s.is_terminal ? " pending" : " bad"}">${esc(s.result ?? s.status ?? "—")}${!s.is_terminal && s.current_testcase ? ` · #${esc(s.current_testcase)}` : ""}</span></td><td><strong>${esc(s.points ?? "—")}</strong></td><td class="tm-col-eye"><button class="tm-icon-button" data-sub="${s.id}" aria-expanded="false"${detailEnabled(s) ? "" : " disabled"} title="${detailEnabled(s) ? text("subs.details") : text(s.can_view_detail ? "subs.waitGrading" : "subs.noDetailPermission")}" aria-label="${text("subs.showDetails", { n: String(s.id) })}">${eyeSvg}</button></td></tr>`;
     // expanded details survive the 10s poll repaint (audit): the detail row element
     // is kept per submission id and re-inserted after its (repainted) summary row
     const openDetails = new Map<string, { row: HTMLTableRowElement; btn: HTMLButtonElement }>();
+    const eyeSwap = (btn: HTMLButtonElement, expanded: boolean): void => {
+      btn.innerHTML = expanded ? chevronUpSvg : eyeSvg; // official S_: eye → upward arrow on expand
+      btn.setAttribute("aria-expanded", String(expanded));
+      btn.setAttribute("aria-label", text(expanded ? "subs.hideDetails" : "subs.showDetails", { n: btn.dataset.sub ?? "" }));
+    };
     const wireRows = (): void => {
+      host.querySelectorAll<HTMLButtonElement>("[data-source]").forEach(b => b.onclick = () => {
+        this.go("submissions", { ...Object.fromEntries(params), source: b.dataset.source ?? "" });
+      });
       host.querySelectorAll<HTMLButtonElement>("[data-sub]").forEach(b => b.onclick = async () => {
       const existing = host.querySelector(`[data-detail="${b.dataset.sub}"]`);
-      if (existing) { existing.remove(); openDetails.delete(b.dataset.sub!); b.setAttribute("aria-expanded","false"); return; }
+      if (existing) { existing.remove(); openDetails.delete(b.dataset.sub!); eyeSwap(b, false); return; }
       const row = document.createElement("tr"); row.dataset.detail = b.dataset.sub;
-      const cell = row.insertCell(); cell.colSpan = 8; cell.innerHTML = loading(); b.closest("tr")!.after(row); b.setAttribute("aria-expanded","true");
+      const cell = row.insertCell(); cell.colSpan = 8; cell.className = "tm-sub-detail-cell"; cell.innerHTML = loading(); b.closest("tr")!.after(row); eyeSwap(b, true);
       openDetails.set(b.dataset.sub!, { row, btn: b });
       const summary = rows.find(s=>s.id === Number(b.dataset.sub));
       if (summary?.can_view_detail === false) { cell.innerHTML = empty("subs.noDetails"); return; }
       try {
         const s = await api.submission(auth.accessToken()!,Number(b.dataset.sub),scope || undefined);
         if (!alive() || !row.isConnected) return;
-        cell.innerHTML = `<div class="tm-card-body"><b>${text("subs.details")} #${s.id}</b><p>${text("subs.score")}: ${esc(s.case_points)} / ${esc(s.case_total)}</p>${s.can_view_detail === false || !s.cases?.length ? empty("subs.noDetails") : `<table class="tm-table"><thead><tr><th>${text("subs.testcase")}</th><th>${text("subs.result")}</th><th>${text("subs.time")}</th><th>${text("subs.memory")}</th></tr></thead><tbody>${s.cases.map((c:any,i)=>`<tr><td>${i+1}</td><td>${esc(c.result ?? c.status ?? c.feedback)}</td><td>${esc(c.time ?? "—")}</td><td>${esc(c.memory ?? "—")}</td></tr>`).join("")}</tbody></table>`}${s.can_view_source === true ? button("problem.source","source") : ""}<div class="tm-submission-source"></div></div>`;
-        const source = cell.querySelector<HTMLButtonElement>('[data-action="source"]');
-        if (source) source.onclick = async () => {
-          source.disabled = true;
-          const out = cell.querySelector<HTMLElement>(".tm-submission-source")!;
-          try { const data = await raw(`/submissions/${s.id}/source${scope ? `?scope=${scope}` : ""}`,{token:auth.accessToken()}); if (alive() && row.isConnected) out.innerHTML = `<pre><code>${esc(data.source)}</code></pre>`; }
-          catch(e) { if (alive() && row.isConnected) out.innerHTML = errorBox(e); }
-          finally { source.disabled = false; }
-        };
+        cell.innerHTML = this.submissionDetailHtml(s);
+        this.wireCaseToggles(cell);
       } catch(e) { if (alive() && row.isConnected) cell.innerHTML = errorBox(e); }
     });
     };
@@ -740,7 +815,7 @@ export class TmathApp {
       for (const [id, ent] of openDetails) {
         const btn = tbody?.querySelector<HTMLButtonElement>(`button[data-sub="${id}"]`);
         if (!btn) { openDetails.delete(id); continue; } // summary scrolled off this page
-        btn.setAttribute("aria-expanded", "true");
+        eyeSwap(btn, true);
         btn.closest("tr")!.after(ent.row);
       }
     };
@@ -766,6 +841,84 @@ export class TmathApp {
       }).catch(() => { /* transient — next tick retries */ });
     }, 10_000);
     this.pager(host,page,rows.length,params,pageSize);
+  }
+
+  // pass #52 — official x_/b_ detail anatomy (carve @456099, live server case schema
+  // verified with curl: case_id/batch_id/status/time/memory/points/total/feedback/
+  // output/extended_feedback): summary line + the case table; batched groups recurse
+  // as "Nhóm #N" rows; each leaf test toggles its Output (rút gọn) + judge feedback
+  // panels tinted by verdict. Times render toFixed(3) s, memory KB → MB (carve v_/y_).
+  private submissionDetailHtml(s: any): string {
+    const fmtT = (v: unknown): string => typeof v === "number" && Number.isFinite(v) ? v.toFixed(3) : "—";
+    const fmtM = (v: unknown): string => typeof v === "number" && Number.isFinite(v) ? `${(v / 1024).toFixed(2)} MB` : "—";
+    const pill = (status: unknown): string => {
+      const r = String(status ?? "—");
+      return `<span class="tm-result-pill${r === "AC" ? " ok" : r === "—" ? " pending" : " bad"}">${esc(r)}</span>`;
+    };
+    const panels = (c: any): string => {
+      const out = typeof c.output === "string" && c.output ? c.output.slice(0, 10_000) : ""; // "(rút gọn)" is honest: capped
+      const fb = [c.extended_feedback, c.feedback].find((v: unknown): v is string => typeof v === "string" && !!v.trim()) ?? "";
+      const tone = String(c.status ?? "") === "AC" ? "ok" : "bad";
+      return `${out ? `<div class="tm-case-panel info"><b>${text("subs.yourOutput")}</b><pre>${esc(out)}</pre></div>` : ""}${fb ? `<div class="tm-case-panel ${tone}"><b>${text("subs.judgeFeedback")}</b><pre>${esc(fb)}</pre></div>` : ""}`;
+    };
+    const caseRows = (items: any[], group: number | null): string => (Array.isArray(items) ? items : []).map((c: any) => {
+      if (!c || typeof c !== "object") return "";
+      const batch = typeof c.batch_id === "number" ? c.batch_id : null;
+      const leaf = batch == null;
+      const panelHtml = panels(c);
+      const testCell = leaf
+        ? (panelHtml ? `<button type="button" class="tm-case-toggle" data-case-toggle aria-expanded="false"><span>#${esc(c.case_id ?? "—")}</span>${caseChevronSvg}</button>` : `#${esc(c.case_id ?? "—")}`)
+        : "—";
+      const groupCell = leaf ? (group == null ? "—" : text("subs.groupN", { n: group })) : text("subs.groupN", { n: batch! });
+      return `<tr><th scope="row" class="tm-case-cell">${testCell}</th><td>${esc(groupCell)}</td><td>${leaf ? pill(c.status) : "—"}</td><td class="tm-case-number">${esc(fmtT(c.time))}</td><td class="tm-case-number">${esc(fmtM(c.memory))}</td><td>${esc(c.points ?? "—")} / ${esc(c.total ?? "—")}</td></tr>${panelHtml ? `<tr class="tm-case-panel-row" hidden><td colspan="6">${panelHtml}</td></tr>` : ""}${Array.isArray(c.cases) && c.cases.length ? caseRows(c.cases, batch) : ""}`;
+    }).join("");
+    const casesHtml = Array.isArray(s.cases) && s.cases.length
+      ? `<div class="tm-sub-cases-wrap"><table class="tm-sub-cases" aria-label="${text("subs.testcase")}"><thead><tr><th>${text("subs.testcase")}</th><th>${text("subs.group")}</th><th>${text("subs.result")}</th><th>${text("subs.time")} (s)</th><th>${text("subs.memory")} (MB)</th><th>${text("subs.score")}</th></tr></thead><tbody>${caseRows(s.cases, null)}</tbody></table></div>`
+      : `<p class="tm-muted">${text("subs.noCaseDetail")}</p>`;
+    return `<div class="tm-sub-detail"><p class="tm-sub-detail-summary">${text("subs.testSummary", { p: String(s.case_points ?? "—"), t: String(s.case_total ?? "—"), time: fmtT(s.time), mem: fmtM(s.memory) })}</p>${casesHtml}</div>`;
+  }
+
+  private wireCaseToggles(scope: ParentNode): void {
+    scope.querySelectorAll<HTMLButtonElement>("[data-case-toggle]").forEach(b => b.onclick = () => {
+      const tr = b.closest("tr");
+      const panel = tr?.nextElementSibling;
+      if (!tr || !(panel instanceof HTMLElement) || !panel.classList.contains("tm-case-panel-row")) return;
+      const open = panel.hidden;
+      panel.hidden = !open;
+      b.setAttribute("aria-expanded", String(open));
+      b.classList.toggle("open", open);
+    });
+  }
+
+  // pass #52 — official g_/h_ source page (carve @451440): "Quay lại bài nộp" back,
+  // "Source Code" title with the #id · language subtitle, line-number gutter, and C++
+  // token highlighting for CPP* languages. The old in-detail [Source code] button is
+  // gone — the #ID click IS the jump to source.
+  private async submissionSource(host: HTMLElement, params: URLSearchParams, id: number, scope: string, alive: () => boolean): Promise<void> {
+    host.innerHTML = `<section class="tm-source-page"><div class="tm-source-actions"><button type="button" class="tm-button" data-action="back-subs">${text("subs.backToSubs")}</button></div><div class="tm-page-title tm-source-title"><div><h1>${text("subs.sourceTitle")}</h1><p class="tm-muted" data-source-sub>#${id}</p></div></div><div data-source-body role="status"><p class="tm-muted">${text("subs.loadingSource")}</p></div></section>`;
+    host.querySelector<HTMLButtonElement>('[data-action="back-subs"]')!.onclick = () => {
+      const next = { ...Object.fromEntries(params) };
+      delete next.source;
+      this.go("submissions", next);
+    };
+    const body = host.querySelector<HTMLElement>("[data-source-body]")!;
+    try {
+      const data = await raw(`/submissions/${id}/source${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`, { token: auth.accessToken() });
+      if (!alive()) return;
+      const sourceCode = typeof data?.source === "string" ? data.source : "";
+      if (!sourceCode) { body.innerHTML = `<p class="tm-muted">${text("subs.noSourceProvided")}</p>`; return; }
+      const lang = String(data?.language ?? "");
+      const sub = host.querySelector<HTMLElement>("[data-source-sub]");
+      if (sub) sub.textContent = `#${id}${lang ? ` · ${langName(lang)}` : ""}`;
+      const lines = sourceCode.split("\n").length;
+      const codeHtml = /^CPP/i.test(lang) ? cppHighlight(sourceCode) : esc(sourceCode);
+      body.removeAttribute("role");
+      body.innerHTML = `<div class="tm-source-viewer" tabindex="0" role="region" aria-label="${esc(text("subs.sourceAria", { n: String(id) }))}"><pre class="tm-source-gutter" aria-hidden="true">${Array.from({ length: lines }, (_, i) => i + 1).join("\n")}</pre><pre class="tm-source-code"><code>${codeHtml}</code></pre></div>`;
+    } catch (e) {
+      if (!alive()) return;
+      body.innerHTML = errorBox(e) + button("common.retry", "source-retry");
+      host.querySelector<HTMLButtonElement>('[data-action="source-retry"]')!.onclick = () => void this.submissionSource(host, params, id, scope, alive);
+    }
   }
 
   // global rankings cache: /users is server-paged with no count metadata and no sort

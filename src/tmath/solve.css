@@ -12,7 +12,7 @@ body[data-persona="tmath"] #app .tm-source-fallback { display: block; width: 100
 body[data-persona="tmath"] #app .tm-solve [hidden] { display: none !important; }
 body[data-persona="tmath"] .tm-submit-bar { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; border-top: 1px solid var(--tmath-border); }
 body[data-persona="tmath"] .tm-submit-bar [data-draft] { flex: 1; font-size: 11px; }
-body[data-persona="tmath"] .tm-solve-feedback:not(:empty), body[data-persona="tmath"] [data-editor-message]:not(:empty) { margin: 12px; }
+body[data-persona="tmath"] .tm-solve [data-editor-message]:not(:empty) { margin: 12px; }
 body[data-persona="tmath"] .tm-runner summary { cursor: pointer; }
 body[data-persona="tmath"] .tm-runner > summary { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 body[data-persona="tmath"] .tm-check { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; }
@@ -59,12 +59,9 @@ body[data-persona="tmath"] #app dialog.tm-confirm p { margin: 8px 0 0; font-size
 body[data-persona="tmath"] dialog.tm-confirm .tm-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
 body[data-persona="tmath"] dialog.tm-confirm .tm-confirm-actions .tm-button { padding: 8px 16px; }
 body[data-persona="tmath"] .tm-runner > summary { display: none; }
-/* official TabsList rhythm (carve J_/Y_/X_ defaults): muted 36px segmented control, active = card + shadow */
-body[data-persona="tmath"] .tm-io-tabs { display: inline-flex; align-items: center; height: 30px; padding: 2px; border-radius: 9px; background: var(--tmath-muted); color: var(--tmath-muted-foreground); }
-body[data-persona="tmath"] .tm-io-tab { display: inline-flex; flex: 1; align-items: center; justify-content: center; height: calc(100% - 2px); min-width: 64px; padding: 3px 14px; border: 1px solid transparent; border-radius: 7px; background: transparent; font-size: 12px; font-weight: 500; color: color-mix(in srgb, var(--tmath-foreground) 60%, transparent); transition: color .15s, background-color .15s; cursor: pointer; }
-body[data-persona="tmath"] .tm-io-tab:hover { color: var(--tmath-foreground); }
-body[data-persona="tmath"] .tm-io-tab.current { background: var(--tmath-card); color: var(--tmath-foreground); box-shadow: 0 1px 2px rgba(0, 0, 0, .05); }
-html.dark body[data-persona="tmath"] .tm-io-tab.current { background: color-mix(in srgb, var(--tmath-muted) 30%, var(--tmath-card)); }
+/* pass #52: io/case tabs share the unified official segmented-control rules in
+   tmath.css (.tm-case-tabs) — the old .tm-io-tab variants here styled buttons that
+   never carried the class, leaving the generic button chrome inside the container */
 body[data-persona="tmath"] .tm-io-first textarea[data-manual-stdin] { min-height: 110px; max-height: 320px; font: 12px/1.5 var(--tmath-font-mono); resize: vertical; width: 100%; }
 body[data-persona="tmath"] .tm-io-first [data-manual-stdout] { max-height: 320px; overflow: auto; font: 12px/1.5 var(--tmath-font-mono); margin: 0; }
 body[data-persona="tmath"] .tm-io-first [data-limit] { max-width: 120px; }
