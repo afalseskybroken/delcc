@@ -317,6 +317,9 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       if (result.cancelled) bits.push(t("cph.cancelled"));
       if (startRevision !== revision) bits.push(t("cph.stale"));
       summary.textContent = bits.join(" · ");
+      // pass #54: an all-clear run leaves NOTHING here — an empty .tm-status box is
+      // exactly the leftover blue strip He flagged
+      if (!bits.length) summary.className = "tm-muted";
       runMarks.clear();
       // RAN is noise (audit #34): unscored cases carry only their time in the title
       for (const r of result.results) if (r.id !== "tm-manual-stdin") {

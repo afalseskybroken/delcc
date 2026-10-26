@@ -331,7 +331,7 @@ export const viVN: Dict = {
   "settings.tcAuto": "tự dò",
   "settings.tcAutoMode": "tự động",
   "settings.tcManual": "ghi đè thủ công",
-  "settings.tcHint": "Hữu ích khi có nhiều bản GCC hoặc muốn chọn giữa gcc và g++ — đường dẫn được trình chạy cục bộ thực thi trực tiếp.",
+  "settings.tcAutoDetected": "{path} [tự động nhận diện]",
   "settings.logs": "Nhật ký chẩn đoán",
   "settings.logsCopy": "Sao chép nhật ký",
   "settings.logsClear": "Xoá",

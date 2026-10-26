@@ -1,7 +1,7 @@
 import { t, LOCALES } from "../i18n";
 import { clientVersion } from "../lib/api";
 import { cphDetect, systemFonts, openExternal } from "../lib/transport";
-import { cphSupported, toolchainOverride, setToolchainOverride, CPH_LANGS } from "../lib/cph";
+import { cphSupported, toolchainOverride, setToolchainOverride, CPH_LANGS, detectOnce, type CphToolchain } from "../lib/cph";
 import { logSnapshot, clearLog, onLog, formatEntries } from "../lib/applog";
 import { esc, text, button, errorBox, empty, copyText } from "./ui";
 import { applyPreferences, read, write, savePreferences, type Preferences } from "./preferences";
@@ -39,7 +39,7 @@ export function renderSettings(host: HTMLElement, prefs: Preferences, onChange: 
   host.innerHTML = `<div class="tm-settings-wrap"><div class="tm-page-title"><div><div class="tm-eyebrow">${esc(t("settings.eyebrow" as "settings.title"))}</div><h1>${text("settings.title" as "contests.title")}</h1><p class="tm-muted">${esc(t("settings.headerDesc" as "settings.title"))}</p></div></div><div class="tm-settings-grid">
     <section class="tm-card tm-settings-section"><h2>${text("settings.appearance")}</h2><div class="tm-field"><label for="tm-theme">${text("settings.theme")}</label>${select("tm-theme", ["light","dark","system"].map(v => [v, t(`settings.${v}` as "settings.light")]), prefs.theme)}</div><div class="tm-field"><label for="tm-locale">${text("settings.language")}</label>${select("tm-locale", LOCALES.map(v => [v, {"en-US":"English","vi-VN":"Tiếng Việt","zh-CN":"简体中文"}[v]]), prefs.locale)}</div></section>
     <section class="tm-card tm-settings-section"><h2>${text("settings.typography")}</h2><div class="tm-field"><label for="tm-statement-font">${text("settings.statementFont")}</label>${select("tm-statement-font", withSaved(STATEMENT_FONTS, prefs.statementFont), prefs.statementFont)}<small class="tm-muted" data-font-row></small></div><div class="tm-field"><label for="tm-editor-font">${text("settings.editorFont")}</label>${select("tm-editor-font", withSaved(EDITOR_FONTS, prefs.editorFont), prefs.editorFont)}</div><div class="tm-field-row"><div class="tm-field"><label for="tm-statement-size">${text("settings.statementSize")}</label><input id="tm-statement-size" type="number" min="12" max="28" value="${prefs.statementSize}"></div><div class="tm-field"><label for="tm-editor-size">${text("settings.editorSize")}</label><input id="tm-editor-size" type="number" min="10" max="28" value="${prefs.editorSize}"></div></div><label class="tm-check"><input id="tm-wrap" type="checkbox"${prefs.wordWrap ? " checked" : ""}>${text("settings.wordWrap")}</label><label class="tm-check"><input id="tm-minimap" type="checkbox"${prefs.minimap ? " checked" : ""}>${text("settings.minimap")}</label><div class="tm-preview"><small>${text("settings.preview")}</small><p class="tm-statement">a + b = c · ∑ i² · 0123456789</p><pre style="font-family:var(--tm-editor-font);font-size:${prefs.editorSize}px">int main() { return 0; }</pre></div></section>
-    <section class="tm-card tm-settings-section"><h2>${text("settings.tools")}</h2>${button("settings.detectTools", "tools")}<div id="tm-tools"></div><p class="tm-muted">${text("settings.tcOverride")}</p>${CPH_LANGS.filter(l => cphSupported(l.key)).map(l => `<div class="tm-field"><label for="tm-tc-${l.key}">${l.label}</label><input id="tm-tc-${l.key}" spellcheck="false" placeholder="${text("settings.tcAuto")}"><small class="tm-muted" data-tc-state="${l.key}"></small></div>`).join("")}<p class="tm-muted">${text("settings.tcHint")}</p></section>
+    <section class="tm-card tm-settings-section"><h2>${text("settings.tools")}</h2>${button("settings.detectTools", "tools")}<div id="tm-tools"></div><p class="tm-muted">${text("settings.tcOverride")}</p>${CPH_LANGS.filter(l => cphSupported(l.key)).map(l => `<div class="tm-field"><label for="tm-tc-${l.key}">${l.label}</label><input id="tm-tc-${l.key}" spellcheck="false" placeholder="${text("settings.tcAuto")}"><small class="tm-muted" data-tc-state="${l.key}"></small></div>`).join("")}</section>
     <section class="tm-card tm-settings-section"><h2>${text("settings.versions")}</h2><dl class="tm-versions"><div><dt>${text("app.clientVersion")}</dt><dd><b>delcc</b> ${esc(manifest.version)}</dd></div><div><dt>${text("app.requiredVersion")}</dt><dd>${esc(clientVersion() || "—")}</dd></div><div><dt>${text("app.github")}</dt><dd>${button("app.github", "open-github")}</dd></div></dl><p class="tm-muted">${text("app.independent")}</p></section>
     <section class="tm-card tm-settings-section"><h2>${text("settings.logs")}</h2><pre class="tm-log-view" data-log-view>${esc(formatEntries(logSnapshot()))}</pre><div class="tm-toolbar">${button("settings.logsCopy", "log-copy")}${button("settings.logsClear", "log-clear")}</div><p class="tm-muted">${text("settings.logsHint")}</p></section></div></div>`;
   host.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input,select").forEach(control => {
@@ -94,15 +94,27 @@ export function renderSettings(host: HTMLElement, prefs: Preferences, onChange: 
     rebuild("tm-editor-font", EDITOR_FONTS, host.querySelector<HTMLSelectElement>("#tm-editor-font")?.value ?? "");
   })();
   // toolchain overrides (audit #48): saved on change, no full re-render; the state
-  // line shows which mode each language is in
+  // line names the actual binary in auto mode — "<path> [auto-detected]" (pass #54)
   for (const l of CPH_LANGS) {
     if (!cphSupported(l.key)) continue;
     const input = host.querySelector<HTMLInputElement>(`#tm-tc-${l.key}`)!;
     input.value = toolchainOverride(l.key);
     const state = host.querySelector<HTMLElement>(`[data-tc-state="${l.key}"]`);
-    const paint = () => { if (state) state.textContent = toolchainOverride(l.key) ? text("settings.tcManual") : text("settings.tcAutoMode"); };
+    let detected: CphToolchain | undefined;
+    const paint = () => {
+      if (toolchainOverride(l.key)) { if (state) state.textContent = text("settings.tcManual"); return; }
+      if (detected) {
+        if (state) state.textContent = text("settings.tcAutoDetected", { path: detected.binary });
+        input.placeholder = detected.binary;
+      } else if (state) state.textContent = text("settings.tcAutoMode");
+    };
     paint();
     input.onchange = () => { setToolchainOverride(l.key, input.value); paint(); };
+    void detectOnce().then(tcs => {
+      if (disposed) return;
+      detected = tcs.find(t => t.lang_key === l.key);
+      paint();
+    }).catch(() => { /* detection unavailable — the "auto" line stays */ });
   }
   // diagnostics log: live view while Settings is open; copy/clear are manual
   const logView = host.querySelector<HTMLElement>("[data-log-view]")!;

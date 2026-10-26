@@ -343,7 +343,7 @@ export interface Dict {
   "settings.tcAuto": string;
   "settings.tcAutoMode": string;
   "settings.tcManual": string;
-  "settings.tcHint": string;
+  "settings.tcAutoDetected": string;
   "settings.logs": string;
   "settings.logsCopy": string;
   "settings.logsClear": string;

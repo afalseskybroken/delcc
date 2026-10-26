@@ -332,7 +332,7 @@ export const enUS: Dict = {
   "settings.tcAuto": "auto-detect",
   "settings.tcAutoMode": "auto",
   "settings.tcManual": "manual override",
-  "settings.tcHint": "Useful with several GCC installs or choosing between gcc and g++ — the path is executed directly by the local runner.",
+  "settings.tcAutoDetected": "{path} [auto-detected]",
   "settings.logs": "Diagnostics log",
   "settings.logsCopy": "Copy log",
   "settings.logsClear": "Clear",

@@ -819,7 +819,9 @@ export class TmathApp {
         btn.closest("tr")!.after(ent.row);
       }
     };
-    host.innerHTML = this.pageTitle("subs.eyebrow","subs.title","subs.desc","subs.refresh") + `<section class="tm-card tm-card-body"><form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-subs-user">${text("subs.user")}</label><input id="tm-subs-user" name="user" placeholder="${text("subs.user")}" value="${esc(user)}"></div><div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><input id="tm-subs-problem" name="problem" placeholder="${text("subs.problemPlaceholder")}" value="${esc(problem)}"></div><div class="tm-field"><label for="tm-subs-result">${text("subs.result")}</label><select id="tm-subs-result" name="result"><option value="">${text("subs.allResults")}</option>${SUBS_RESULTS.map(s=>`<option${result === s ? " selected" : ""}>${s}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-subs-size">${text("subs.pageSize")}</label><select id="tm-subs-size" name="pageSize">${sizeOptions.map(n=>`<option value="${n}"${n === pageSize ? " selected" : ""}>${n}</option>`).join("")}</select></div><label class="tm-check tm-filter-check"><input type="checkbox" name="mine" value="1"${mine ? " checked" : ""}>${text("subs.mine")}</label></div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form><div class="tm-table-wrap"><table class="tm-table tm-subs-table"><thead><tr>${["subs.id","subs.user","subs.problem","subs.date","subs.language","subs.result","subs.score"].map(k=>`<th>${text(k as DictKey)}</th>`).join("")}<th class="tm-col-eye"><span class="sr-only">${text("subs.details")}</span></th></tr></thead><tbody>${rows.map(rowHtml).join("")}</tbody></table>${rows.length ? "" : empty()}</div></section>`;
+    // pass #54 (same case as problems): the filter form floats free — the bordered
+    // card wraps ONLY the table
+    host.innerHTML = this.pageTitle("subs.eyebrow","subs.title","subs.desc","subs.refresh") + `<form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-subs-user">${text("subs.user")}</label><input id="tm-subs-user" name="user" placeholder="${text("subs.user")}" value="${esc(user)}"></div><div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><input id="tm-subs-problem" name="problem" placeholder="${text("subs.problemPlaceholder")}" value="${esc(problem)}"></div><div class="tm-field"><label for="tm-subs-result">${text("subs.result")}</label><select id="tm-subs-result" name="result"><option value="">${text("subs.allResults")}</option>${SUBS_RESULTS.map(s=>`<option${result === s ? " selected" : ""}>${s}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-subs-size">${text("subs.pageSize")}</label><select id="tm-subs-size" name="pageSize">${sizeOptions.map(n=>`<option value="${n}"${n === pageSize ? " selected" : ""}>${n}</option>`).join("")}</select></div><label class="tm-check tm-filter-check"><input type="checkbox" name="mine" value="1"${mine ? " checked" : ""}>${text("subs.mine")}</label></div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form><section class="tm-card"><div class="tm-table-wrap"><table class="tm-table tm-subs-table"><thead><tr>${["subs.id","subs.user","subs.problem","subs.date","subs.language","subs.result","subs.score"].map(k=>`<th>${text(k as DictKey)}</th>`).join("")}<th class="tm-col-eye"><span class="sr-only">${text("subs.details")}</span></th></tr></thead><tbody>${rows.map(rowHtml).join("")}</tbody></table>${rows.length ? "" : empty()}</div></section>`;
     const clearFilter = host.querySelector<HTMLButtonElement>('[data-action="clear"]');
     // audit: clear must ALSO forget the remembered filters — value() falls back to
     // SUBS_FILTERS_KEY, so an empty-params go() alone just re-applied the old filter
@@ -935,12 +937,14 @@ export class TmathApp {
     if (onProgress) this.rankingsProgress.push(onProgress);
     if (!this.rankingsSweep) {
       const run = (async () => {
-        const PS = 100; // server may cap lower — short-page detection adapts either way
+        const PS = 100; // server caps /users page_size at 100 (422 above) — verified live
         const out: any[] = [];
         const seen = new Set<string>();
         let complete = false;
-        for (let base = 1; base <= 500; base += 5) { // parallel batches of 5, 500 pages hard cap
-          const pages = await Promise.allSettled(Array.from({ length: 5 }, (_, k) =>
+        // pass #54: waves of 12 (was 5) — the cap forbids bigger pages, so the sweep
+        // speed lives in concurrency; hard page cap and short-page detection unchanged
+        for (let base = 1; base <= 500; base += 12) {
+          const pages = await Promise.allSettled(Array.from({ length: Math.min(12, 500 - base + 1) }, (_, k) =>
             raw(`/users?page=${base + k}&page_size=${PS}`, { token: auth.accessToken()! })));
           let short = false;
           for (const r of pages) {

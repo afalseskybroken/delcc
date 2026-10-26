@@ -331,7 +331,7 @@ export const zhCN: Dict = {
   "settings.tcAuto": "自动检测",
   "settings.tcAutoMode": "自动",
   "settings.tcManual": "手动覆盖",
-  "settings.tcHint": "装有多个 GCC 或想在 gcc / g++ 之间选择时有用 —— 该路径由本地运行器直接执行。",
+  "settings.tcAutoDetected": "{path} [自动检测]",
   "settings.logs": "诊断日志",
   "settings.logsCopy": "复制日志",
   "settings.logsClear": "清空",
