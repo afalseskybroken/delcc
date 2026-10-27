@@ -5,23 +5,33 @@
 #![windows_subsystem = "windows"]
 
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 mod fonts;
 mod cph;
 use cph::{cph_compile, cph_detect, cph_run, cph_stop, CphState};
+
+// pass #65: ONE shared client per process. Per-call builds paid a fresh TLS
+// handshake + pool teardown on every request — the 10-30s polls and the 500-page
+// rankings sweep all route through here. Builder failure is a dead TLS stack:
+// fatal, so get_or_init panics instead of per-call Err strings.
+fn http() -> &'static reqwest::Client {
+    static HTTP: OnceLock<reqwest::Client> = OnceLock::new();
+    HTTP.get_or_init(|| {
+        reqwest::Client::builder()
+            .http1_only()
+            .user_agent(concat!("delcc/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .expect("delcc http client")
+    })
+}
 // pass #18: same-origin HTML GET for the public site (avatar harvest). The webview
 // fetch is CORS-blocked on profile pages; the shell talks, the page renders.
 #[tauri::command]
 async fn site_fetch(path: String) -> Result<String, String> {
     const BASE: &str = "https://oj.tmathcoding.vn";
     if !path.starts_with('/') || path.contains("..") { return Err("bad path".into()); }
-    let client = reqwest::Client::builder()
-        .http1_only()
-        .user_agent(concat!("delcc/", env!("CARGO_PKG_VERSION")))
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("client: {e}"))?;
-    let resp = client.get(format!("{BASE}{path}")).send().await.map_err(|e| format!("send: {e}"))?;
+    let resp = http().get(format!("{BASE}{path}")).timeout(std::time::Duration::from_secs(15)).send().await.map_err(|e| format!("send: {e}"))?;
     let status = resp.status().as_u16();
     let text = resp.text().await.map_err(|e| format!("body: {e}"))?;
     serde_json::to_string(&serde_json::json!({ "status": status, "body": text }))
@@ -44,13 +54,7 @@ async fn api_fetch(
     headers: HashMap<String, String>,
 ) -> Result<String, String> {
     const BASE: &str = "https://oj.tmathcoding.vn/api/v3";
-    let client = reqwest::Client::builder()
-        .http1_only()
-        .user_agent(concat!("delcc/", env!("CARGO_PKG_VERSION")))
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("client: {e}"))?;
-    let mut req = client.request(
+    let mut req = http().request(
         method.parse::<reqwest::Method>().map_err(|e| format!("method: {e}"))?,
         format!("{BASE}{path}"),
     );
@@ -64,7 +68,7 @@ async fn api_fetch(
     if let Some(b) = body {
         req = req.body(b);
     }
-    let resp = req.send().await.map_err(|e| format!("send: {e}"))?;
+    let resp = req.timeout(std::time::Duration::from_secs(30)).send().await.map_err(|e| format!("send: {e}"))?;
     let status = resp.status().as_u16();
     let text = resp.text().await.map_err(|e| format!("body: {e}"))?;
     serde_json::to_string(&serde_json::json!({ "status": status, "body": text }))

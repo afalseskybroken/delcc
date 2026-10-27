@@ -1,6 +1,6 @@
 [package]
 name = "delcc-app"
-version = "0.2.13-alpha"
+version = "0.2.14-alpha"
 description = "delcc — custom frontend (not TMATH's work)"
 authors = ["He"]
 edition = "2021"
@@ -28,3 +28,11 @@ custom-protocol = ["tauri/custom-protocol"]
 job-mem-cap = ["dep:windows-sys"]
 # fonts-enum: registry-only font harvest (default on; pure RegReads, no process mutation)
 fonts-enum = ["dep:windows-sys"]
+
+# pass #65: the default release profile shipped unstripped. No runtime behavior
+# change — symbols out, thin LTO + one codegen unit (full LTO's link step is a
+# commit-exhaustion hazard on the dev box; thin keeps the size win).
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1

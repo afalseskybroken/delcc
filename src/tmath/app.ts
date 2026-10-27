@@ -856,6 +856,7 @@ export class TmathApp {
     // participation_id) exits Contest View with a one-shot notice.
     const pollState = window.setInterval(() => {
       if (!alive() || leftAuto) { window.clearInterval(pollState); return; }
+      if (document.hidden) return; // minimized: skip the beat — the next visible one re-syncs state + deadline
       void api.workspace(auth.accessToken()!, key).then(ws => {
         if (!alive() || leftAuto) return;
         if (!ws || ws.participation_id == null) { leaveContestView("leftAuto"); return; }
@@ -919,9 +920,21 @@ export class TmathApp {
     const size = value("pageSize","100"), pageSize = [10,20,50,100].includes(Number(size)) ? Number(size) : 100;
     const sizeOptions = [10,20,50,100];
     const scalar = (v: unknown) => Array.isArray(v) ? v[0] : v;
+    // pass #64 (He: "813 h ago is diabolical"): never fabricate an age from a value we
+    // cannot interpret. Absolute timestamps parse as-is; bare epoch numbers pick ms vs
+    // seconds by magnitude; ANYTHING else renders VERBATIM — the raw server token beats
+    // a confident lie. The date cell also carries the raw value as its tooltip.
     const ago = (value: unknown): string => {
-      const ts = new Date(String(scalar(value))).getTime();
-      if (!Number.isFinite(ts)) return "—";
+      const raw = scalar(value);
+      if (raw == null || raw === "") return "—";
+      let ts: number;
+      if (typeof raw === "number") ts = Math.abs(raw) > 1e11 ? raw : raw * 1000;
+      else {
+        const s = String(raw).trim();
+        ts = new Date(s).getTime();
+        if (!Number.isFinite(ts) && /^-?\d+(\.\d+)?$/.test(s)) { const n = Number(s); ts = Math.abs(n) > 1e11 ? n : n * 1000; }
+      }
+      if (!Number.isFinite(ts)) return String(raw);
       const secs = Math.max(0, Math.round((Date.now() - ts) / 1000));
       if (secs < 60) return text("time.secondsAgo", { n: secs }); // official counts seconds, no "just now"
       if (secs < 3600) return text("time.minutesAgo", { n: Math.floor(secs / 60) });
@@ -957,10 +970,17 @@ export class TmathApp {
     // contest rows normalize onto the shared row shape (ContestSubmissionItemSchema:
     // submission_id/language_key/submitted_at/is_graded/… — live-probed, pass #58);
     // source is always the participant's own, so the ID click opens optimistically
+    // pass #64 LIVE CAPTURE (burner submission #3800883): the wire row is
+    // {submission_id, language_key, status, result, status_display, current_testcase,
+    // points, case_points, case_total, time (s float), memory (KB float), is_graded,
+    // is_pretested, version_update, submitted_at (ISO+00:00 WITH 6-digit microseconds),
+    // problemCode, problemName} — problem identity is CAMELCASE, not problem/problem_code
+    // (the old mapping left every contest row with an empty problem, so the scope's
+    // problem filter never matched). rawDate rides the row for the date-cell tooltip.
     const normContest = (s: any): any => ({
-      id: s?.submission_id, problem: String(s?.problem ?? s?.problem_code ?? ""), problem_name: String(s?.problem_name ?? ""),
+      id: s?.submission_id, problem: String(s?.problemCode ?? s?.problem ?? s?.problem_code ?? ""), problem_name: String(s?.problemName ?? s?.problem_name ?? ""),
       user: String(this.user?.username ?? ""), user_display_name: String(this.user?.display_name ?? ""), user_rating: this.user?.rating,
-      date: s?.submitted_at, language: s?.language_key, time: s?.time, memory: s?.memory,
+      date: s?.submitted_at, rawDate: s?.submitted_at, language: s?.language_key, time: s?.time, memory: s?.memory,
       points: s?.points, result: s?.result ?? s?.status_display ?? s?.status, status: String(s?.status ?? s?.status_display ?? ""),
       is_terminal: !!s?.is_graded, current_testcase: s?.current_testcase ?? null,
       can_view_detail: !!s?.is_graded, can_view_source: true, version: s?.version_update ?? 0,
@@ -1010,7 +1030,7 @@ export class TmathApp {
     // when can_view_source is false), and the detail toggle is disabled while
     // !(is_terminal && can_view_detail) with the official reasons.
     const detailEnabled = (s: any): boolean => !!(s.is_terminal && s.can_view_detail);
-    const rowHtml = (s: any): string => `<tr><td><button type="button" class="tm-sub-id" data-source="${esc(s.id)}"${s.can_view_source ? "" : " disabled"} title="${text(s.can_view_source ? "subs.viewSource" : "subs.noSourcePermission")}" aria-label="${text("subs.viewSource")} #${esc(s.id)}">#${esc(s.id)}</button></td><td><a href="#/account?user=${encodeURIComponent(String(s.user ?? ""))}"${ratingStyle(s.user_rating)} title="${esc(String(s.user_display_name ?? s.user ?? "—"))} (@${esc(String(s.user ?? ""))})">${esc(s.user_display_name ?? s.user ?? "—")}</a></td><td><a href="#/problems?code=${encodeURIComponent(String(s.problem ?? ""))}">${esc(s.problem_name ?? s.problem ?? "—")}</a></td><td>${esc(ago(s.date))}</td><td>${esc(langName(s.language))}</td><td><span class="tm-result-pill${s.result === "AC" ? " ok" : !s.is_terminal ? " pending" : " bad"}">${esc(s.result ?? s.status ?? "—")}${!s.is_terminal && s.current_testcase ? ` · #${esc(s.current_testcase)}` : ""}</span></td><td><strong>${esc(s.points ?? "—")}</strong></td><td class="tm-col-eye"><button class="tm-icon-button" data-sub="${s.id}" aria-expanded="false"${detailEnabled(s) ? "" : " disabled"} title="${detailEnabled(s) ? text("subs.details") : text(s.can_view_detail ? "subs.waitGrading" : "subs.noDetailPermission")}" aria-label="${text("subs.showDetails", { n: String(s.id) })}">${eyeSvg}</button></td></tr>`;
+    const rowHtml = (s: any): string => `<tr><td><button type="button" class="tm-sub-id" data-source="${esc(s.id)}"${s.can_view_source ? "" : " disabled"} title="${text(s.can_view_source ? "subs.viewSource" : "subs.noSourcePermission")}" aria-label="${text("subs.viewSource")} #${esc(s.id)}">#${esc(s.id)}</button></td><td><a href="#/account?user=${encodeURIComponent(String(s.user ?? ""))}"${ratingStyle(s.user_rating)} title="${esc(String(s.user_display_name ?? s.user ?? "—"))} (@${esc(String(s.user ?? ""))})">${esc(s.user_display_name ?? s.user ?? "—")}</a></td><td><a href="#/problems?code=${encodeURIComponent(String(s.problem ?? ""))}">${esc(s.problem_name ?? s.problem ?? "—")}</a></td><td title="${esc(String(s.rawDate ?? s.date ?? ""))}">${esc(ago(s.date))}</td><td>${esc(langName(s.language))}</td><td><span class="tm-result-pill${s.result === "AC" ? " ok" : !s.is_terminal ? " pending" : " bad"}">${esc(s.result ?? s.status ?? "—")}${!s.is_terminal && s.current_testcase ? ` · #${esc(s.current_testcase)}` : ""}</span></td><td><strong>${esc(s.points ?? "—")}</strong></td><td class="tm-col-eye"><button class="tm-icon-button" data-sub="${s.id}" aria-expanded="false"${detailEnabled(s) ? "" : " disabled"} title="${detailEnabled(s) ? text("subs.details") : text(s.can_view_detail ? "subs.waitGrading" : "subs.noDetailPermission")}" aria-label="${text("subs.showDetails", { n: String(s.id) })}">${eyeSvg}</button></td></tr>`;
     // expanded details survive the 10s poll repaint (audit): the detail row element
     // is kept per submission id and re-inserted after its (repainted) summary row
     const openDetails = new Map<string, { row: HTMLTableRowElement; btn: HTMLButtonElement }>();
@@ -1101,6 +1121,7 @@ export class TmathApp {
       (!uMatch || uMatch(String(s.user_display_name ?? s.user ?? ""))));
     const poll = window.setInterval(() => {
       if (!alive()) { window.clearInterval(poll); return; }
+      if (document.hidden) return; // minimized: skip the beat — rows refresh on return
       const req = isContestScope
         ? api.contestSubmissions(auth.accessToken()!, contestKey).then((payload: any) => applyContestFilters(list(payload?.items)))
         : api.submissions(auth.accessToken()!,{page,page_size:pageSize,scope:serverScope,problem:serverProblem,user:serverUser,result}).then(r => refine(list(r)));
@@ -1214,13 +1235,19 @@ export class TmathApp {
         const seen = new Set<string>();
         let complete = false;
         let failures = 0;
+        // pass #65: shape each row ONCE at sweep time — pinning raw /users objects kept
+        // every server field resident for the app's lifetime; rankings reads only these
+        const trim = (r: any) => ({ username: String(r.username), display_name: typeof r.display_name === "string" ? r.display_name : "",
+          organization: r.organization ? { name: r.organization.name ?? null, short_name: r.organization.short_name ?? null } : null,
+          rating: typeof r.rating === "number" ? r.rating : null,
+          points: typeof r.points === "number" ? r.points : 0, problem_count: typeof r.problem_count === "number" ? r.problem_count : 0 });
         // pass #54/#57: pacer-gated walk — the cap forbids bigger pages, so the sweep
         // speed lives in adaptive concurrency; hard page cap and short-page detection
         // unchanged
         const walk = await this.sweepWalk(500, p => `/users?page=${p}&page_size=${PS}`, auth.accessToken()!, batch => {
           for (const u of batch) {
             if (!u || typeof u.username !== "string" || seen.has(u.username)) continue;
-            seen.add(u.username); out.push(u);
+            seen.add(u.username); out.push(trim(u));
           }
           for (const cb of this.rankingsProgress) cb(out);
         });
@@ -1232,11 +1259,7 @@ export class TmathApp {
         logInfo(`rankings sweep ${complete ? "complete" : "partial"}: ${out.length} users`);
         // only a complete sweep is worth caching — a truncated list would sort wrong until refetch
         if (complete && out.length) {
-          const trim = (r: any) => ({ username: String(r.username), display_name: typeof r.display_name === "string" ? r.display_name : "",
-            organization: r.organization ? { name: r.organization.name ?? null, short_name: r.organization.short_name ?? null } : null,
-            rating: typeof r.rating === "number" ? r.rating : null,
-            points: typeof r.points === "number" ? r.points : 0, problem_count: typeof r.problem_count === "number" ? r.problem_count : 0 });
-          try { write("delcc-rankings-cache", JSON.stringify({ t: Date.now(), rows: out.map(trim) })); } catch { /* storage full — in-memory cache still applies */ }
+          try { write("delcc-rankings-cache", JSON.stringify({ t: Date.now(), rows: out })); } catch { /* storage full — in-memory cache still applies */ }
         }
         return out;
       })();
@@ -1443,6 +1466,7 @@ export class TmathApp {
     paint();
     const poll = window.setInterval(() => {
       if (!alive()) { window.clearInterval(poll); return; }
+      if (document.hidden) return; // minimized: skip the beat — standings refresh on return
       void api.leaderboard(auth.accessToken()!, key).then(lb => {
         if (!alive()) { window.clearInterval(poll); return; }
         entries = list(lb);
