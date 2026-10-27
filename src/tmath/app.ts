@@ -140,6 +140,39 @@ const themeMenuHtml = (current: string): string =>
   `<details class="tm-menu tm-theme-menu-root"><summary class="theme-select" aria-label="Theme: ${THEME_LABELS[current]}" title="Theme">${themeTrigger(current)}</summary><div class="theme-menu">${["light", "dark", "system"].map(v => `<button type="button" class="theme-option" data-theme-choice="${v}">${themeIconSvg(v)}<span>${THEME_LABELS[v]}</span><span class="theme-check"${v === current ? "" : " hidden"}>${themeCheckSvg}</span></button>`).join("")}</div></details>`;
 
 /** Independent shell: existing baseplate/WIP DOM and event handlers are never mounted. */
+// pass #57 — He's min(rate_limit, device) sweep budget as an AIMD controller shared by
+// every sweep loop (problems index, own-submissions walk, rankings). One global budget,
+// because the loops run concurrently: each clean stretch grows the in-flight cap by one,
+// any 429 halves it, so the equilibrium is the highest rate the server actually serves —
+// no wasted retries above it, and a strained device never grows past its own capacity
+// (hardwareConcurrency floor), where its own throughput becomes the binding limit.
+class SweepPacer {
+  private static readonly MIN = 2;
+  private static readonly MAX = Math.min(16, Math.max(4, (navigator.hardwareConcurrency || 4) * 2));
+  private limit = Math.min(6, SweepPacer.MAX);
+  private inFlight = 0;
+  private clean = 0;
+  private last429 = 0;
+  private readonly waiters: (() => void)[] = [];
+  get cap(): number { return SweepPacer.MAX; }
+  async acquire(): Promise<void> {
+    while (this.inFlight >= this.limit) await new Promise<void>(r => this.waiters.push(r));
+    this.inFlight++;
+  }
+  release(hit429: boolean): void {
+    this.inFlight = Math.max(0, this.inFlight - 1);
+    if (hit429) {
+      this.limit = Math.max(SweepPacer.MIN, Math.floor(this.limit / 2));
+      this.clean = 0;
+      this.last429 = Date.now();
+    } else if (++this.clean >= this.limit && Date.now() - this.last429 > 3000 && this.limit < SweepPacer.MAX) {
+      this.limit++;
+      this.clean = 0;
+    }
+    while (this.inFlight < this.limit && this.waiters.length) this.waiters.shift()!();
+  }
+}
+
 export class TmathApp {
   private prefs: Preferences = loadPreferences();
   private user: any = null;
@@ -466,21 +499,54 @@ export class TmathApp {
   private problemsIndexTotal = 0;
   private problemsProgress: (() => void)[] = [];
 
-  // pass #56: 429-aware page fetch for the big sweeps - the rate limiter caps sustained
-  // throughput, so a 12-wide wave rides it with backoff retries instead of silently
-  // skipping pages (the old behavior cached gaps as "complete")
+  private readonly pacer = new SweepPacer();
+
+  // pass #56, reworked in #57: every page fetch rides the shared pacer (acquire before
+  // dispatch, release with the 429 verdict after), and 429/5xx retry with backoff so
+  // the sweeps never silently skip pages — the rate limiter throttles instead.
   private async sweepPage(path: string, token: string, tries = 4): Promise<any> {
     let lastErr: unknown = null;
     for (let attempt = 0; attempt < tries; attempt++) {
-      try { return await raw(path, { token }); }
-      catch (e) {
+      await this.pacer.acquire();
+      try {
+        const res = await raw(path, { token });
+        this.pacer.release(false);
+        return res;
+      } catch (e) {
         lastErr = e;
         const retryable = e instanceof ApiError && (e.status === 429 || e.status >= 500);
+        this.pacer.release(retryable && e.status === 429);
         if (!retryable || attempt === tries - 1) throw e;
         await new Promise(r => setTimeout(r, 600 * (attempt + 1) + Math.floor(Math.random() * 300)));
       }
     }
     throw lastErr;
+  }
+
+  // pass #57: pacer-gated page walk — workers pull page numbers from a shared cursor,
+  // so the pacer (not wave barriers) bounds concurrency: the slowest page of a batch no
+  // longer stalls the next one, and short-page detection still ends the walk honestly.
+  // A 404 on a page past the list end is an end marker, not a failure (DRF invalid page);
+  // a 404 on page 1 is a real error and counts as a failure like any other.
+  private async sweepWalk(cap: number, pathFor: (page: number) => string, token: string,
+      onPage: (batch: any[]) => void, ps = 100): Promise<{ failures: number; stopped: boolean }> {
+    let next = 1, failures = 0, stopped = false;
+    const worker = async (): Promise<void> => {
+      while (!stopped) {
+        const page = next++;
+        if (page > cap) return;
+        try {
+          const batch = list(await this.sweepPage(pathFor(page), token));
+          onPage(batch);
+          if (batch.length < ps) { stopped = true; return; }
+        } catch (e) {
+          if (page > 1 && e instanceof ApiError && e.status === 404) { stopped = true; return; }
+          failures++;
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: this.pacer.cap }, () => worker()));
+    return { failures, stopped };
   }
 
   private warmProblemsIndex(): Promise<void> {
@@ -493,26 +559,19 @@ export class TmathApp {
       const PS = 100;
       const items: any[] = [];
       const seen = new Set<string>();
-      let listComplete = false, failures = 0;
-      // pass #55: waves of 12 (server caps page_size at 100 — verified live)
-      for (let base = 1; base <= 300; base += 12) {
-        const pages = await Promise.allSettled(Array.from({ length: Math.min(12, 300 - base + 1) }, (_, k) =>
-          this.sweepPage(`/problems?page=${base + k}&page_size=${PS}`, token)));
-        let short = false;
-        for (const r of pages) {
-          if (r.status !== "fulfilled") { failures++; continue; }
-          const batch = list(r.value);
-          for (const p of batch) {
-            if (!p || typeof p.code !== "string" || seen.has(p.code)) continue;
-            seen.add(p.code);
-            items.push({ code: p.code, name: String(p.name ?? p.title ?? ""), points: p.points ?? null, types: list(p.types), user_count: p.user_count ?? null });
-          }
-          if (batch.length < PS) short = true;
+      let failures = 0;
+      // pass #55/#57: pacer-gated walk (server caps page_size at 100 — verified live)
+      const listWalk = await this.sweepWalk(300, p => `/problems?page=${p}&page_size=${PS}`, token, batch => {
+        for (const p of batch) {
+          if (!p || typeof p.code !== "string" || seen.has(p.code)) continue;
+          seen.add(p.code);
+          items.push({ code: p.code, name: String(p.name ?? p.title ?? ""), points: p.points ?? null, types: list(p.types), user_count: p.user_count ?? null });
         }
         this.problemsIndexTotal = items.length;
         for (const cb of this.problemsProgress) cb();
-        if (short) { listComplete = failures === 0; break; }
-      }
+      });
+      failures += listWalk.failures;
+      const listComplete = listWalk.stopped && listWalk.failures === 0;
       const solved = new Set<string>();
       const attempted = new Set<string>();
       const me = this.user?.username;
@@ -522,21 +581,14 @@ export class TmathApp {
           const meRows = list<string>((await raw(`/users/${encodeURIComponent(me)}`, { token }))?.solved_problems);
           for (const code of meRows) solved.add(String(code));
         } catch { failures++; }
-        for (let base = 1; base <= 50; base += 12) {
-          const pages = await Promise.allSettled(Array.from({ length: Math.min(12, 50 - base + 1) }, (_, k) =>
-            this.sweepPage(`/submissions?user=${encodeURIComponent(me)}&page=${base + k}&page_size=100`, token)));
-          let short = false;
-          for (const r of pages) {
-            if (r.status !== "fulfilled") { failures++; continue; }
-            const batch = list(r.value);
-            for (const s of batch) {
-              const code = String(s?.problem ?? "");
-              if (code) attempted.add(code);
-            }
-            if (batch.length < 100) short = true;
+        const subsWalk = await this.sweepWalk(50, p => `/submissions?user=${encodeURIComponent(me)}&page=${p}&page_size=100`, token, batch => {
+          for (const s of batch) {
+            const code = String(s?.problem ?? "");
+            if (code) attempted.add(code);
           }
-          if (short) { triedComplete = true; break; }
-        }
+        });
+        failures += subsWalk.failures;
+        triedComplete = subsWalk.stopped;
       }
       this.problemsIndex = { complete: listComplete && triedComplete && failures === 0, items, solved, attempted };
       // a partial scan (some pages failed) must not wedge the sweep promise as
@@ -960,24 +1012,18 @@ export class TmathApp {
         const seen = new Set<string>();
         let complete = false;
         let failures = 0;
-        // pass #54: waves of 12 (was 5) — the cap forbids bigger pages, so the sweep
-        // speed lives in concurrency; hard page cap and short-page detection unchanged
-        for (let base = 1; base <= 500; base += 12) {
-          const pages = await Promise.allSettled(Array.from({ length: Math.min(12, 500 - base + 1) }, (_, k) =>
-            this.sweepPage(`/users?page=${base + k}&page_size=${PS}`, auth.accessToken()!)));
-          let short = false;
-          for (const r of pages) {
-            if (r.status !== "fulfilled") { failures++; continue; }
-            const batch = list(r.value);
-            for (const u of batch) {
-              if (!u || typeof u.username !== "string" || seen.has(u.username)) continue;
-              seen.add(u.username); out.push(u);
-            }
-            if (batch.length < PS) short = true;
+        // pass #54/#57: pacer-gated walk — the cap forbids bigger pages, so the sweep
+        // speed lives in adaptive concurrency; hard page cap and short-page detection
+        // unchanged
+        const walk = await this.sweepWalk(500, p => `/users?page=${p}&page_size=${PS}`, auth.accessToken()!, batch => {
+          for (const u of batch) {
+            if (!u || typeof u.username !== "string" || seen.has(u.username)) continue;
+            seen.add(u.username); out.push(u);
           }
           for (const cb of this.rankingsProgress) cb(out);
-          if (short) { complete = failures === 0; break; }
-        }
+        });
+        failures += walk.failures;
+        complete = walk.stopped && failures === 0;
         // pass #56: only a failure-free sweep may pin — 429-gapped pages would sort wrong
         if (failures === 0) this.rankingsAll = out;
         else logInfo(`rankings sweep incomplete: ${failures} pages failed — resweeping on next visit`);
@@ -1089,10 +1135,22 @@ export class TmathApp {
         this.pager(host, visiblePage, search ? 0 : data.length, params);
       };
       try {
+        // pass #57: coalesce the per-batch repaints — the pacer lands pages continuously
+        // and each repaint re-sorts the whole accumulated list, so a 250 ms trailing
+        // throttle keeps the table live at a fraction of the cost (the final paint
+        // below is unconditional, nothing can strand stale)
+        let lastPaint = 0, pending: any[] | null = null, timer = 0;
         await this.fetchAllUsers(soFar => {
           if (busy) busy.textContent = text("rankings.sortGlobalProgress", { n: String(soFar.length) });
-          repaint(soFar);
+          pending = soFar;
+          const now = Date.now();
+          if (now - lastPaint >= 250) { lastPaint = now; repaint(soFar); }
+          else if (!timer) timer = window.setTimeout(() => {
+            timer = 0; lastPaint = Date.now();
+            if (pending) repaint(pending);
+          }, 250 - (now - lastPaint));
         });
+        if (timer) window.clearTimeout(timer);
       } catch { /* keep the fetched page and the busy line as-is */ }
       if (!alive()) return;
       repaint(this.rankingsAll?.length ? this.rankingsAll : rows);
