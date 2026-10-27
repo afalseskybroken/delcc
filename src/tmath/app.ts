@@ -1,7 +1,7 @@
 import { api, raw, ApiError, clientVersion, syncClientVersion, type ContestListItem, type ContestProblem } from "../lib/api";
 import { recordDownload } from "../lib/updater";
 import * as auth from "../lib/auth";
-import { activeId, loadProfiles, saveProfiles } from "../lib/profiles";
+import { activeId, loadProfiles, saveProfiles, setActiveId, upsertProfile } from "../lib/profiles";
 import { googleLogin, GoogleAbort } from "../lib/google";
 import { openExternal } from "../lib/transport";
 import DOMPurify from "dompurify";
@@ -206,28 +206,26 @@ export class TmathApp {
     this.media.addEventListener("change", this.themeChange);
     window.addEventListener("hashchange", this.hashChange);
     const profile = loadProfiles().find(p => p.id === activeId());
+    // pass #63: boot trace — every resume decision lands in the Settings log, so a
+    // failed auto-login is REPORTABLE instead of a mystery (He's regression reports).
+    logInfo(`boot: active profile=${profile?.username ?? "none"} locked=${String(profile?.locked ?? false)} needsReauth=${String(profile?.needsReauth ?? false)}`);
     if (profile?.locked || profile?.needsReauth) auth.seed(null);
-    // F12: this boot is resuming that profile's stored token — rotations that land
-    // BEFORE identify() ran must still persist to it (this.user is null then).
-    const resumed = profile && profile.token && !profile.locked && !profile.needsReauth && auth.getToken() ? profile : null;
     auth.onTokenChange(token => {
-      // Keep a resumed profile's rotated refresh token current; never store a password here.
+      // pass #60-#63: this listener REPLACED the baseplate one (onTokenChange is a
+      // single slot). The tmath shell has no profile switcher — the active unlocked
+      // slot IS whoever holds the live session, so every token landing persists to it
+      // and clears needsReauth (a token landing IS the recovery; a logout lands null
+      // and intentionally empties the slot's token).
       const profiles = loadProfiles();
-      const p = profiles.find(p => p.id === activeId());
-      // pass #60/#61: this listener REPLACED the baseplate one (onTokenChange is a
-      // single slot), and the baseplate version cleared needsReauth whenever a token
-      // landed — ours didn't, so a sticky flag seeded null on EVERY boot. A token that
-      // lands IS the recovery, so the flag clears with it. Username comparison is
-      // case-insensitive (the profile name is typed; the server's is canonical), and a
-      // pre-identify rotation persists to the active slot even when identity is unknown.
-      if (p && (this.user?.username?.toLowerCase() === (p.username || "").toLowerCase()
-        || (!this.user && !p.locked))) { p.token = token; p.needsReauth = false; saveProfiles(profiles); }
+      const p = profiles.find(x => x.id === activeId());
+      if (p && !p.locked) { p.token = token; p.needsReauth = false; saveProfiles(profiles); }
       if (!token && this.sessionReady && !this.stopped) {
         this.user = null; this.contest = null; this.part = null;
         void this.render();
       }
     });
     const hadToken = !!auth.getToken();
+    logInfo(`boot: stored session=${String(hadToken)}`);
     this.host.innerHTML = `<main class="tm-welcome">${brand()}<h1>${text("auth.prepare")}</h1><p role="status">${text("auth.restore")}</p></main>`;
     // Session restore is independent of the informational version lookup.
     void (async () => {
@@ -246,30 +244,34 @@ export class TmathApp {
     if (hadToken) {
       // transient refresh failures keep credentials (F10) — the stored access token
       // may still be live, so identify() gets the final say on this boot.
-      try { await auth.silentRefresh(); } catch { /* retained; first authed read decides */ }
-      if (auth.accessToken()) { try { await this.identify(); } catch { /* Render a recoverable error on the first authenticated read. */ } }
+      try { await auth.silentRefresh(); logInfo("boot: session refresh ok"); }
+      catch (e) { logError(`boot: session refresh failed — credentials retained (${e instanceof Error ? e.message : String(e)})`); }
+      if (auth.accessToken()) { try { await this.identify(); logInfo(`boot: identity=${String(this.user?.username ?? "unknown")}`); } catch { /* Render a recoverable error on the first authenticated read. */ } }
     }
-    // F12: identity is known now. If the live session is NOT the resumed profile's
-    // account, that profile holds someone else's token — it must never resume again.
-    // F12: identity is known now. If the live session is NOT the resumed profile's
-    // account, that profile holds someone else's token — unless it doesn't: the login
-    // form has NO profile switcher, so signing into a different account in the same
-    // slot is a REBIND, not a theft (He: auto-login kept dying — the old code punished
-    // the profile with a sticky needsReauth instead). Rebind when no OTHER profile
-    // already owns that username; punish only a genuine cross-profile bleed.
-    // Comparisons are case-insensitive: the profile name is typed, the server's is canon.
-    if (resumed && this.user) {
-      const profiles = loadProfiles();
+    // F12 reworked (pass #63): the tmath shell has no profile switcher — the active
+    // unlocked slot IS the live session. A mismatched identity is a REBIND (canonical
+    // username + token + flag cleared, slot made active), never a punishment: the old
+    // punish path kept re-arming needsReauth and killing auto-login whenever the
+    // slot's name lagged the account actually signed in (He's burner/main switching).
+    // A fresh account with no profile at all gets one here.
+    if (this.user) {
       const live = String(this.user.username ?? "").toLowerCase();
-      const p = profiles.find(x => x.id === resumed.id);
-      const owner = profiles.find(x => x !== p && (x.username || "").toLowerCase() === live);
-      if (p && owner) { if (p.token) { p.token = null; p.needsReauth = true; saveProfiles(profiles); } }
-      else if (p && (p.username || "").toLowerCase() !== live) {
-        p.username = String(this.user.username); p.token = auth.getToken(); p.needsReauth = false; saveProfiles(profiles);
+      if (live) {
+        const profiles = loadProfiles();
+        let p = profiles.find(x => x.id === activeId()) ?? profiles.find(x => (x.username || "").toLowerCase() === live && !x.locked);
+        if (!p) p = { id: "p-" + Date.now().toString(36), username: String(this.user.username), locked: false, lockHash: null, savedPwEnc: null, needsReauth: false, token: null };
+        if ((p.username || "").toLowerCase() !== live || !p.token) {
+          p.username = String(this.user.username); p.token = auth.getToken(); p.needsReauth = false;
+          saveProfiles(upsertProfile(profiles, p));
+          setActiveId(p.id);
+          logInfo(`boot: session bound to profile ${p.username}`);
+        }
       }
     }
     this.sessionReady = true;
     await this.render();
+    // pass #63 (Official behavior, He): a live participation lands back in Contest View.
+    void this.syncContestState();
   }
 
   destroy(): void {
@@ -277,6 +279,28 @@ export class TmathApp {
     window.removeEventListener("hashchange", this.hashChange);
     this.media.removeEventListener("change", this.themeChange);
     auth.onTokenChange(() => {});
+  }
+
+  // pass #63 (Official behavior, He): on boot, a LIVE participation lands back in
+  // Contest View. /current-contest returns null (200) when not in one; a joined
+  // contest comes back as a FLAT contest object (live probe 2026-10-28: {key, name,
+  // start_time, end_time, is_in_contest, …} — no participation_id, the workspace
+  // fetch fills it). Only the default contests landing is redirected — an explicit
+  // route at boot is never yanked.
+  private async syncContestState(): Promise<void> {
+    try {
+      const token = auth.accessToken();
+      if (!token) return;
+      const cur = await api.currentContest(token);
+      const c = cur && typeof cur === "object" && !Array.isArray(cur) ? cur as { key?: unknown; participation_id?: unknown } : null;
+      const key = typeof c?.key === "string" && c.key ? c.key : "";
+      if (!key) { logInfo("boot: contest state → none"); return; }
+      this.contest = { ...(cur as unknown as ContestListItem), key };
+      const pid = Number(c?.participation_id ?? NaN);
+      this.part = Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+      logInfo(`boot: contest state → ${key} (workspace)`);
+      if (this.route === "contests") this.go("workspace", { contest: key });
+    } catch { /* offline or not resolvable — the contests list stays */ }
   }
 
   private async identify(): Promise<void> {
@@ -432,16 +456,22 @@ export class TmathApp {
     const google = this.host.querySelector<HTMLButtonElement>('[data-action="google"]')!;
     const cancel = this.host.querySelector<HTMLButtonElement>('[data-action="cancel"]')!;
     const busy = (yes: boolean) => { form.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input,button").forEach(el => el.disabled = yes); google.disabled = yes; };
-    // pass #61: the login form logs into the ACTIVE profile slot — after identify(),
-    // rebind that slot to the account that actually signed in (token + canonical
-    // username + clear needsReauth). Without this, a login into a differently-named
-    // slot left p.token null forever and the next boot's F12 path re-armed the wedge.
+    // pass #63: the login form is the tmath shell's ONLY account surface — upsert the
+    // signed-in account as a profile (matched by username, any casing), make it the
+    // ACTIVE slot, and store the fresh token. Without this the last logged-in account
+    // never existed as a profile, so every boot's resume flags pointed at a stale or
+    // missing slot and auto-login kept dying (He's regression).
     const finish = async () => {
       try { await this.identify(); } catch { /* next page has retry */ }
-      const name = String(this.user?.username ?? "");
-      const p = loadProfiles().find(x => x.id === activeId());
-      if (name && p && !p.locked && (p.username || "").toLowerCase() !== name.toLowerCase()) {
-        p.username = name; p.token = auth.getToken(); p.needsReauth = false; saveProfiles(loadProfiles());
+      const name = String(this.user?.username ?? "").toLowerCase();
+      if (name) {
+        const profiles = loadProfiles();
+        let p = profiles.find(x => (x.username || "").toLowerCase() === name);
+        if (!p) p = { id: "p-" + Date.now().toString(36), username: String(this.user!.username), locked: false, lockHash: null, savedPwEnc: null, needsReauth: false, token: null };
+        if (!p.locked) { p.username = String(this.user!.username); p.token = auth.getToken(); p.needsReauth = false; }
+        saveProfiles(upsertProfile(profiles, p));
+        setActiveId(p.id);
+        logInfo(`login: profile bound → ${p.username}`);
       }
       if (alive()) this.go("contests");
     };
