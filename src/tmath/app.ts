@@ -214,12 +214,14 @@ export class TmathApp {
       // Keep a resumed profile's rotated refresh token current; never store a password here.
       const profiles = loadProfiles();
       const p = profiles.find(p => p.id === activeId());
-      // pass #60 (He: auto-login broke): this listener REPLACED the baseplate one
-      // (onTokenChange is a single slot), and the baseplate version cleared
-      // needsReauth whenever a token landed — ours didn't. A sticky needsReauth then
-      // seeded null on EVERY boot (login page forever). A token that lands IS the
-      // recovery, so the flag clears with it.
-      if (p && (this.user?.username === p.username || (!this.user && resumed && p.id === resumed.id))) { p.token = token; p.needsReauth = false; saveProfiles(profiles); }
+      // pass #60/#61: this listener REPLACED the baseplate one (onTokenChange is a
+      // single slot), and the baseplate version cleared needsReauth whenever a token
+      // landed — ours didn't, so a sticky flag seeded null on EVERY boot. A token that
+      // lands IS the recovery, so the flag clears with it. Username comparison is
+      // case-insensitive (the profile name is typed; the server's is canonical), and a
+      // pre-identify rotation persists to the active slot even when identity is unknown.
+      if (p && (this.user?.username?.toLowerCase() === (p.username || "").toLowerCase()
+        || (!this.user && !p.locked))) { p.token = token; p.needsReauth = false; saveProfiles(profiles); }
       if (!token && this.sessionReady && !this.stopped) {
         this.user = null; this.contest = null; this.part = null;
         void this.render();
@@ -249,10 +251,22 @@ export class TmathApp {
     }
     // F12: identity is known now. If the live session is NOT the resumed profile's
     // account, that profile holds someone else's token — it must never resume again.
-    if (resumed && this.user && this.user.username !== resumed.username) {
+    // F12: identity is known now. If the live session is NOT the resumed profile's
+    // account, that profile holds someone else's token — unless it doesn't: the login
+    // form has NO profile switcher, so signing into a different account in the same
+    // slot is a REBIND, not a theft (He: auto-login kept dying — the old code punished
+    // the profile with a sticky needsReauth instead). Rebind when no OTHER profile
+    // already owns that username; punish only a genuine cross-profile bleed.
+    // Comparisons are case-insensitive: the profile name is typed, the server's is canon.
+    if (resumed && this.user) {
       const profiles = loadProfiles();
+      const live = String(this.user.username ?? "").toLowerCase();
       const p = profiles.find(x => x.id === resumed.id);
-      if (p?.token) { p.token = null; p.needsReauth = true; saveProfiles(profiles); }
+      const owner = profiles.find(x => x !== p && (x.username || "").toLowerCase() === live);
+      if (p && owner) { if (p.token) { p.token = null; p.needsReauth = true; saveProfiles(profiles); } }
+      else if (p && (p.username || "").toLowerCase() !== live) {
+        p.username = String(this.user.username); p.token = auth.getToken(); p.needsReauth = false; saveProfiles(profiles);
+      }
     }
     this.sessionReady = true;
     await this.render();
@@ -418,7 +432,19 @@ export class TmathApp {
     const google = this.host.querySelector<HTMLButtonElement>('[data-action="google"]')!;
     const cancel = this.host.querySelector<HTMLButtonElement>('[data-action="cancel"]')!;
     const busy = (yes: boolean) => { form.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input,button").forEach(el => el.disabled = yes); google.disabled = yes; };
-    const finish = async () => { try { await this.identify(); } catch { /* next page has retry */ } if (alive()) this.go("contests"); };
+    // pass #61: the login form logs into the ACTIVE profile slot — after identify(),
+    // rebind that slot to the account that actually signed in (token + canonical
+    // username + clear needsReauth). Without this, a login into a differently-named
+    // slot left p.token null forever and the next boot's F12 path re-armed the wedge.
+    const finish = async () => {
+      try { await this.identify(); } catch { /* next page has retry */ }
+      const name = String(this.user?.username ?? "");
+      const p = loadProfiles().find(x => x.id === activeId());
+      if (name && p && !p.locked && (p.username || "").toLowerCase() !== name.toLowerCase()) {
+        p.username = name; p.token = auth.getToken(); p.needsReauth = false; saveProfiles(loadProfiles());
+      }
+      if (alive()) this.go("contests");
+    };
     this.host.querySelector<HTMLButtonElement>('[data-action="settings"]')!.onclick = () => this.go("settings");
     this.wireThemeMenus(this.host);
     form.onsubmit = async event => {
