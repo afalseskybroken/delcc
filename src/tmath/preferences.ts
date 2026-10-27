@@ -52,9 +52,20 @@ export function applyPreferences(p: Preferences): void {
   document.documentElement.style.setProperty("--tm-editor-font", resolveEditorFont(p.editorFont));
   // pass #22: UI and statement fonts are ONE choice — the shell rides the statement font
   document.documentElement.style.setProperty("--tm-ui-font", "var(--tm-statement-font)");
-  // pass #58 (QoL, outdo Official): whole-shell zoom — Chromium zoom keeps Monaco,
-  // dialogs and native <select> popups consistent, unlike a root font-size change
-  document.body.style.zoom = p.uiScale === 100 ? "" : String(p.uiScale / 100);
+  void applyUiScale(p.uiScale);
+}
+
+// pass #58 shipped UI scale as CSS zoom on <body> — REVERTED in #62 (He: the tmath tree
+// stopped drawing entirely; the zoomed body box shrank inside the window with the dark
+// background showing around it — WebView2 + zoom-on-body is a surface-sizing hazard).
+// The redo rides TAURI'S NATIVE WEBVIEW ZOOM: compositor-level (the Ctrl+scroll class),
+// every layout box untouched, Monaco hit-testing and sticky positioning unaffected.
+export async function applyUiScale(scale: number): Promise<void> {
+  try {
+    const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+    const wv = getCurrentWebview();
+    if (typeof wv.setZoom === "function") await wv.setZoom(scale / 100);
+  } catch { /* plain-browser dev or missing permission — 100% stays */ }
 }
 export function savePreferences(p: Preferences): void {
   write("delcc-tmath-preferences", JSON.stringify(p));

@@ -1330,7 +1330,14 @@ void (async () => {
   try { S.layout = (await getLayout()) as "baseplate" | "wip" | "tmath"; } catch { S.layout = "baseplate"; }
   if (S.layout === "tmath") {
     const { bootTmath } = await import("./tmath");
-    await bootTmath();
+    // pass #62: a boot rejection used to be a SILENT BLANK PAGE (He's "couldn't draw
+    // UI" report) — paint the failure so it is at least visible and reportable.
+    try { await bootTmath(); } catch (e) {
+      const app = document.getElementById("app");
+      if (app) app.innerHTML = `<main style="margin:8vh auto;max-width:640px;font:14px/1.6 system-ui,sans-serif;color:#eee"><h1 style="font-size:18px">delcc failed to start</h1><pre style="white-space:pre-wrap;background:#111;padding:12px;border-radius:8px">${String(e instanceof Error ? (e.stack ?? e.message) : e)}</pre><p style="color:#888">Report this to the maintainer — the UI never mounted.</p></main>`;
+      document.title = "delcc — boot failure";
+      throw e;
+    }
     return;
   }
   // one-time, silent — nothing to prompt for, see lib/vault.ts
