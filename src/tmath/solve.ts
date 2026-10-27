@@ -1,7 +1,6 @@
-import { api, type ProblemDetail, type ContestProblemDetail, type SubmissionDetail } from "../lib/api";
+import { api, type ProblemDetail, type ContestProblemDetail } from "../lib/api";
 import * as auth from "../lib/auth";
 import * as cph from "../lib/cph";
-import { watchVerdict } from "../lib/verdict";
 import { t } from "../i18n";
 import type { Preferences } from "./preferences";
 import { read, write } from "./preferences";
@@ -43,7 +42,7 @@ function keepUnsaved(key: string, value: string | null): void {
 export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   let disposed = false, language = "", statement: StatementResult | null = null;
   let editor: Editor | null = null, fallback: HTMLTextAreaElement | null = null;
-  let stopWatch: (() => void) | null = null, submitting = false, running = false;
+  let submitting = false, running = false;
   let editorLoading = false, switchingLanguage = false, dirty = false, revision = 0;
   let switchingSource: string | null = null;
   let stopping = false, submittedHere = 0;
@@ -74,6 +73,13 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   const storagePrefix = `delcc-tmath-draft:${encodeURIComponent(args.username)}:${encodeURIComponent(args.contestKey ?? "public")}:${encodeURIComponent(args.code)}:`;
   const langKey = `${storagePrefix}language`;
   const $ = <T extends HTMLElement = HTMLElement>(selector: string) => host.querySelector<T>(selector)!;
+  // pass #58: the ONE inline status line (He: the old verdict/status box is not in
+  // Official — on submit Official jumps to the Submissions tab instead). Hidden when
+  // empty; an all-clear run/compile leaves nothing here, errors carry the .tm-error tone.
+  const note = (msg: string, tone: "muted" | "error" = "muted"): void => {
+    const el = $("[data-solve-status]"); if (!el || disposed) return;
+    el.hidden = !msg; el.textContent = msg; el.classList.toggle("tm-error", tone === "error");
+  };
   // Monaco emits synchronous callbacks while replacing source/language. Disposal
   // during those callbacks must save the outgoing draft, never a half-switched model.
   const source = () => switchingSource ?? editor?.getValue() ?? fallback?.value ?? "";
@@ -100,8 +106,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     const status = $("[data-draft]"); if (status) status.textContent = "";
     if (draftTimer) clearTimeout(draftTimer);
     draftTimer = setTimeout(saved,200);
-    const result = $("[data-local-summary]");
-    if (result?.textContent) { result.textContent = t("cph.stale"); result.className = "tm-status"; }
+    note(t("cph.stale"));
   };
   const token = () => { const value = auth.accessToken(); if (!value) throw new Error(t("errors.unauthorized")); return value; };
 
@@ -109,7 +114,10 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     if (disposed || !fallback) return;
     const canSubmit = !("can_submit" in problem) || problem.can_submit !== false;
     $("[data-submit]").toggleAttribute("disabled", submitting || !language || !canSubmit || ("statement_hidden" in problem && !!problem.statement_hidden));
-    $("[data-language]").toggleAttribute("disabled",submitting || !language);
+    // pass #58: the language pill can't take the disabled attribute — a lock class drives
+    // the styling and switchLanguage() re-checks the same conditions
+    const langMenu = $("[data-language-menu]");
+    if (langMenu) langMenu.classList.toggle("tm-locked", submitting || !language);
     const available = !!language && cph.cphSupported(cph.cphLangKey(language)) && !!cph.toolchainFor(cph.cphLangKey(language));
     host.querySelectorAll<HTMLButtonElement>("[data-run]").forEach(b => b.disabled = running || !available);
     const compileBtn = host.querySelector<HTMLButtonElement>('[data-action="compile"]');
@@ -145,8 +153,8 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   function persistCases(): void {
     // Same store/schema as baseplate and WIP: samples are visible there too.
     cph.saveCases(args.code,cases); revision++;
-    const summary = $("[data-local-summary]");
-    if (summary?.textContent) { summary.textContent = t("cph.stale"); summary.className = "tm-status"; }
+    const summary = $("[data-solve-status]");
+    if (summary && !summary.hidden) note(t("cph.stale"));
   }
 
   function paintCases(): void {
@@ -213,7 +221,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       if (cases.some(c=>c.input===s.input && c.expected===s.output)) continue;
       cases.push({...cph.newCase(), input:s.input, expected:s.output, enabled:true}); added++;
     }
-    persistCases(); paintCases(); $("[data-local-summary]").textContent = t("cph.sampleImported",{n:added});
+    persistCases(); paintCases(); note(t("cph.sampleImported",{n:added}));
   }
 
   // ---- pass #11: Compile / Stop / submit confirm / submissions-left (official oE parity) ----
@@ -241,10 +249,9 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
 
   async function compileSource(): Promise<void> {
     if (running || disposed || switchingLanguage) return;
-    const summary = $("[data-local-summary]");
-    if (!source().trim()) { summary.textContent = t("problem.emptySource"); return; }
+    if (!source().trim()) { note(t("problem.emptySource"), "error"); return; }
     const lang = cph.cphLangKey(language);
-    if (!cph.cphSupported(lang) || !cph.toolchainFor(lang)) { summary.textContent = t("problem.runUnavailable"); return; }
+    if (!cph.cphSupported(lang) || !cph.toolchainFor(lang)) { note(t("problem.runUnavailable"), "error"); return; }
     // pass #55: no busy write here — the Output tab carries the running state (run dot)
     // and a "running locally" box flashing over long jobs is exactly the leftover He flagged
     running = true; stopping = false; controls();
@@ -255,9 +262,10 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       if (disposed) return;
       $("[data-compile]").textContent = r.compile_log;
       out.textContent = [r.compile_log.trim(), r.cancelled ? t("cph.cancelled") : [exitLine(r.exit_code), `${r.time_ms} ms`].filter(Boolean).join(" · ")].filter(Boolean).join("\n\n");
-      summary.textContent = [r.cancelled ? t("cph.cancelled") : r.compile_ok ? exitLine(0) : "CE", `${r.time_ms} ms`].filter(Boolean).join(" · ");
+      // pass #58: the Output tab already carries exit/time — the status line stays empty on success
+      note(r.cancelled ? t("cph.cancelled") : "");
     } catch(e) {
-      if (!disposed) { const m = e instanceof Error ? e.message : String(e); logError(`cph compile: ${m}`); summary.className = "tm-error"; summary.textContent = `${t("cph.failed")} · ${m}`; out.textContent = m; }
+      if (!disposed) { const m = e instanceof Error ? e.message : String(e); logError(`cph compile: ${m}`); note(`${t("cph.failed")} · ${m}`, "error"); out.textContent = m; }
     }
     finally { running = false; stopping = false; if (!disposed) controls(); }
   }
@@ -285,7 +293,6 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
 
   async function run(mode: "all" | "case" | "stdin"): Promise<void> {
     if (running || disposed || switchingLanguage) return;
-    const summary = $("[data-local-summary]");
     // The existing native runner returns RAN (unscored) for blank expected output.
     const manual = mode === "stdin";
     const active = cases.find(c => c.id === activeCaseId);
@@ -293,10 +300,10 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       ? [{ ...cph.newCase(), id: "tm-manual-stdin", input: $<HTMLTextAreaElement>("[data-manual-stdin]")?.value ?? "", expected: null, enabled: true }]
       : mode === "case" ? (active ? [active] : [])
       : cases; // Run all TCs means ALL cases (audit #31 — the Include checkbox is gone)
-    if (!selected.length) { summary.textContent = t("cph.noCases"); return; }
-    if (!source().trim()) { summary.textContent = t("problem.emptySource"); return; }
+    if (!selected.length) { note(t("cph.noCases"), "error"); return; }
+    if (!source().trim()) { note(t("problem.emptySource"), "error"); return; }
     const lang = cph.cphLangKey(language);
-    if (!cph.cphSupported(lang) || !cph.toolchainFor(lang)) { summary.textContent = t("problem.runUnavailable"); return; }
+    if (!cph.cphSupported(lang) || !cph.toolchainFor(lang)) { note(t("problem.runUnavailable"), "error"); return; }
     const limit = problemTlMs(); // panel fields are gone (audit #32) — problem payload is the base
     const memLimit = problemMemMb();
     const startRevision = revision;
@@ -313,15 +320,13 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       const scored = selected.filter(c => typeof c.expected === "string" && c.expected.trim().length > 0);
       const passed = result.results.filter(r=>r.verdict === "AC").length;
       if (scored.length) lastScore = { passed, total: scored.length }; // rides the count pill
-      // the status line carries only anomalies — the score is in the pill
+      // pass #58: the status line carries only anomalies — score rides the count pill,
+      // per-case actuals live in each Output tab, so an all-clear run notes NOTHING
       const bits: string[] = [];
       if (!result.compile_ok) bits.push("CE");
       if (result.cancelled) bits.push(t("cph.cancelled"));
       if (startRevision !== revision) bits.push(t("cph.stale"));
-      summary.textContent = bits.join(" · ");
-      // pass #54: an all-clear run leaves NOTHING here — an empty .tm-status box is
-      // exactly the leftover blue strip He flagged
-      if (!bits.length) summary.className = "tm-muted";
+      note(bits.join(" · "), "error");
       runMarks.clear();
       // RAN is noise (audit #34): unscored cases carry only their time in the title
       for (const r of result.results) if (r.id !== "tm-manual-stdin") {
@@ -340,41 +345,29 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       }
       paintCases();
       if (disposed) return;
-    } catch(e) { if (!disposed) { const m = e instanceof Error ? e.message : String(e); logError(`cph run: ${m}`); summary.className = "tm-error"; summary.textContent = `${t("cph.failed")} · ${m}`; if (single) $("[data-manual-stdout]").textContent = m; } }
+    } catch(e) { if (!disposed) { const m = e instanceof Error ? e.message : String(e); logError(`cph run: ${m}`); note(`${t("cph.failed")} · ${m}`, "error"); if (single) $("[data-manual-stdout]").textContent = m; } }
     finally { running = false; stopping = false; if (!disposed) controls(); }
-  }
-
-  function paintVerdict(s: SubmissionDetail, terminal: boolean): void {
-    if (disposed) return;
-    // pass #52: the separate bottom verdict box is gone (He's audit — stale blue strip);
-    // the local summary line is the ONE status surface for runs, compiles and judging
-    const box = $("[data-local-summary]"); box.className = "tm-status";
-    box.textContent = `#${s.id} · ${terminal ? s.result ?? s.status_display ?? s.status : t("problem.judging")}${!terminal && s.current_testcase != null ? ` · ${t("subs.testcase")} ${String(s.current_testcase)}` : ""}${s.points != null ? ` · ${t("subs.score")}: ${String(s.points)}` : ""}`;
   }
 
   async function submit(): Promise<void> {
     if (submitting || disposed || switchingLanguage || !language) return;
     const code = source();
-    if (!code.trim()) { $("[data-local-summary]").textContent = t("problem.emptySource"); return; }
+    if (!code.trim()) { note(t("problem.emptySource"), "error"); return; }
     if (("can_submit" in problem && !problem.can_submit) || ("statement_hidden" in problem && problem.statement_hidden)) return;
     submitting = true; saved(); controls();
-    const box = $("[data-local-summary]"); box.className = "tm-status"; box.textContent = t("problem.submitting");
-    stopWatch?.(); stopWatch = null;
+    note(t("problem.submitting"));
     try {
       const result = args.contestKey
         ? await api.submitContest(token(),args.contestKey,args.code,language,code,args.participationId)
         : await api.submitPublic(token(),args.code,language,code);
       if (disposed) return;
       if (!Number.isSafeInteger(result.submission_id) || result.submission_id <= 0) throw new Error(t("errors.invalid"));
-      box.textContent = `#${result.submission_id} · ${t("problem.judging")}`;
-      submittedHere++; paintSubmissionsLeft(); // official decrements the counter on an accepted submission
-      stopWatch = watchVerdict({ id:result.submission_id, contestKey:args.contestKey, participationId:args.participationId,
-        token:auth.accessToken, onState:(s,_via,terminal)=>paintVerdict(s,terminal),
-        onTimeout:()=>{ if (!disposed) box.textContent = `#${result.submission_id} · ${t("problem.judgeTimeout")}`; },
-        onError:e=>{ if (!disposed) box.innerHTML = errorBox(e); },
-      });
-    } catch(e) { if (!disposed) box.innerHTML = errorBox(e); }
-    finally { submitting = false; controls(); }
+      submittedHere++; // official decrements the counter on an accepted submission
+      // pass #58 (He: Official jumps to the Submissions tab upon submit) — no local
+      // verdict box, no watch loop; the Submissions view is the judging surface
+      args.onSubmissions();
+    } catch(e) { if (!disposed) { const el = $("[data-solve-status]"); el.hidden = false; el.classList.add("tm-error"); el.innerHTML = errorBox(e); } }
+    finally { submitting = false; if (!disposed) controls(); }
   }
 
   async function mountEditor(): Promise<void> {
@@ -398,20 +391,22 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     } finally { editorLoading = false; }
   }
 
+  // pass #58: the split is now VERTICAL (statement above, editor below — Official's
+  // anatomy) so the divider drags up/down and the fraction persists in the same key
   function splitter(): void {
     const split = $("[data-split]"), grip = $("[data-splitter]");
     let value = Number(read("delcc-tmath-split","42.5"));
     const set = (n: number) => {
       value = Math.max(25,Math.min(75,Number.isFinite(n) ? n : 42.5));
-      split.style.setProperty("--tm-statement-width",`${value}fr`); split.style.setProperty("--tm-editor-width",`${100-value}fr`);
+      split.style.setProperty("--tm-statement-height",`${value}fr`); split.style.setProperty("--tm-editor-height",`${100-value}fr`);
       grip.setAttribute("aria-valuenow",String(Math.round(value)));
     };
     set(value);
     grip.onpointerdown = e => { grip.setPointerCapture(e.pointerId); split.dataset.dragging = ""; };
-    grip.onpointermove = e => { if (!grip.hasPointerCapture(e.pointerId)) return; const rect = split.getBoundingClientRect(); set((e.clientX-rect.left)/rect.width*100); };
+    grip.onpointermove = e => { if (!grip.hasPointerCapture(e.pointerId)) return; const rect = split.getBoundingClientRect(); set((e.clientY-rect.top)/rect.height*100); };
     grip.onpointerup = e => { if (grip.hasPointerCapture(e.pointerId)) grip.releasePointerCapture(e.pointerId); delete split.dataset.dragging; write("delcc-tmath-split",String(value)); };
     grip.onlostpointercapture = () => { delete split.dataset.dragging; };
-    grip.onkeydown = e => { if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return; e.preventDefault(); set(value+(e.key === "ArrowLeft" ? -2 : 2)); write("delcc-tmath-split",String(value)); };
+    grip.onkeydown = e => { if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return; e.preventDefault(); set(value+(e.key === "ArrowUp" ? -2 : 2)); write("delcc-tmath-split",String(value)); };
   }
 
   async function load(): Promise<void> {
@@ -440,16 +435,22 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       const ioMethod = problem.io_method as { method?: unknown } | null | undefined;
       const fileMethodHint = ioMethod?.method === "file" ? `<p class="tm-muted">${text("cph.fileUnsupported")}</p>` : "";
       const fileName = (key: string): string => { const k = (key || "").toUpperCase(); return /^PY|^PYPY/.test(k) ? "main.py" : /^JAVA/.test(k) ? "Main.java" : /^(PAS|FPC)/.test(k) ? "main.pas" : "main.cpp"; };
-      const KNOWN_LANGS = ["C","C11","CPP03","CPP11","CPP14","CPP17","CPP20","JAVA8","MONOCS","PAS","PY2","PY3","PYPY3","TEXT"];
-      // official c_ display-name map (carve langName): select shows "C++17", value stays the key.
+      // official c_ display-name map (carve langName): menu shows "C++17", value stays the key.
       const LANG_NAMES: Record<string, string> = { C: "C", C11: "C11", CPP03: "C++03", CPP11: "C++11", CPP14: "C++14", CPP17: "C++17", CPP20: "C++20", JAVA8: "Java 8", MONOCS: "C#", PAS: "Pascal", PY2: "Python 2", PY3: "Python 3", PYPY3: "PyPy 3", TEXT: "Text" };
       const langLabel = (l: string) => LANG_NAMES[l] ?? l;
-      const langOptions = [...allowed, ...KNOWN_LANGS.filter(k => !allowed.includes(k))].map(l => { const ok = allowed.includes(l); return `<option value="${esc(l)}"${l === language ? " selected" : ""}${ok ? "" : ` disabled class="tm-disallowed" title="${text("problem.languageDisallowed")}"`}>${esc(langLabel(l))}</option>`; }).join("");
+      // pass #58 — Official's custom language pill (He's screenshot): a dropdown beside
+      // the filename listing ONLY the problem's allowed languages, check on the active
+      // one. The old native <select> forced every known language into the DOM.
+      const checkSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>`;
+      const chevronSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`;
+      const langMenu = !allowed.length ? "" : `<details class="tm-lang-select" data-language-menu><summary aria-label="${text("problem.language")}" title="${text("problem.language")}"><span data-language-label>${esc(langLabel(language))}</span>${chevronSvg}</summary><div class="tm-lang-menu" role="listbox" aria-label="${text("problem.language")}">${allowed.map(l => `<button type="button" role="option" class="tm-lang-option" data-lang="${esc(l)}" aria-selected="${l === language}"><span>${esc(langLabel(l))}</span>${l === language ? checkSvg : ""}</button>`).join("")}</div></details>`;
       const titleBlock = args.contestKey
         ? `<div class="tm-problem-heading"><h2>${esc(problem.name ?? args.code)}</h2><span class="tm-muted">${esc(args.code)}</span></div>`
         : `<div class="tm-page-title"><div><div class="tm-eyebrow">${text("problem.solveEyebrow")}</div><h1>${esc(problem.name ?? args.code)}</h1><p class="tm-muted">${esc(args.code.toUpperCase())} · ${esc(typeof problem.points === "number" ? String(problem.points) : "—")} ${text("problem.pointsSuffix")}</p></div><div class="tm-page-title-actions"><button type="button" class="tm-button" data-action="problems-list">${text("problems.backToList")}</button><button type="button" class="tm-button" data-action="my-subs">${text("problems.mySubs")}</button></div></div>`;
-      host.innerHTML = `<section class="tm-solve-view">${titleBlock}<div class="tm-solve" data-split><section class="tm-pane"><header class="tm-pane-header"><span>${text("problem.statement")}</span><details class="tm-menu"><summary aria-label="${text("problem.options")}">${text("problem.options")}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><div class="tm-menu-body"><button class="tm-button ghost" type="button" data-math aria-pressed="${!rawMath}">${text(rawMath ? "problem.mathRaw" : "problem.mathRendered")}</button>${button("problem.copy","copy-statement")}${button("problem.saveMarkdown","save-statement")}${button("subs.title","submissions")}</div></details></header><div class="tm-pane-body"><dl class="tm-problem-limits" aria-label="${text("problem.limitsIo")}"><div class="tm-limit-cell"><dt>${text("problem.timeLimit")}</dt><dd>${limitCell(problem.time_limit, text("problem.seconds"))}</dd></div><div class="tm-limit-cell"><dt>${text("problem.memoryLimit")}</dt><dd>${limitCell(problem.memory_limit, "KB")}</dd></div><div class="tm-limit-cell"><dt>${text("problem.ioInput")}</dt><dd>${ioCell("input")}</dd></div><div class="tm-limit-cell"><dt>${text("problem.ioOutput")}</dt><dd>${ioCell("output")}</dd></div></dl><div class="tm-statement" data-statement></div></div></section><div class="tm-splitter" data-splitter role="separator" tabindex="0" aria-label="${text("problem.resize")}" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-controls="tm-solve-editor"></div><section class="tm-pane" id="tm-solve-editor"><header class="tm-pane-header tm-editor-header"><div class="tm-editor-title"><span class="tm-editor-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg></span><span class="tm-editor-filename" data-filename>${esc(fileName(language))}</span><select data-language aria-label="${text("problem.language")}">${langOptions}</select></div><div class="tm-editor-actions"><button type="button" class="tm-icon-button" data-action="editor-undo" aria-label="${text("problem.undo")}" title="${text("problem.undo")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-redo" aria-label="${text("problem.redo")}" title="${text("problem.redo")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-find" aria-label="${text("problem.findReplace")}" title="${text("problem.findReplace")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-save" aria-label="${text("problem.saveSource")}" title="${text("problem.saveSource")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg></button></div></header><div class="tm-editor-container"><div class="tm-editor" data-monaco aria-label="${text("problem.source")}" hidden></div><textarea class="tm-source-fallback" data-source aria-label="${text("problem.source")}" spellcheck="false"></textarea></div><div data-editor-message></div><div class="tm-mode-strip"><span class="tm-tag tm-mode-label">${modeLabel}</span><span data-draft class="tm-muted" role="status" aria-live="polite"></span><button type="button" class="tm-button ghost" data-action="save-now">${text("problem.saveNow")}</button></div><section class="tm-io-first"><div class="tm-io-head"><div class="tm-case-tabs tm-io-tabs" role="tablist" aria-label="${text("cph.stdinLabel")}"><button type="button" role="tab" aria-selected="true" data-io-tab="input">Input</button><button type="button" role="tab" aria-selected="false" data-io-tab="output">Output</button></div><button type="button" class="tm-button" data-action="toggle-cph-options" aria-expanded="false" aria-controls="tm-cph-options">${text("problem.options")}</button></div>${fileMethodHint}<div data-io-pane="input"><textarea data-manual-stdin spellcheck="false" maxlength="65536" aria-label="${text("cph.stdinLabel")}" placeholder="${text("cph.stdinPlaceholder")}"></textarea></div><div data-io-pane="output" hidden><pre data-manual-stdout class="tm-output-box" role="log" tabindex="0">${text("cph.notRun")}</pre></div><div class="tm-io-strip"><button type="button" class="tm-button" data-action="compile"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg> <span data-compile-label>${text("cph.compile")}</span></button><button type="button" class="tm-button primary" data-run="stdin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runStdin")}</button><button type="button" class="tm-button" data-action="stop" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/></svg> ${text("cph.stop")}</button><button type="button" class="tm-button primary" data-submit>${text("problem.submit")}</button></div><p class="tm-muted" data-run-hint role="status" hidden></p><p class="tm-muted" data-submissions-left role="status" hidden></p><div data-local-summary role="status" aria-live="polite">${!allowed.length ? text("problem.noLanguages") : !canSubmit ? text("problem.submitDenied") : ""}</div></section><details class="tm-runner" id="tm-cph-options"><summary><b>${text("cph.title")}</b></summary><div class="tm-toolbar"><button type="button" class="tm-button" data-run="case"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runCase")}</button><button type="button" class="tm-button primary" data-run="all"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runAll")}</button></div><div class="tm-toolbar"><button type="button" class="tm-button" data-import-samples>${text("cph.importSamples")}</button><button type="button" class="tm-button" data-add-case>${text("problem.addTest")}</button><button type="button" class="tm-button" data-remove-case>${text("problem.removeTest")}</button><button type="button" class="tm-button" data-action="export-cases">${text("cph.exportCases")}</button><button type="button" class="tm-button" data-action="import-cases">${text("cph.importCases")}</button><input type="file" accept=".json,application/json" hidden data-pool-file aria-hidden="true" tabindex="-1"></div><div data-cases></div><details class="tm-compile"><summary>${text("cph.compileLog")}</summary><pre data-compile></pre></details></details></section></div></section>`;
+      host.innerHTML = `<section class="tm-solve-view">${titleBlock}<div class="tm-solve" data-split><section class="tm-pane"><header class="tm-pane-header"><span>${text("problem.statement")}</span><details class="tm-menu"><summary aria-label="${text("problem.options")}">${text("problem.options")}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><div class="tm-menu-body"><button class="tm-button ghost" type="button" data-math aria-pressed="${!rawMath}">${text(rawMath ? "problem.mathRaw" : "problem.mathRendered")}</button>${button("problem.copy","copy-statement")}${button("problem.saveMarkdown","save-statement")}${button("subs.title","submissions")}</div></details></header><div class="tm-pane-body"><dl class="tm-problem-limits" aria-label="${text("problem.limitsIo")}"><div class="tm-limit-cell"><dt>${text("problem.timeLimit")}</dt><dd>${limitCell(problem.time_limit, text("problem.seconds"))}</dd></div><div class="tm-limit-cell"><dt>${text("problem.memoryLimit")}</dt><dd>${limitCell(problem.memory_limit, "KB")}</dd></div><div class="tm-limit-cell"><dt>${text("problem.ioInput")}</dt><dd>${ioCell("input")}</dd></div><div class="tm-limit-cell"><dt>${text("problem.ioOutput")}</dt><dd>${ioCell("output")}</dd></div></dl><div class="tm-statement" data-statement></div></div></section><div class="tm-splitter" data-splitter role="separator" tabindex="0" aria-label="${text("problem.resize")}" aria-orientation="horizontal" aria-valuemin="25" aria-valuemax="75" aria-controls="tm-solve-editor"></div><section class="tm-pane" id="tm-solve-editor"><header class="tm-pane-header tm-editor-header"><div class="tm-editor-title"><span class="tm-editor-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg></span><span class="tm-editor-filename" data-filename>${esc(fileName(language))}</span>${langMenu}</div><div class="tm-editor-actions"><button type="button" class="tm-icon-button" data-action="editor-undo" aria-label="${text("problem.undo")}" title="${text("problem.undo")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-redo" aria-label="${text("problem.redo")}" title="${text("problem.redo")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-find" aria-label="${text("problem.findReplace")}" title="${text("problem.findReplace")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-save" aria-label="${text("problem.saveSource")}" title="${text("problem.saveSource")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg></button></div></header><div class="tm-editor-container"><div class="tm-editor" data-monaco aria-label="${text("problem.source")}" hidden></div><textarea class="tm-source-fallback" data-source aria-label="${text("problem.source")}" spellcheck="false"></textarea></div><div data-editor-message></div><div class="tm-mode-strip"><span class="tm-tag tm-mode-label">${modeLabel}</span><span data-draft class="tm-muted" role="status" aria-live="polite"></span><button type="button" class="tm-button ghost" data-action="save-now">${text("problem.saveNow")}</button></div><section class="tm-io-first"><div class="tm-io-head"><div class="tm-case-tabs tm-io-tabs" role="tablist" aria-label="${text("cph.stdinLabel")}"><button type="button" role="tab" aria-selected="true" data-io-tab="input">Input</button><button type="button" role="tab" aria-selected="false" data-io-tab="output">Output</button></div><button type="button" class="tm-button" data-action="toggle-cph-options" aria-expanded="false" aria-controls="tm-cph-options">${text("problem.options")}</button></div>${fileMethodHint}<div data-io-pane="input"><textarea data-manual-stdin spellcheck="false" maxlength="65536" aria-label="${text("cph.stdinLabel")}" placeholder="${text("cph.stdinPlaceholder")}"></textarea></div><div data-io-pane="output" hidden><pre data-manual-stdout class="tm-output-box" role="log" tabindex="0">${text("cph.notRun")}</pre></div><div class="tm-io-strip"><button type="button" class="tm-button" data-action="compile"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg> <span data-compile-label>${text("cph.compile")}</span></button><button type="button" class="tm-button primary" data-run="stdin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runStdin")}</button><button type="button" class="tm-button" data-action="stop" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/></svg> ${text("cph.stop")}</button><button type="button" class="tm-button primary" data-submit>${text("problem.submit")}</button></div><p class="tm-muted" data-run-hint role="status" hidden></p><p class="tm-muted" data-solve-status role="status" aria-live="polite" hidden></p><p class="tm-muted" data-submissions-left role="status" hidden></p></section><details class="tm-runner" id="tm-cph-options"><summary><b>${text("cph.title")}</b></summary><div class="tm-toolbar"><button type="button" class="tm-button" data-run="case"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runCase")}</button><button type="button" class="tm-button primary" data-run="all"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runAll")}</button></div><div class="tm-toolbar"><button type="button" class="tm-button" data-import-samples>${text("cph.importSamples")}</button><button type="button" class="tm-button" data-add-case>${text("problem.addTest")}</button><button type="button" class="tm-button" data-remove-case>${text("problem.removeTest")}</button><button type="button" class="tm-button" data-action="export-cases">${text("cph.exportCases")}</button><button type="button" class="tm-button" data-action="import-cases">${text("cph.importCases")}</button><input type="file" accept=".json,application/json" hidden data-pool-file aria-hidden="true" tabindex="-1"></div><div data-cases></div><details class="tm-compile"><summary>${text("cph.compileLog")}</summary><pre data-compile></pre></details></details></section></div></section>`;
       fallback = $<HTMLTextAreaElement>("[data-source]"); fallback.value = loadDraft(language); fallback.oninput = changed;
+      // pass #58: the initial submit-denied / no-languages message lives on the status line
+      note(!allowed.length ? text("problem.noLanguages") : !canSubmit ? text("problem.submitDenied") : "", !allowed.length || !canSubmit ? "error" : "muted");
       const render = () => { statement?.dispose(); statement = renderStatement($("[data-statement]"), statementSource, {rawMath}); };
       render();
       const menu = $<HTMLDetailsElement>("details.tm-menu");
@@ -468,34 +469,48 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       $<HTMLButtonElement>("[data-submit]").onclick = () => confirmSubmit();
       const compileBtn0 = host.querySelector<HTMLButtonElement>('[data-action="compile"]'); if (compileBtn0) compileBtn0.onclick = () => void compileSource();
       const stopBtn0 = host.querySelector<HTMLButtonElement>('[data-action="stop"]'); if (stopBtn0) stopBtn0.onclick = () => void stopLocal();
-      $<HTMLSelectElement>("[data-language]").onchange = e => {
-        if (disposed || switchingLanguage) return;
-        const select = e.currentTarget as HTMLSelectElement;
-        const next = select.value; if (!allowed.includes(next) || next === language) return;
+      // pass #58: the Official-style pill menu — one switch routine shared by every option
+      const paintLangMenu = (): void => {
+        const label = $("[data-language-label]"); if (label) label.textContent = langLabel(language);
+        host.querySelectorAll<HTMLButtonElement>(".tm-lang-option").forEach(b => {
+          const on = b.dataset.lang === language;
+          b.setAttribute("aria-selected", String(on));
+          b.innerHTML = `<span>${esc(langLabel(b.dataset.lang ?? ""))}</span>${on ? checkSvg : ""}`;
+        });
+        const fn = $("[data-filename]"); if (fn) fn.textContent = fileName(language);
+      };
+      // extracted from the old native-select onchange. Commit rules unchanged: only after
+      // BOTH Monaco operations succeed; a failed switch recovers through the editor fallback.
+      const switchLanguage = (next: string): void => {
+        if (disposed || switchingLanguage || submitting || !next || next === language) return;
+        if (!allowed.includes(next)) return;
         const previousLanguage = language, previousSource = source(), value = loadDraft(next);
         saved(); switchingSource = previousSource; switchingLanguage = true;
         try {
           editor?.setLanguage(next,value);
           if (disposed) return;
-          // Commit only after both Monaco operations succeed. No destination
-          // draft is written while the model still belongs to the old language.
           language = next; fallback!.value = value;
         } catch {
           if (disposed) return;
-          // A failed replacement may leave Monaco partially changed. Preserve the
-          // outgoing source in the plain editor and recover through the existing retry.
           editor?.dispose(); editor = null;
-          language = previousLanguage; select.value = previousLanguage;
+          language = previousLanguage;
           fallback!.value = previousSource; fallback!.hidden = false;
           $("[data-monaco]").hidden = true;
           $("[data-editor-message]").innerHTML = `<p class="tm-muted">${text("problem.editorFallback")}</p>${button("problem.retryEditor","retry-editor")}`;
           $<HTMLButtonElement>('[data-action="retry-editor"]').onclick = () => void mountEditor();
         } finally { switchingLanguage = false; switchingSource = null; }
         if (disposed) return;
-        revision++; saved(); controls();
-        const fn = $("[data-filename]"); if (fn) fn.textContent = fileName(language);
-        const summary = $("[data-local-summary]"); if (summary.textContent) summary.textContent = t("cph.stale");
+        revision++; saved(); controls(); paintLangMenu();
+        const st = $("[data-solve-status]"); if (st && !st.hidden) note(t("cph.stale"));
       };
+      host.querySelectorAll<HTMLButtonElement>(".tm-lang-option").forEach(b => b.onclick = () => {
+        const menu = $<HTMLDetailsElement>("[data-language-menu]");
+        if (menu) menu.open = false;
+        switchLanguage(b.dataset.lang ?? "");
+      });
+      host.querySelectorAll<HTMLDetailsElement>("[data-language-menu]").forEach(menu => {
+        menu.addEventListener("toggle", () => { if (menu.open) paintLangMenu(); });
+      });
       // Persisted local data is untrusted. Cap work and normalize IDs before rendering.
       const ids = new Set<string>();
       cases = cph.loadCases(args.code).filter(c => c && typeof c.input === "string" && c.input.length <= MAX_CASE_TEXT && (c.expected == null || (typeof c.expected === "string" && c.expected.length <= MAX_CASE_TEXT))).slice(0,MAX_CASES).map(c => {
@@ -522,15 +537,14 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       $<HTMLInputElement>("[data-pool-file]").onchange = async e => {
         const f = (e.currentTarget as HTMLInputElement).files?.[0];
         if (!f || disposed) return;
-        const summary = $("[data-local-summary]");
         try {
           const r = cph.importCasePool(args.code, await f.text());
           cases = cph.loadCases(args.code);
           runMarks.clear();
           paintCases();
-          if (summary && !disposed) { summary.textContent = t("cph.importResult", { added: r.added, skipped: r.skipped }); summary.className = "tm-status"; }
+          note(t("cph.importResult", { added: r.added, skipped: r.skipped }));
         } catch {
-          if (summary && !disposed) { summary.textContent = t("cph.importFailed"); summary.className = "tm-status"; }
+          note(t("cph.importFailed"), "error");
         }
         (e.currentTarget as HTMLInputElement).value = "";
       };
@@ -574,7 +588,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   void load();
   return () => {
     if (disposed) return;
-    disposed = true; saved(); listeners.abort(); stopWatch?.(); statement?.dispose(); editor?.dispose();
+    disposed = true; saved(); listeners.abort(); statement?.dispose(); editor?.dispose();
     // Existing HTTP and bounded native CPH bridges have no cancellation command.
     // Late continuations must not touch a replacement view.
   };

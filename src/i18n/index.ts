@@ -72,6 +72,8 @@ export interface Dict {
     "contests.ariaTimeLeft": string;
     "contests.timeLeft": string;
     "contests.timeExhausted": string;
+    "contests.endedAuto": string;
+    "contests.leftAuto": string;
     "contests.timeUnknown": string;
     "contests.deadlineAt": string;
     "contests.officialMode": string;
@@ -294,6 +296,11 @@ export interface Dict {
   "subs.score": string;
   "subs.date": string;
   "subs.mine": string;
+  "subs.scopeLabel": string;
+  "subs.scopeGlobal": string;
+  "subs.scopePublic": string;
+  "subs.scopeContest": string;
+  "subs.allProblems": string;
   "subs.details": string;
   "subs.noDetails": string;
   "subs.testcase": string;
@@ -344,6 +351,7 @@ export interface Dict {
   "settings.tcAutoMode": string;
   "settings.tcManual": string;
   "settings.tcAutoDetected": string;
+  "settings.uiScale": string;
   "settings.logs": string;
   "settings.logsCopy": string;
   "settings.logsClear": string;

@@ -21,7 +21,9 @@ body[data-persona="tmath"] .tm-sample-tabs { display: flex; flex-wrap: wrap; gap
 body[data-persona="tmath"] .tm-sample-tabs button { padding: 6px 13px; border: 1px solid var(--tm-border, #88888838); border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
 body[data-persona="tmath"] .tm-sample-tabs button[aria-selected="true"] { background: var(--tm-primary, #2563eb); border-color: var(--tm-primary, #2563eb); color: #fff; }
 body[data-persona="tmath"] .tm-statement :is(button, [tabindex]):focus-visible { outline: 2px solid var(--tm-primary, #2563eb); outline-offset: 3px; }
-body[data-persona="tmath"] .tm-sample-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+/* pass #58 (He's side-by-side shots): Official stacks each example's Input ABOVE its
+   Output at full width — the old side-by-side grid (and its ≤640px fallback) is gone */
+body[data-persona="tmath"] .tm-sample-panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 body[data-persona="tmath"] .tm-sample-panel[hidden] { display: none; }
 body[data-persona="tmath"] .tm-sample-panel > div { min-width: 0; }
 body[data-persona="tmath"] .tm-sample-label { font-weight: 650; font-size: 13px; }
@@ -34,4 +36,3 @@ body[data-persona="tmath"] .tm-statement tbody tr:nth-child(2n) td { background:
 body[data-persona="tmath"] .tm-formula-display { display: block; overflow-x: auto; margin: .8em 0; }
 body[data-persona="tmath"] .tm-formula .katex { font-size: 1.08em; }
 body[data-persona="tmath"] .tm-statement-notice { padding: 10px 14px; border-left: 3px solid var(--tm-primary, #2563eb); background: var(--tm-soft, #8888880b); color: var(--tm-muted, #667085); font-size: 13px; }
-@media (max-width: 640px) { body[data-persona="tmath"] .tm-sample-panel { grid-template-columns: minmax(0, 1fr); gap: 8px; } }

@@ -228,6 +228,13 @@ export const api = {
       { method: "POST", token: t, body: { language_key, source } }),
   submissionContest: (t: string, key: string, id: number): Promise<SubmissionDetail> =>
     raw(`/contests/${encodeURIComponent(key)}/submissions/${id}`, { token: t }),
+  // pass #58 live probe: /contests/{key}/submissions returns a WRAPPED payload —
+  // {name, participation_id, scope:"participation", problems:[{code,name,display_index}], items:[…]}
+  // (problems powers the scope's problem sub-select; items are the participation rows)
+  contestSubmissions: (t: string, key: string): Promise<any> =>
+    raw(`/contests/${encodeURIComponent(key)}/submissions`, { token: t }),
+  contestSubmissionSource: (t: string, key: string, id: number): Promise<any> =>
+    raw(`/contests/${encodeURIComponent(key)}/submissions/${id}/source`, { token: t }),
   submission: (t: string, id: number, scope?: string): Promise<SubmissionDetail> =>
     raw(`/submissions/${id}${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`, { token: t }),
   contestProblemSubmissions: (t: string, key: string, code: string): Promise<any[]> =>

@@ -182,6 +182,9 @@ export class TmathApp {
   private oauth: AbortController | null = null;
   private contest: ContestListItem | null = null;
   private part: number | null = null;
+  // pass #58: one-shot notice painted on the contests view after an automatic
+  // Contest-View exit (timer over / left via another process)
+  private autoLeftNotice: "endedAuto" | "leftAuto" | null = null;
   private collapsed = read("delcc-tmath-sidebar") === "collapsed";
   private sessionReady = false;
   private stopped = false;
@@ -470,6 +473,12 @@ export class TmathApp {
     const all = groups.flatMap(g => g[3]);
     const joinedBanner = !this.contest ? "" : `<section class="tm-current-banner" aria-label="${text("contests.currentEyebrow")}"><div class="tm-current-info"><div class="tm-eyebrow">${text("contests.currentEyebrow")}</div><h2>${esc(this.contest.name)}</h2>${this.contest.topic ? `<p class="tm-contest-topic">${esc(this.contest.topic)}</p>` : ""}<div class="tm-current-details"><span class="tm-tag">${esc(this.contest.mode || "Contest")}</span><span>${text("contests.start")}: <time dateTime="${esc(this.contest.start_time)}">${date(this.contest.start_time)}</time></span><span>${text("contests.end")}: <time dateTime="${esc(this.contest.end_time)}">${date(this.contest.end_time)}</time></span></div></div><button class="tm-button primary" data-action="continue">${text("contests.continue")}</button></section>`;
     host.innerHTML = this.pageTitle("contests.eyebrow","contests.title","contests.desc","contests.refresh") + joinedBanner + `<section class="tm-card"><div class="tm-card-head"><h2>${text("contests.list")}</h2><span class="tm-tag">${text("contests.onPage", {n: all.length})}</span></div><form class="tm-search-row" id="tm-search-form"><label for="tm-contest-search">${text("contests.searchField")}</label><div class="tm-search-controls"><input id="tm-contest-search" name="search" aria-label="${text("common.search")}" placeholder="${text("contests.searchPlaceholder")}" value="${esc(search)}" maxlength="200">${search ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}<button class="tm-button" type="submit">${text("common.search")}</button></div></form><div id="tm-contest-message" role="status"></div>` + groups.filter(([, , , cs]) => cs.length).map(([key, desc, tone, cs]) => `<section class="tm-contest-group tm-contest-group-${tone}"><div class="tm-contest-group-header"><h3>${text(key)} (${cs.length})</h3><p>${text(desc)}</p></div><div class="tm-contest-rows">${cs.map(row).join("")}</div></section>`).join("") + (groups.every(g => !g[3].length) ? empty() : "") + `</section>`;
+    // pass #58: the auto-left notice (timer over / removed elsewhere) is one-shot
+    if (this.autoLeftNotice) {
+      const kind = this.autoLeftNotice; this.autoLeftNotice = null;
+      const msg = host.querySelector<HTMLElement>("#tm-contest-message");
+      if (msg) msg.innerHTML = `<p class="tm-ac-banner" role="status">${text(kind as "contests.endedAuto")}</p>`;
+    }
     const clear = host.querySelector<HTMLButtonElement>('[data-action="clear"]');
     if (clear) clear.onclick = () => this.go("contests", {search: ""});
     const cont = host.querySelector<HTMLButtonElement>('[data-action="continue"]');
@@ -722,6 +731,15 @@ export class TmathApp {
     const problems = list(workspace?.problems ?? workspace?.tasks);
     const rows = problems.length ? problems : list(await api.contestProblems(auth.accessToken()!,key));
     if (!alive()) return;
+    // pass #58 (workspace persistence, He's Official audit): rejoining a contest lands
+    // on the LAST problem you had open there — one redirect so the tab strip highlights.
+    // Language + per-language code drafts already persist per problem inside solve.ts.
+    const lastKey = `delcc-contest-last:${key}`;
+    const requested = params.get("code");
+    if (!requested) {
+      const last = read(lastKey);
+      if (last && rows.some(p => p.code === last)) { this.go("workspace", { contest: key, code: last }); return; }
+    } else write(lastKey, requested);
     // Repaint navigation once the restored workspace reveals its contest.
     this.shell(); host = this.host.querySelector<HTMLElement>("#tm-content")!;
     // Contest header + problem strip rebuilt to the official 1.0.9 anatomy (audit round, pass #5):
@@ -740,23 +758,48 @@ export class TmathApp {
     };
     host.innerHTML = `<div class="tm-workspace"><div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("contests.workspaceEyebrow")}</div><h1>${esc(contest?.name ?? key)}</h1><p class="tm-contest-meta">${esc(modeTxt)}${dlText ? ` · ${text("contests.deadlineAt")}: ${esc(dlText)}` : ""}</p></div><div class="tm-contest-side"><aside class="tm-contest-clock" aria-label="${text("contests.clockLabel")}"><div class="tm-clock-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span data-clock-label>${text("contests.timeUnknown")}</span></div><div class="tm-clock-value" role="timer" aria-label="${text("contests.ariaTimeLeft")}" data-clock>--:--:--</div></aside><button type="button" class="tm-button destructive" data-action="leave">${text("contests.leave")}</button></div></div><div class="tm-contest-strip"><div class="tm-contest-scroll"><nav class="tm-contest-tabs" aria-label="${text("contests.problemsListAria")}">${rows.map(tab).join("")}</nav></div><button type="button" class="tm-icon-button" data-action="refresh-problems" aria-label="${text("contests.refreshList")}" title="${text("contests.refreshList")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button></div>${workspace?.next_problem_requirement != null ? `<p class="tm-ac-banner" role="status">${t("contests.acBanner", { n: workspace.accepted_problem_count ?? 0, r: workspace.next_problem_requirement })}</p>` : ""}<div id="tm-workspace-message" role="status"></div><div id="tm-solve-host"></div></div>`;
     // Live countdown per the carve: ceil(deadline - now), padded HH:MM:SS, destructive tint at <=300s.
+    const dl = deadlineAt ? Date.parse(deadlineAt) : NaN;
+    // pass #58 (Official behavior, He): Contest View polls its own state and LEAVES
+    // itself — when the timer runs out, or when the participation disappears (left or
+    // kicked via another process/window), the workspace exits to the contests list with
+    // a one-shot notice instead of sitting on a stale view.
+    let leftAuto = false;
+    const leaveContestView = (reason: "endedAuto" | "leftAuto"): void => {
+      if (leftAuto || !alive()) return;
+      leftAuto = true;
+      this.disposeView?.(); this.disposeView = null; // clears the countdown AND the state poll
+      this.contest = null; this.part = null;
+      this.autoLeftNotice = reason;
+      this.go("contests");
+    };
     const tick = () => {
       const clock = host.querySelector<HTMLElement>("[data-clock]");
       const label = host.querySelector<HTMLElement>("[data-clock-label]");
       if (!clock) return;
-      const dl = deadlineAt ? Date.parse(deadlineAt) : NaN;
       const rem = Number.isFinite(dl) ? Math.max(0, Math.ceil((dl - Date.now()) / 1000)) : null;
       clock.textContent = rem == null ? "--:--:--" : [Math.floor(rem / 3600), Math.floor(rem / 60) % 60, rem % 60].map(x => String(x).padStart(2, "0")).join(":");
       clock.classList.toggle("danger", rem != null && rem <= 300);
       // F41: [data-clock-label] is itself the span — querySelector("span") inside it never matched
       if (label) label.textContent = rem == null ? text("contests.timeUnknown") : rem === 0 ? text("contests.timeExhausted") : text("contests.timeLeft");
+      if (rem === 0 && Number.isFinite(dl)) window.setTimeout(() => leaveContestView("endedAuto"), 1500); // one beat of 00:00:00
     };
     tick();
     const timer = window.setInterval(tick, 1000);
+    const pollState = window.setInterval(() => {
+      if (!alive() || leftAuto) { window.clearInterval(pollState); return; }
+      void api.workspace(auth.accessToken()!, key).then(ws => {
+        if (!alive() || leftAuto) return;
+        const inContest = !!(ws && ((ws.participation ?? ws.participation_id) != null || (ws.contest?.is_in_contest ?? true)));
+        if (!inContest) leaveContestView("leftAuto");
+      }).catch(e => {
+        // 403/404 = the server itself says we are not in this contest (network blips retry silently)
+        if (alive() && !leftAuto && e instanceof ApiError && (e.status === 403 || e.status === 404)) leaveContestView("leftAuto");
+      });
+    }, 20_000);
     // F27: enter the countdown into the dispose chain BEFORE solve() chains onto it — covers
     // workspace-without-solve, problem-tab switches, refreshes, navigation and destroy().
     const previous = this.disposeView;
-    this.disposeView = () => { previous?.(); window.clearInterval(timer); };
+    this.disposeView = () => { previous?.(); window.clearInterval(timer); window.clearInterval(pollState); };
     const refresh = host.querySelector<HTMLButtonElement>('[data-action="refresh-problems"]');
     if (refresh) refresh.onclick = () => this.go("workspace", params.get("code") ? { contest: key, code: params.get("code")! } : { contest: key });
     host.querySelectorAll<HTMLButtonElement>("[data-code]").forEach(b => b.onclick = () => this.go("workspace",{contest:key,code:b.dataset.code!}));
@@ -783,10 +826,20 @@ export class TmathApp {
     let remembered: Partial<SubsFilterPrefs> = {};
     try { remembered = JSON.parse(read(SUBS_FILTERS_KEY,"{}")) ?? {}; } catch { /* defaults */ }
     const value = (key: keyof SubsFilterPrefs, fallback = "") => params.has(key) ? params.get(key)! : typeof remembered[key] === "string" ? remembered[key]! : fallback;
-    // official anatomy (audit screenshots): the view is always public practice ·
-    // whole system; "my submissions" is a CHECKBOX that rides the user filter
-    const scope = "public_practice";
-    const mine = value("mine") === "1";
+    // pass #58 — He's scope tree: [Global] / [Public Problems] / [Current Contest] /
+    // [past joined contests]; every non-Global scope gains a problem sub-select fed by
+    // that scope's own problem list (Global deliberately has none). Default: Current
+    // Contest inside a contest, Global outside. Server mapping: Global → /submissions
+    // with no scope; Public → scope=public_practice; Contest → /contests/{key}/submissions
+    // (live probe 2026-10-27: wrapped payload {name, participation_id, scope:"participation",
+    // problems:[{code,name,display_index}], items:[…]}).
+    const rememberedScope = remembered.scope === "public_practice" ? "public" : typeof remembered.scope === "string" ? remembered.scope : "";
+    const scopeRaw = params.has("scope") ? params.get("scope")! : rememberedScope || (this.contest ? `contest:${this.contest.key}` : "global");
+    const contestKey = scopeRaw.startsWith("contest:") ? scopeRaw.slice(8) : "";
+    const isContestScope = !!contestKey;
+    const serverScope = scopeRaw === "public" ? "public_practice" : ""; // /submissions scope enum: null | public_practice
+    const detailScope = isContestScope ? scopeRaw : serverScope; // contest detail/source use the scoped endpoints
+    const mine = !isContestScope && value("mine") === "1";
     const problem = value("problem"), user = value("user");
     const result = SUBS_RESULTS.includes(value("result")) ? value("result") : "";
     const size = value("pageSize","100"), pageSize = [10,20,50,100].includes(Number(size)) ? Number(size) : 100;
@@ -798,10 +851,10 @@ export class TmathApp {
       const secs = Math.max(0, Math.round((Date.now() - ts) / 1000));
       if (secs < 60) return text("time.secondsAgo", { n: secs }); // official counts seconds, no "just now"
       if (secs < 3600) return text("time.minutesAgo", { n: Math.floor(secs / 60) });
-      if (secs < 86400) return text("time.hoursAgo", { n: Math.floor(secs / 3600) });
+      if (secs < 86400) return text("time.hoursAgo", { n: Math.floor(secs / 60) });
       return text("time.daysAgo", { n: Math.floor(secs / 86400) });
     };
-    const userFilter = user.trim() || (mine ? String(this.user?.username ?? "") : "");
+    const userFilter = isContestScope ? "" : user.trim() || (mine ? String(this.user?.username ?? "") : "");
     // smart search (audit: superior to official's exact fields): fuzzy + regex, and
     // a digits-only Problem box is a SUBMISSION ID. The server narrows only what it
     // understands exactly; smart inputs drop their param and refine client-side.
@@ -814,9 +867,9 @@ export class TmathApp {
       catch { const l = q.toLowerCase(); return (v: string) => v.toLowerCase().includes(l); }
     };
     const pMatch = matcher(problemQ), uMatch = matcher(user.trim());
-    const serverProblem = subId || SMART.test(problemQ) ? "" : problemQ;
-    const serverUser = SMART.test(userFilter) ? "" : userFilter;
-    const filters: SubsFilterPrefs = {scope,mine:mine ? "1" : "",user:userFilter,problem,result,pageSize:String(pageSize)};
+    const serverProblem = isContestScope ? "" : (subId || SMART.test(problemQ) ? "" : problemQ);
+    const serverUser = isContestScope ? "" : (SMART.test(userFilter) ? "" : userFilter);
+    const filters: SubsFilterPrefs = {scope:scopeRaw,mine:mine ? "1" : "",user:userFilter,problem,result,pageSize:String(pageSize)};
     // Resolve shared memory before the very first request, including explicit clears.
     for (const [key,v] of Object.entries(filters)) params.set(key,v);
     // pass #52: the #ID click jumps to the official source page — a sub-route of this
@@ -824,23 +877,58 @@ export class TmathApp {
     // filter memory resolves so Back restores the exact filtered list
     const sourceParam = params.get("source");
     if (sourceParam && /^\d+$/.test(sourceParam)) {
-      await this.submissionSource(host, params, Number(sourceParam), scope, alive);
+      await this.submissionSource(host, params, Number(sourceParam), detailScope, alive);
       return;
     }
+    // contest rows normalize onto the shared row shape (ContestSubmissionItemSchema:
+    // submission_id/language_key/submitted_at/is_graded/… — live-probed, pass #58);
+    // source is always the participant's own, so the ID click opens optimistically
+    const normContest = (s: any): any => ({
+      id: s?.submission_id, problem: String(s?.problem ?? s?.problem_code ?? ""), problem_name: String(s?.problem_name ?? ""),
+      user: String(this.user?.username ?? ""), user_display_name: String(this.user?.display_name ?? ""), user_rating: this.user?.rating,
+      date: s?.submitted_at, language: s?.language_key, time: s?.time, memory: s?.memory,
+      points: s?.points, result: s?.result ?? s?.status_display ?? s?.status, status: String(s?.status ?? s?.status_display ?? ""),
+      is_terminal: !!s?.is_graded, current_testcase: s?.current_testcase ?? null,
+      can_view_detail: !!s?.is_graded, can_view_source: true, version: s?.version_update ?? 0,
+    });
+    let contestProblems: { code: string; name: string; display_index?: number }[] = [];
+    let scopeProblem = "";
+    const applyContestFilters = (fresh: any[]): any[] => {
+      let out = fresh.map(normContest).sort((a: any, b: any) => Number(b.id) - Number(a.id));
+      if (result) out = out.filter(s => String(s.result ?? s.status) === result);
+      if (scopeProblem) out = out.filter(s => !s.problem || String(s.problem) === scopeProblem);
+      return out;
+    };
     let rows: any[];
-    try { rows = list(await api.submissions(auth.accessToken()!,{page,page_size:pageSize,scope,problem:serverProblem,user:serverUser,result})); }
-    catch (e) {
-      // Refresh failure can already have switched the view to login; still clear the shared key.
-      if (e instanceof ApiError && e.status === 401) {
-        try { localStorage.removeItem(SUBS_FILTERS_KEY); } catch { /* unavailable storage */ }
+    if (isContestScope) {
+      try {
+        const payload = await api.contestSubmissions(auth.accessToken()!, contestKey);
+        if (!alive()) return;
+        contestProblems = list(payload?.problems).map((p: any) => ({ code: String(p?.code ?? ""), name: String(p?.name ?? ""), display_index: typeof p?.display_index === "number" ? p.display_index : undefined })).filter(p => p.code);
+        scopeProblem = contestProblems.some(p => p.code === problem) ? problem : "";
+        rows = applyContestFilters(list(payload?.items));
+      } catch (e) {
+        // Refresh failure can already have switched the view to login; still clear the shared key.
+        if (e instanceof ApiError && e.status === 401) {
+          try { localStorage.removeItem(SUBS_FILTERS_KEY); } catch { /* unavailable storage */ }
+        }
+        throw e;
       }
-      throw e;
+    } else {
+      try { rows = list(await api.submissions(auth.accessToken()!,{page,page_size:pageSize,scope:serverScope,problem:serverProblem,user:serverUser,result})); }
+      catch (e) {
+        // Refresh failure can already have switched the view to login; still clear the shared key.
+        if (e instanceof ApiError && e.status === 401) {
+          try { localStorage.removeItem(SUBS_FILTERS_KEY); } catch { /* unavailable storage */ }
+        }
+        throw e;
+      }
+      if (!alive()) return;
+      rows = rows.filter(s =>
+        (!subId || String(s.id) === subId) &&
+        (!pMatch || pMatch(String(s.problem_name ?? s.problem ?? "")) || pMatch(String(s.problem ?? ""))) &&
+        (!uMatch || uMatch(String(s.user_display_name ?? s.user ?? ""))));
     }
-    if (!alive()) return;
-    rows = rows.filter(s =>
-      (!subId || String(s.id) === subId) &&
-      (!pMatch || pMatch(String(s.problem_name ?? s.problem ?? "")) || pMatch(String(s.problem ?? ""))) &&
-      (!uMatch || uMatch(String(s.user_display_name ?? s.user ?? ""))));
     write(SUBS_FILTERS_KEY,JSON.stringify(filters));
     const activeFilter = Boolean(user || problem || result || mine);
     // pass #52 — official row anatomy (carve S_/public table): the ID is a
@@ -870,16 +958,24 @@ export class TmathApp {
       const summary = rows.find(s=>s.id === Number(b.dataset.sub));
       if (summary?.can_view_detail === false) { cell.innerHTML = empty("subs.noDetails"); return; }
       try {
-        const s = await api.submission(auth.accessToken()!,Number(b.dataset.sub),scope || undefined);
+        // pass #58: contest-scope details come from the scoped endpoint (detailScope
+        // carries "contest:<key>"; global/public keep the /submissions detail shape)
+        const detailScopeKey = detailScope.startsWith("contest:") ? detailScope.slice(8) : "";
+        const s = detailScopeKey
+          ? await api.submissionContest(auth.accessToken()!, detailScopeKey, Number(b.dataset.sub))
+          : await api.submission(auth.accessToken()!,Number(b.dataset.sub),detailScope || undefined);
         if (!alive() || !row.isConnected) return;
         cell.innerHTML = this.submissionDetailHtml(s);
         this.wireCaseToggles(cell);
       } catch(e) { if (alive() && row.isConnected) cell.innerHTML = errorBox(e); }
     });
     };
+    // pass #58: contest scope pages CLIENT-SIDE (the contest endpoint takes no page
+    // params) — the table paints the current slice, the pager counts the full set
+    const pageView = (): any[] => isContestScope ? rows.slice((page - 1) * pageSize, page * pageSize) : rows;
     const paintRows = (): void => {
       const tbody = host.querySelector("tbody");
-      if (tbody) tbody.innerHTML = rows.map(rowHtml).join("");
+      if (tbody) tbody.innerHTML = pageView().map(rowHtml).join("");
       wireRows();
       // re-seat expanded detail rows after their repainted summary rows
       for (const [id, ent] of openDetails) {
@@ -889,9 +985,35 @@ export class TmathApp {
         btn.closest("tr")!.after(ent.row);
       }
     };
+    // scope select options: Global, Public Problems, the current contest, then past
+    // joined ones from the joined-only /contests feed (newest end first); feed failure
+    // degrades to the first options only
+    let pastJoined: ContestListItem[] = [];
+    try {
+      pastJoined = list(await api.contests(auth.accessToken()!, { page_size: 50 }))
+        .filter((c: ContestListItem) => c.key !== this.contest?.key)
+        .sort((a: ContestListItem, b: ContestListItem) => Date.parse(String(b.end_time)) - Date.parse(String(a.end_time)));
+    } catch { /* feed unavailable — scope select keeps its standing options */ }
+    if (!alive()) return;
+    const scopeOptions = [
+      `<option value="global"${scopeRaw === "global" ? " selected" : ""}>${text("subs.scopeGlobal")}</option>`,
+      `<option value="public"${scopeRaw === "public" ? " selected" : ""}>${text("subs.scopePublic")}</option>`,
+      ...(this.contest ? [`<option value="contest:${esc(this.contest.key)}"${scopeRaw === `contest:${this.contest.key}` ? " selected" : ""}>${text("subs.scopeContest")} · ${esc(this.contest.name)}</option>`] : []),
+      ...pastJoined.map(c => `<option value="contest:${esc(c.key)}"${scopeRaw === `contest:${c.key}` ? " selected" : ""}>${esc(c.name)}</option>`),
+    ].join("");
+    // problem sub-select per scope: contest scopes list that contest's problems with the
+    // official "Bài <letter>" naming; Public uses the completed problems index; a scope
+    // whose problem list isn't ready (public, pre-index) falls back to the smart text box
+    const tabWord = text("contests.tabWord");
+    const problemField = scopeRaw === "global" ? ""
+      : isContestScope && contestProblems.length ? `<div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><select id="tm-subs-problem" name="problem"><option value="">${text("subs.allProblems")}</option>${contestProblems.map(p => { const label = `${tabWord} ${this.idxLetters(p.display_index ?? contestProblems.findIndex(x => x.code === p.code))}`; return `<option value="${esc(p.code)}"${p.code === scopeProblem ? " selected" : ""}>${esc(label)}${p.name ? ` — ${esc(p.name)}` : ""}</option>`; }).join("")}</select></div>`
+      : scopeRaw === "public" && this.problemsIndex?.complete ? `<div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><select id="tm-subs-problem" name="problem"><option value="">${text("subs.allProblems")}</option>${this.problemsIndex.items.map(p => `<option value="${esc(String(p.code))}"${String(p.code).toUpperCase() === problemQ.toUpperCase() ? " selected" : ""}>${esc(String(p.code).toUpperCase())} — ${esc(String(p.name))}</option>`).join("")}</select></div>`
+      : `<div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><input id="tm-subs-problem" name="problem" placeholder="${text("subs.problemPlaceholder")}" value="${esc(problem)}"></div>`;
+    const userField = isContestScope ? "" : `<div class="tm-field"><label for="tm-subs-user">${text("subs.user")}</label><input id="tm-subs-user" name="user" placeholder="${text("subs.user")}" value="${esc(user)}"></div>`;
+    const mineField = isContestScope ? "" : `<label class="tm-check tm-filter-check"><input type="checkbox" name="mine" value="1"${mine ? " checked" : ""}>${text("subs.mine")}</label>`;
     // pass #54 (same case as problems): the filter form floats free — the bordered
     // card wraps ONLY the table
-    host.innerHTML = this.pageTitle("subs.eyebrow","subs.title","subs.desc","subs.refresh") + `<form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-subs-user">${text("subs.user")}</label><input id="tm-subs-user" name="user" placeholder="${text("subs.user")}" value="${esc(user)}"></div><div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><input id="tm-subs-problem" name="problem" placeholder="${text("subs.problemPlaceholder")}" value="${esc(problem)}"></div><div class="tm-field"><label for="tm-subs-result">${text("subs.result")}</label><select id="tm-subs-result" name="result"><option value="">${text("subs.allResults")}</option>${SUBS_RESULTS.map(s=>`<option${result === s ? " selected" : ""}>${s}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-subs-size">${text("subs.pageSize")}</label><select id="tm-subs-size" name="pageSize">${sizeOptions.map(n=>`<option value="${n}"${n === pageSize ? " selected" : ""}>${n}</option>`).join("")}</select></div><label class="tm-check tm-filter-check"><input type="checkbox" name="mine" value="1"${mine ? " checked" : ""}>${text("subs.mine")}</label></div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form><section class="tm-card"><div class="tm-table-wrap"><table class="tm-table tm-subs-table"><thead><tr>${["subs.id","subs.user","subs.problem","subs.date","subs.language","subs.result","subs.score"].map(k=>`<th>${text(k as DictKey)}</th>`).join("")}<th class="tm-col-eye"><span class="sr-only">${text("subs.details")}</span></th></tr></thead><tbody>${rows.map(rowHtml).join("")}</tbody></table>${rows.length ? "" : empty()}</div></section>`;
+    host.innerHTML = this.pageTitle("subs.eyebrow","subs.title","subs.desc","subs.refresh") + `<form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-subs-scope">${text("subs.scopeLabel")}</label><select id="tm-subs-scope" name="scope">${scopeOptions}</select></div>${userField}${problemField}<div class="tm-field"><label for="tm-subs-result">${text("subs.result")}</label><select id="tm-subs-result" name="result"><option value="">${text("subs.allResults")}</option>${SUBS_RESULTS.map(s=>`<option${result === s ? " selected" : ""}>${s}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-subs-size">${text("subs.pageSize")}</label><select id="tm-subs-size" name="pageSize">${sizeOptions.map(n=>`<option value="${n}"${n === pageSize ? " selected" : ""}>${n}</option>`).join("")}</select></div>${mineField}</div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form><section class="tm-card"><div class="tm-table-wrap"><table class="tm-table tm-subs-table"><thead><tr>${["subs.id","subs.user","subs.problem","subs.date","subs.language","subs.result","subs.score"].map(k=>`<th>${text(k as DictKey)}</th>`).join("")}<th class="tm-col-eye"><span class="sr-only">${text("subs.details")}</span></th></tr></thead><tbody>${pageView().map(rowHtml).join("")}</tbody></table>${rows.length ? "" : empty()}</div></section>`;
     const clearFilter = host.querySelector<HTMLButtonElement>('[data-action="clear"]');
     // audit: clear must ALSO forget the remembered filters — value() falls back to
     // SUBS_FILTERS_KEY, so an empty-params go() alone just re-applied the old filter
@@ -899,20 +1021,22 @@ export class TmathApp {
     host.querySelector<HTMLFormElement>("form")!.onsubmit = e => { e.preventDefault(); this.go("submissions",Object.fromEntries(new FormData(e.currentTarget as HTMLFormElement)) as Record<string,string>); };
     wireRows();
     // official polls this view — refresh quietly in place (audit: Refresh did nothing)
-    const pollArgs = {page,page_size:pageSize,scope,problem:serverProblem,user:serverUser,result};
     const refine = (fresh: any[]): any[] => fresh.filter(s =>
       (!subId || String(s.id) === subId) &&
       (!pMatch || pMatch(String(s.problem_name ?? s.problem ?? "")) || pMatch(String(s.problem ?? ""))) &&
       (!uMatch || uMatch(String(s.user_display_name ?? s.user ?? ""))));
     const poll = window.setInterval(() => {
       if (!alive()) { window.clearInterval(poll); return; }
-      void api.submissions(auth.accessToken()!,pollArgs).then(r => {
+      const req = isContestScope
+        ? api.contestSubmissions(auth.accessToken()!, contestKey).then((payload: any) => applyContestFilters(list(payload?.items)))
+        : api.submissions(auth.accessToken()!,{page,page_size:pageSize,scope:serverScope,problem:serverProblem,user:serverUser,result}).then(r => refine(list(r)));
+      void req.then(fresh => {
         if (!alive()) { window.clearInterval(poll); return; }
-        rows = refine(list(r));
+        rows = fresh;
         paintRows();
       }).catch(() => { /* transient — next tick retries */ });
     }, 10_000);
-    this.pager(host,page,rows.length,params,pageSize);
+    this.pager(host,page,isContestScope ? rows.length : pageView().length,params,pageSize);
   }
 
   // pass #52 — official x_/b_ detail anatomy (carve @456099, live server case schema
@@ -975,7 +1099,11 @@ export class TmathApp {
     };
     const body = host.querySelector<HTMLElement>("[data-source-body]")!;
     try {
-      const data = await raw(`/submissions/${id}/source${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`, { token: auth.accessToken() });
+      // pass #58: contest-scope source rides the scoped endpoint (detailScope "contest:<key>")
+      const contestKey = scope.startsWith("contest:") ? scope.slice(8) : "";
+      const data = contestKey
+        ? await api.contestSubmissionSource(auth.accessToken()!, contestKey, id)
+        : await raw(`/submissions/${id}/source${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`, { token: auth.accessToken() });
       if (!alive()) return;
       const sourceCode = typeof data?.source === "string" ? data.source : "";
       if (!sourceCode) { body.innerHTML = `<p class="tm-muted">${text("subs.noSourceProvided")}</p>`; return; }

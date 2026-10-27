@@ -246,13 +246,17 @@ body[data-persona="tmath"] .tm-problem-list button:is(.tm-current, [aria-current
 body[data-persona="tmath"] .tm-problem-tabs { display: flex; align-items: center; gap: 4px; padding: 4px 0 8px; border-bottom: 1px solid var(--tmath-border); overflow-x: auto; }
 body[data-persona="tmath"] .tm-problem-tabs button { flex-shrink: 0; padding: 8px 16px; border: 0; border-radius: 6px; background: transparent; color: var(--tmath-muted-foreground); }
 body[data-persona="tmath"] .tm-problem-tabs button:is(.tm-current, [aria-selected="true"]) { background: var(--tmath-muted); color: var(--tmath-foreground); box-shadow: 0 2px 0 var(--tmath-foreground); }
-body[data-persona="tmath"] .tm-solve { display: grid; grid-template-columns: minmax(0, var(--tm-statement-width, 42.5fr)) 12px minmax(0, var(--tm-editor-width, 57.5fr)); align-items: start; gap: 0; min-width: 0; }
+/* pass #58: the split is now VERTICAL (statement above, editor below — Official's
+   anatomy, He's side-by-side shots) and the divider drags UP/DOWN. The grid carries a
+   definite height (viewport minus the chrome above it) so the fr rows actually share
+   it; each pane scrolls internally. */
+body[data-persona="tmath"] .tm-solve { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, var(--tm-statement-height, 42.5fr)) 14px minmax(0, var(--tm-editor-height, 57.5fr)); height: calc(100dvh - 230px); min-height: 560px; gap: 0; min-width: 0; }
 body[data-persona="tmath"] .tm-solve[data-dragging] { user-select: none; }
-body[data-persona="tmath"] .tm-splitter { display: flex; justify-content: center; align-self: stretch; width: 12px; min-height: 96px; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: col-resize; touch-action: none; }
-body[data-persona="tmath"] .tm-splitter::before { position: sticky; top: 45vh; width: 4px; height: 48px; margin-top: 48px; border-radius: 999px; background: var(--tmath-border); content: ""; }
+body[data-persona="tmath"] .tm-splitter { display: flex; align-items: center; justify-content: center; width: auto; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: row-resize; touch-action: none; }
+body[data-persona="tmath"] .tm-splitter::before { position: static; width: 48px; height: 4px; margin: 0; border-radius: 999px; background: var(--tmath-border); content: ""; }
+body[data-persona="tmath"] .tm-pane { min-width: 0; min-height: 0; overflow: auto; border: 1px solid var(--tmath-border); border-radius: 12px; background: var(--tmath-card); }
 body[data-persona="tmath"] .tm-splitter:is(:hover, :focus-visible)::before,
 body[data-persona="tmath"] .tm-solve[data-dragging] .tm-splitter::before { background: var(--tmath-primary); }
-body[data-persona="tmath"] .tm-pane { min-width: 0; border: 1px solid var(--tmath-border); border-radius: 12px; background: var(--tmath-card); overflow: hidden; }
 body[data-persona="tmath"] .tm-pane-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--tmath-border); font-size: 13px; font-weight: 600; }
 body[data-persona="tmath"] .tm-pane-header select { min-height: 28px !important; padding: 3px 8px !important; padding-right: 24px !important; font-size: 12px !important; }
 body[data-persona="tmath"] .tm-pane-body { min-width: 0; padding: 16px; }
@@ -345,8 +349,9 @@ body[data-persona="tmath"] .tm-login-tools { display: flex; justify-content: fle
   body[data-persona="tmath"] .tm-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 1023px) {
-  body[data-persona="tmath"] .tm-solve { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  body[data-persona="tmath"] .tm-splitter { display: none; }
+  /* pass #58: the vertical split is now universal — the old stacked-fallback block
+     (and its splitter display:none) would have removed the only resizer */
+  body[data-persona="tmath"] .tm-solve { height: calc(100dvh - 190px); min-height: 480px; }
 }
 @media (max-width: 700px) {
   body[data-persona="tmath"] .tm-login-page { grid-template-columns: minmax(0, 1fr); }
@@ -686,11 +691,11 @@ body[data-persona="tmath"] .tm-field-head { display: flex; align-items: center; 
    Options button right-aligned as the full-suite gateway, output pre sized like h-28/56 */
 body[data-persona="tmath"] .tm-io-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 body[data-persona="tmath"] .tm-io-first .tm-output-box { min-height: 112px; max-height: 224px; }
-/* pass #54: the status line under the run strip stays text — no empty blue shell */
-body[data-persona="tmath"] .tm-io-first [data-local-summary]:empty { display: none; }
-/* pass #55: and it never renders as a box at all — submitting/judging/anomalies are
-   plain text here (errors keep their .tm-error styling) */
-body[data-persona="tmath"] .tm-io-first [data-local-summary]:not(.tm-error) { border: 0; background: transparent; padding: 2px 0; }
+/* pass #54: the status line under the run strip stays text — no empty blue shell.
+   pass #58: the element itself is now [data-solve-status] — the old verdict box is gone
+   entirely (Official jumps to Submissions on submit); hidden-when-empty, errors tinted */
+body[data-persona="tmath"] .tm-io-first [data-solve-status] { border: 0; background: transparent; padding: 2px 0; font-size: 13px; }
+body[data-persona="tmath"] .tm-io-first [data-solve-status].tm-error { padding: 8px 12px; }
 
 /* pass #30: per-TC options tab (verdict strip removed in #32 — the dropdown names carry it) */
 body[data-persona="tmath"] .tm-case-opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

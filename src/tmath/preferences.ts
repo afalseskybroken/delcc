@@ -10,6 +10,7 @@ export interface Preferences {
   editorSize: number;
   minimap: boolean;
   wordWrap: boolean;
+  uiScale: number;
 }
 export function read(key: string, fallback = ""): string {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
@@ -29,6 +30,7 @@ export function loadPreferences(): Preferences {
     editorFont: typeof p.editorFont === "string" ? p.editorFont : "__sysmono__",
     editorSize: clamp(p.editorSize, 10, 28, 14),
     minimap: p.minimap ?? false, wordWrap: p.wordWrap ?? true,
+    uiScale: clamp(p.uiScale, 80, 140, 100),
   };
 }
 export const clamp = (v: unknown, min: number, max: number, fallback: number) => typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fallback;
@@ -50,6 +52,9 @@ export function applyPreferences(p: Preferences): void {
   document.documentElement.style.setProperty("--tm-editor-font", resolveEditorFont(p.editorFont));
   // pass #22: UI and statement fonts are ONE choice — the shell rides the statement font
   document.documentElement.style.setProperty("--tm-ui-font", "var(--tm-statement-font)");
+  // pass #58 (QoL, outdo Official): whole-shell zoom — Chromium zoom keeps Monaco,
+  // dialogs and native <select> popups consistent, unlike a root font-size change
+  document.body.style.zoom = p.uiScale === 100 ? "" : String(p.uiScale / 100);
 }
 export function savePreferences(p: Preferences): void {
   write("delcc-tmath-preferences", JSON.stringify(p));

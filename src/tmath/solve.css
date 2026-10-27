@@ -88,3 +88,16 @@ body[data-persona="tmath"] .tm-solve .tm-icon-button svg { display: block; point
 body[data-persona="tmath"] .tm-solve .tm-icon-button:hover:not(:disabled) { background: var(--tmath-accent); color: var(--tmath-foreground); }
 body[data-persona="tmath"] .tm-solve .tm-icon-button:focus-visible { outline: 2px solid var(--tmath-ring); outline-offset: 1px; }
 body[data-persona="tmath"] .tm-solve .tm-icon-button:disabled { opacity: .5; pointer-events: none; }
+
+/* pass #58 — Official's custom language pill (He's screenshot): filename, then a compact
+   dropdown listing ONLY the problem's allowed languages, check on the active one */
+body[data-persona="tmath"] .tm-lang-select { position: relative; }
+body[data-persona="tmath"] .tm-lang-select summary { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--tmath-border); border-radius: 8px; background: color-mix(in srgb, var(--tmath-muted) 40%, transparent); font-size: 12px; font-weight: 600; cursor: pointer; list-style: none; white-space: nowrap; }
+body[data-persona="tmath"] .tm-lang-select summary::-webkit-details-marker { display: none; }
+body[data-persona="tmath"] .tm-lang-select[open] summary { border-color: var(--tmath-primary); }
+body[data-persona="tmath"] .tm-lang-select.tm-locked summary { opacity: .5; pointer-events: none; }
+body[data-persona="tmath"] .tm-lang-menu { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; min-width: 150px; padding: 6px; border: 1px solid var(--tmath-border); border-radius: 10px; background: var(--tmath-card); box-shadow: 0 10px 28px color-mix(in srgb, #000 32%, transparent); display: flex; flex-direction: column; gap: 2px; }
+body[data-persona="tmath"] .tm-lang-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px; background: transparent; color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+body[data-persona="tmath"] .tm-lang-option:hover { background: var(--tmath-accent); }
+body[data-persona="tmath"] .tm-lang-option[aria-selected="true"] { color: var(--tmath-primary); font-weight: 600; }
+body[data-persona="tmath"] .tm-lang-option svg { display: block; flex-shrink: 0; }
