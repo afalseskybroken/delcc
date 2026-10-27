@@ -940,7 +940,7 @@ export class TmathApp {
       const secs = Math.max(0, Math.round((Date.now() - ts) / 1000));
       if (secs < 60) return text("time.secondsAgo", { n: secs }); // official counts seconds, no "just now"
       if (secs < 3600) return text("time.minutesAgo", { n: Math.floor(secs / 60) });
-      if (secs < 86400) return text("time.hoursAgo", { n: Math.floor(secs / 60) });
+      if (secs < 86400) return text("time.hoursAgo", { n: Math.floor(secs / 3600) }); // pass #66: /60 rendered MINUTES as hours — He's "871 h ago" was a 14.5 h age
       return text("time.daysAgo", { n: Math.floor(secs / 86400) });
     };
     const userFilter = isContestScope ? "" : user.trim() || (mine ? String(this.user?.username ?? "") : "");
@@ -1032,7 +1032,12 @@ export class TmathApp {
     // when can_view_source is false), and the detail toggle is disabled while
     // !(is_terminal && can_view_detail) with the official reasons.
     const detailEnabled = (s: any): boolean => !!(s.is_terminal && s.can_view_detail);
-    const rowHtml = (s: any): string => `<tr><td><button type="button" class="tm-sub-id" data-source="${esc(s.id)}"${s.can_view_source ? "" : " disabled"} title="${text(s.can_view_source ? "subs.viewSource" : "subs.noSourcePermission")}" aria-label="${text("subs.viewSource")} #${esc(s.id)}">#${esc(s.id)}</button></td><td><a href="#/account?user=${encodeURIComponent(String(s.user ?? ""))}"${ratingStyle(s.user_rating)} title="${esc(String(s.user_display_name ?? s.user ?? "—"))} (@${esc(String(s.user ?? ""))})">${esc(s.user_display_name ?? s.user ?? "—")}</a></td><td><a href="#/problems?code=${encodeURIComponent(String(s.problem ?? ""))}">${esc(s.problem_name ?? s.problem ?? "—")}</a></td><td title="${esc(String(s.rawDate ?? s.date ?? ""))}">${isContestScope ? esc(date(s.date)) : esc(ago(s.date))}</td><td>${esc(langName(s.language))}</td><td><span class="tm-result-pill${s.result === "AC" ? " ok" : !s.is_terminal ? " pending" : " bad"}">${esc(s.result ?? s.status ?? "—")}${!s.is_terminal && s.current_testcase ? ` · #${esc(s.current_testcase)}` : ""}</span></td><td><strong>${esc(s.points ?? "—")}</strong></td><td class="tm-col-eye"><button class="tm-icon-button" data-sub="${s.id}" aria-expanded="false"${detailEnabled(s) ? "" : " disabled"} title="${detailEnabled(s) ? text("subs.details") : text(s.can_view_detail ? "subs.waitGrading" : "subs.noDetailPermission")}" aria-label="${text("subs.showDetails", { n: String(s.id) })}">${eyeSvg}</button></td></tr>`;
+    // pass #66 (outdo Official): hover any row's Submitted-at for the ABSOLUTE timestamp
+    const dateTip = (s: any): string => {
+      const abs = date(s.rawDate ?? s.date);
+      return abs !== "—" ? abs : String(s.rawDate ?? s.date ?? "");
+    };
+    const rowHtml = (s: any): string => `<tr><td><button type="button" class="tm-sub-id" data-source="${esc(s.id)}"${s.can_view_source ? "" : " disabled"} title="${text(s.can_view_source ? "subs.viewSource" : "subs.noSourcePermission")}" aria-label="${text("subs.viewSource")} #${esc(s.id)}">#${esc(s.id)}</button></td><td><a href="#/account?user=${encodeURIComponent(String(s.user ?? ""))}"${ratingStyle(s.user_rating)} title="${esc(String(s.user_display_name ?? s.user ?? "—"))} (@${esc(String(s.user ?? ""))})">${esc(s.user_display_name ?? s.user ?? "—")}</a></td><td><a href="#/problems?code=${encodeURIComponent(String(s.problem ?? ""))}">${esc(s.problem_name ?? s.problem ?? "—")}</a></td><td title="${esc(dateTip(s))}">${isContestScope ? esc(date(s.date)) : esc(ago(s.date))}</td><td>${esc(langName(s.language))}</td><td><span class="tm-result-pill${s.result === "AC" ? " ok" : !s.is_terminal ? " pending" : " bad"}">${esc(s.result ?? s.status ?? "—")}${!s.is_terminal && s.current_testcase ? ` · #${esc(s.current_testcase)}` : ""}</span></td><td><strong>${esc(s.points ?? "—")}</strong></td><td class="tm-col-eye"><button class="tm-icon-button" data-sub="${s.id}" aria-expanded="false"${detailEnabled(s) ? "" : " disabled"} title="${detailEnabled(s) ? text("subs.details") : text(s.can_view_detail ? "subs.waitGrading" : "subs.noDetailPermission")}" aria-label="${text("subs.showDetails", { n: String(s.id) })}">${eyeSvg}</button></td></tr>`;
     // expanded details survive the 10s poll repaint (audit): the detail row element
     // is kept per submission id and re-inserted after its (repainted) summary row
     const openDetails = new Map<string, { row: HTMLTableRowElement; btn: HTMLButtonElement }>();
