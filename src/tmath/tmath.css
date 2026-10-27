@@ -261,7 +261,9 @@ body[data-persona="tmath"] .tm-solve[data-dragging] .tm-splitter::before { backg
 body[data-persona="tmath"] .tm-pane-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--tmath-border); font-size: 13px; font-weight: 600; }
 body[data-persona="tmath"] .tm-pane-header select { min-height: 28px !important; padding: 3px 8px !important; padding-right: 24px !important; font-size: 12px !important; }
 body[data-persona="tmath"] .tm-pane-body { min-width: 0; padding: 16px; }
-body[data-persona="tmath"] .tm-editor { min-width: 0; height: 440px; min-height: 400px; }
+/* pass #60: the Monaco container's height is inline-driven by the mono grip
+   (Official's "horizontal augmenting" handle — the code area itself resizes) */
+body[data-persona="tmath"] .tm-editor { min-width: 0; height: 100%; min-height: 0; }
 body[data-persona="tmath"] .tm-statement { min-width: 0; overflow-wrap: anywhere; font-size: 16px; line-height: 1.75; }
 body[data-persona="tmath"] .tm-statement img { max-width: 100%; height: auto; }
 body[data-persona="tmath"] .tm-runner { padding: 12px; border-top: 1px solid var(--tmath-border); }
@@ -378,7 +380,7 @@ body[data-persona="tmath"] .tm-login-tools { display: flex; justify-content: fle
   body[data-persona="tmath"] .tm-settings-section { padding: 16px; }
   body[data-persona="tmath"] .tm-toolbar > :is(.tm-field, input) { flex-basis: 100%; }
   body[data-persona="tmath"] .tm-table :is(th, td) { padding: 12px; }
-  body[data-persona="tmath"] .tm-editor { height: 400px; }
+  body[data-persona="tmath"] .tm-editor { height: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
   body[data-persona="tmath"] :is(.tm-sidebar, .tm-main, .tm-nav button) { transition: none; }
@@ -802,3 +804,12 @@ body[data-persona="tmath"] .tm-lb-pen { color: #f87171; font-weight: 600; }
 body[data-persona="tmath"] .tm-lb-pcol { text-align: center; min-width: 104px; }
 body[data-persona="tmath"] .tm-lb-pcol span { display: block; color: var(--tmath-primary); font-weight: 700; }
 body[data-persona="tmath"] .tm-lb-pcol small { display: block; font-weight: 500; opacity: .8; }
+
+/* pass #60 — Official's horizontal augmenting handle (He): the Monaco pane's own HEIGHT
+   is draggable, independent of the statement/editor split; the container height is
+   inline-driven by monoGrip() and persisted (delcc-tmath-mono-h) */
+body[data-persona="tmath"] .tm-editor-container { height: var(--tm-mono-h, 440px); }
+body[data-persona="tmath"] .tm-mono-grip { display: flex; align-items: center; justify-content: center; height: 14px; padding: 0; border: 0; border-top: 1px solid var(--tmath-border); background: transparent; cursor: row-resize; touch-action: none; }
+body[data-persona="tmath"] .tm-mono-grip::before { width: 48px; height: 4px; border-radius: 999px; background: var(--tmath-border); content: ""; }
+body[data-persona="tmath"] .tm-mono-grip:is(:hover, :focus-visible)::before,
+body[data-persona="tmath"] .tm-mono-grip[data-dragging]::before { background: var(--tmath-primary); }

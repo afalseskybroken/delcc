@@ -214,7 +214,12 @@ export class TmathApp {
       // Keep a resumed profile's rotated refresh token current; never store a password here.
       const profiles = loadProfiles();
       const p = profiles.find(p => p.id === activeId());
-      if (p && (this.user?.username === p.username || (!this.user && resumed && p.id === resumed.id))) { p.token = token; saveProfiles(profiles); }
+      // pass #60 (He: auto-login broke): this listener REPLACED the baseplate one
+      // (onTokenChange is a single slot), and the baseplate version cleared
+      // needsReauth whenever a token landed — ours didn't. A sticky needsReauth then
+      // seeded null on EVERY boot (login page forever). A token that lands IS the
+      // recovery, so the flag clears with it.
+      if (p && (this.user?.username === p.username || (!this.user && resumed && p.id === resumed.id))) { p.token = token; p.needsReauth = false; saveProfiles(profiles); }
       if (!token && this.sessionReady && !this.stopped) {
         this.user = null; this.contest = null; this.part = null;
         void this.render();
@@ -758,7 +763,10 @@ export class TmathApp {
     };
     host.innerHTML = `<div class="tm-workspace"><div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("contests.workspaceEyebrow")}</div><h1>${esc(contest?.name ?? key)}</h1><p class="tm-contest-meta">${esc(modeTxt)}${dlText ? ` · ${text("contests.deadlineAt")}: ${esc(dlText)}` : ""}</p></div><div class="tm-contest-side"><aside class="tm-contest-clock" aria-label="${text("contests.clockLabel")}"><div class="tm-clock-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span data-clock-label>${text("contests.timeUnknown")}</span></div><div class="tm-clock-value" role="timer" aria-label="${text("contests.ariaTimeLeft")}" data-clock>--:--:--</div></aside><button type="button" class="tm-button destructive" data-action="leave">${text("contests.leave")}</button></div></div><div class="tm-contest-strip"><div class="tm-contest-scroll"><nav class="tm-contest-tabs" aria-label="${text("contests.problemsListAria")}">${rows.map(tab).join("")}</nav></div><button type="button" class="tm-icon-button" data-action="refresh-problems" aria-label="${text("contests.refreshList")}" title="${text("contests.refreshList")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button></div>${workspace?.next_problem_requirement != null ? `<p class="tm-ac-banner" role="status">${t("contests.acBanner", { n: workspace.accepted_problem_count ?? 0, r: workspace.next_problem_requirement })}</p>` : ""}<div id="tm-workspace-message" role="status"></div><div id="tm-solve-host"></div></div>`;
     // Live countdown per the carve: ceil(deadline - now), padded HH:MM:SS, destructive tint at <=300s.
-    const dl = deadlineAt ? Date.parse(deadlineAt) : NaN;
+    // pass #60: the countdown runs on the SERVER clock (skew corrected by every poll —
+    // live-probed payload carries server_time), and a deadline the server changes is adopted.
+    let dl = deadlineAt ? Date.parse(deadlineAt) : NaN;
+    let skew = 0;
     // pass #58 (Official behavior, He): Contest View polls its own state and LEAVES
     // itself — when the timer runs out, or when the participation disappears (left or
     // kicked via another process/window), the workspace exits to the contests list with
@@ -776,7 +784,7 @@ export class TmathApp {
       const clock = host.querySelector<HTMLElement>("[data-clock]");
       const label = host.querySelector<HTMLElement>("[data-clock-label]");
       if (!clock) return;
-      const rem = Number.isFinite(dl) ? Math.max(0, Math.ceil((dl - Date.now()) / 1000)) : null;
+      const rem = Number.isFinite(dl) ? Math.max(0, Math.ceil((dl - (Date.now() + skew)) / 1000)) : null;
       clock.textContent = rem == null ? "--:--:--" : [Math.floor(rem / 3600), Math.floor(rem / 60) % 60, rem % 60].map(x => String(x).padStart(2, "0")).join(":");
       clock.classList.toggle("danger", rem != null && rem <= 300);
       // F41: [data-clock-label] is itself the span — querySelector("span") inside it never matched
@@ -785,12 +793,22 @@ export class TmathApp {
     };
     tick();
     const timer = window.setInterval(tick, 1000);
+    // pass #60 — the poll now WORKS LIKE OFFICIAL'S (He: "polling is NOT there"): each
+    // 20s beat carries visible state — the countdown re-syncs to server_time, a changed
+    // deadline is adopted, and a participation that vanished (left/kicked via another
+    // process: live probe = 403 "You must join this contest first", or a 200 without a
+    // participation_id) exits Contest View with a one-shot notice.
     const pollState = window.setInterval(() => {
       if (!alive() || leftAuto) { window.clearInterval(pollState); return; }
       void api.workspace(auth.accessToken()!, key).then(ws => {
         if (!alive() || leftAuto) return;
-        const inContest = !!(ws && ((ws.participation ?? ws.participation_id) != null || (ws.contest?.is_in_contest ?? true)));
-        if (!inContest) leaveContestView("leftAuto");
+        if (!ws || ws.participation_id == null) { leaveContestView("leftAuto"); return; }
+        const pid = Number(ws.participation_id);
+        if (Number.isSafeInteger(pid) && pid > 0 && pid !== this.part) this.part = pid; // rejoins rotate the participation
+        const st = Date.parse(String(ws.server_time ?? ""));
+        if (Number.isFinite(st)) skew = st - Date.now();
+        const nextDl = Date.parse(String(ws.deadline_at ?? ""));
+        if (Number.isFinite(nextDl) && nextDl !== dl) dl = nextDl;
       }).catch(e => {
         // 403/404 = the server itself says we are not in this contest (network blips retry silently)
         if (alive() && !leftAuto && e instanceof ApiError && (e.status === 403 || e.status === 404)) leaveContestView("leftAuto");
