@@ -260,6 +260,9 @@ body[data-persona="tmath"] .tm-editor { min-width: 0; height: 440px; min-height:
 body[data-persona="tmath"] .tm-statement { min-width: 0; overflow-wrap: anywhere; font-size: 16px; line-height: 1.75; }
 body[data-persona="tmath"] .tm-statement img { max-width: 100%; height: auto; }
 body[data-persona="tmath"] .tm-runner { padding: 12px; border-top: 1px solid var(--tmath-border); }
+/* pass #55: the collapsed runner must not render as an empty padded strip — the
+   summary is display:none, but the details box itself kept its border/padding */
+body[data-persona="tmath"] .tm-runner:not([open]) { display: none; }
 body[data-persona="tmath"] .tm-runner > * + * { margin-top: 12px; }
 body[data-persona="tmath"] .tm-runner textarea { width: 100%; }
 body[data-persona="tmath"] .tm-runner pre,
@@ -685,6 +688,9 @@ body[data-persona="tmath"] .tm-io-head { display: flex; flex-wrap: wrap; align-i
 body[data-persona="tmath"] .tm-io-first .tm-output-box { min-height: 112px; max-height: 224px; }
 /* pass #54: the status line under the run strip stays text — no empty blue shell */
 body[data-persona="tmath"] .tm-io-first [data-local-summary]:empty { display: none; }
+/* pass #55: and it never renders as a box at all — submitting/judging/anomalies are
+   plain text here (errors keep their .tm-error styling) */
+body[data-persona="tmath"] .tm-io-first [data-local-summary]:not(.tm-error) { border: 0; background: transparent; padding: 2px 0; }
 
 /* pass #30: per-TC options tab (verdict strip removed in #32 — the dropdown names carry it) */
 body[data-persona="tmath"] .tm-case-opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

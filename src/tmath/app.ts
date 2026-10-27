@@ -477,8 +477,9 @@ export class TmathApp {
       const items: any[] = [];
       const seen = new Set<string>();
       let listComplete = false, failures = 0;
-      for (let base = 1; base <= 300; base += 5) {
-        const pages = await Promise.allSettled(Array.from({ length: 5 }, (_, k) =>
+      // pass #55: waves of 12 (server caps page_size at 100 — verified live)
+      for (let base = 1; base <= 300; base += 12) {
+        const pages = await Promise.allSettled(Array.from({ length: Math.min(12, 300 - base + 1) }, (_, k) =>
           raw(`/problems?page=${base + k}&page_size=${PS}`, { token })));
         let short = false;
         for (const r of pages) {
@@ -504,8 +505,8 @@ export class TmathApp {
           const meRows = list<string>((await raw(`/users/${encodeURIComponent(me)}`, { token }))?.solved_problems);
           for (const code of meRows) solved.add(String(code));
         } catch { failures++; }
-        for (let base = 1; base <= 50; base += 5) {
-          const pages = await Promise.allSettled(Array.from({ length: 5 }, (_, k) =>
+        for (let base = 1; base <= 50; base += 12) {
+          const pages = await Promise.allSettled(Array.from({ length: Math.min(12, 50 - base + 1) }, (_, k) =>
             raw(`/submissions?user=${encodeURIComponent(me)}&page=${base + k}&page_size=100`, { token })));
           let short = false;
           for (const r of pages) {

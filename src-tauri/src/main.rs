@@ -1,5 +1,8 @@
 // delcc — custom frontend shell. WebView hits oj.tmathcoding.vn/api/v3 directly.
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// pass #55: windows-subsystem UNCONDITIONALLY (was release-only) - a debug build ran
+// as a console-subsystem app, so the oracle carried a blank companion console window
+// next to the app. Official ships the same way. The shell prints nothing to stdout.
+#![windows_subsystem = "windows"]
 
 use std::collections::HashMap;
 

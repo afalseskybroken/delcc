@@ -245,7 +245,9 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     if (!source().trim()) { summary.textContent = t("problem.emptySource"); return; }
     const lang = cph.cphLangKey(language);
     if (!cph.cphSupported(lang) || !cph.toolchainFor(lang)) { summary.textContent = t("problem.runUnavailable"); return; }
-    running = true; stopping = false; controls(); summary.className = "tm-status"; summary.textContent = t("cph.busy");
+    // pass #55: no busy write here — the Output tab carries the running state (run dot)
+    // and a "running locally" box flashing over long jobs is exactly the leftover He flagged
+    running = true; stopping = false; controls();
     showOutput();
     const out = $("[data-manual-stdout]"); out.innerHTML = `<span class="tm-run-dot"></span>${esc(t("cph.busy"))}`;
     try {
@@ -298,7 +300,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     const limit = problemTlMs(); // panel fields are gone (audit #32) — problem payload is the base
     const memLimit = problemMemMb();
     const startRevision = revision;
-    running = true; stopping = false; controls(); summary.className = "tm-status"; summary.textContent = t("problem.running");
+    running = true; stopping = false; controls(); // pass #55: busy lives in the Output tab, not a flashing status box
     // single-run modes (stdin / current TC) own the console; Run-all never clots it
     const single = manual || mode === "case";
     if (single) { showOutput(); $("[data-manual-stdout]").innerHTML = `<span class="tm-run-dot"></span>${esc(t("cph.busy"))}`; }
