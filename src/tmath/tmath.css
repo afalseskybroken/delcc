@@ -761,3 +761,41 @@ body[data-persona="tmath"] .tm-legend-dot.attempted, body[data-persona="tmath"] 
 body[data-persona="tmath"] .tm-table tr.tm-row-solved > td { background: color-mix(in srgb, #22c55e 13%, transparent); }
 body[data-persona="tmath"] .tm-table tr.tm-row-attempted > td { background: color-mix(in srgb, #ef4444 11%, transparent); }
 
+
+/* pass #59 — contest standings (Official "Kết quả cuộc thi" anatomy, He's screenshots):
+   green AC tiles with AC time + red non-AC attempt count, amber partial tiles, grey
+   never-attempted cells, hover row tint, own row tinted + [You], sticky name columns,
+   sticky header row, stickied own row (the QoL outdo) */
+body[data-persona="tmath"] .tm-lb-meta { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; padding: 0 2px 10px; color: var(--tmath-muted-foreground); font-size: 13px; }
+body[data-persona="tmath"] .tm-lb-wrap { max-height: calc(100dvh - 320px); min-height: 220px; overflow: auto; }
+body[data-persona="tmath"] .tm-lb-table { border-collapse: separate; border-spacing: 0; }
+body[data-persona="tmath"] .tm-lb-table thead th { position: sticky; top: 0; z-index: 4; }
+body[data-persona="tmath"] .tm-lb-table .tm-lb-sticky { position: sticky; z-index: 2; background: var(--tmath-card); }
+body[data-persona="tmath"] .tm-lb-table thead .tm-lb-sticky { z-index: 5; }
+body[data-persona="tmath"] .tm-lb-table .c1 { left: 0; min-width: 72px; width: 72px; text-align: center; }
+body[data-persona="tmath"] .tm-lb-table .c2 { left: 72px; min-width: 230px; width: 230px; }
+body[data-persona="tmath"] .tm-lb-table .c3 { left: 302px; min-width: 120px; width: 120px; text-align: right; }
+body[data-persona="tmath"] .tm-lb-table .c4 { left: 422px; min-width: 120px; width: 120px; }
+body[data-persona="tmath"] .tm-lb-row:hover td { background: color-mix(in srgb, var(--tmath-primary) 10%, var(--tmath-card)); }
+body[data-persona="tmath"] .tm-lb-row.you td { background: color-mix(in srgb, var(--tmath-primary) 16%, var(--tmath-card)); box-shadow: inset 3px 0 0 var(--tmath-primary); }
+body[data-persona="tmath"] .tm-lb-row.you { position: sticky; bottom: 0; z-index: 3; }
+body[data-persona="tmath"] .tm-lb-rank { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 34px; padding: 0 8px; border-radius: 999px; font-weight: 700; }
+body[data-persona="tmath"] .tm-lb-rank.gold { background: #eab308; color: #271a00; }
+body[data-persona="tmath"] .tm-lb-rank.silver { background: #9ca3af; color: #111827; }
+body[data-persona="tmath"] .tm-lb-rank.bronze { background: #b45309; color: #1c0d00; }
+body[data-persona="tmath"] .tm-lb-you, body[data-persona="tmath"] .tm-lb-dq { padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+body[data-persona="tmath"] .tm-lb-you { background: var(--tmath-primary); color: var(--tmath-primary-foreground, #fff); }
+body[data-persona="tmath"] .tm-lb-dq { border: 1px solid var(--tmath-destructive); color: var(--tmath-destructive); }
+body[data-persona="tmath"] .tm-lb-virtual { color: var(--tmath-muted-foreground); font-weight: 600; }
+body[data-persona="tmath"] .tm-lb-cell { text-align: center; padding: 10px 12px !important; border-left: 1px solid var(--tmath-border); min-width: 104px; }
+body[data-persona="tmath"] .tm-lb-cell b { display: block; font-size: 14px; }
+body[data-persona="tmath"] .tm-lb-cell small { display: block; font-size: 11px; color: inherit; opacity: .85; }
+body[data-persona="tmath"] .tm-lb-cell.full { background: color-mix(in srgb, #22c55e 18%, var(--tmath-card)); color: color-mix(in srgb, #22c55e 80%, var(--tmath-foreground)); }
+body[data-persona="tmath"] .tm-lb-cell.full:hover { background: color-mix(in srgb, #22c55e 26%, var(--tmath-card)); }
+body[data-persona="tmath"] .tm-lb-cell.partial { background: color-mix(in srgb, #f59e0b 16%, var(--tmath-card)); color: color-mix(in srgb, #f59e0b 85%, var(--tmath-foreground)); }
+body[data-persona="tmath"] .tm-lb-cell.partial:hover { background: color-mix(in srgb, #f59e0b 24%, var(--tmath-card)); }
+body[data-persona="tmath"] .tm-lb-cell.empty { background: color-mix(in srgb, var(--tmath-muted) 60%, var(--tmath-card)); color: var(--tmath-muted-foreground); }
+body[data-persona="tmath"] .tm-lb-pen { color: #f87171; font-weight: 600; }
+body[data-persona="tmath"] .tm-lb-pcol { text-align: center; min-width: 104px; }
+body[data-persona="tmath"] .tm-lb-pcol span { display: block; color: var(--tmath-primary); font-weight: 700; }
+body[data-persona="tmath"] .tm-lb-pcol small { display: block; font-weight: 500; opacity: .8; }

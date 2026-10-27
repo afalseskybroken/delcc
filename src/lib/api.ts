@@ -205,6 +205,11 @@ export const api = {
     raw(`/contests/${encodeURIComponent(key)}/workspace`, { token: t }),
   contestProblems: (t: string, key: string): Promise<ContestProblem[]> =>
     raw(`/contests/${encodeURIComponent(key)}/problems`, { token: t }),
+  // pass #59: contest standings — BARE ARRAY of LeaderboardEntrySchema (rank is a STRING;
+  // problem_cells[i] carries has_data/penalty/points/time/status like "full-score").
+  // Problem headers (labels + max points) are NOT in this payload — pair with contestProblems.
+  leaderboard: (t: string, key: string): Promise<any[]> =>
+    raw(`/contests/${encodeURIComponent(key)}/leaderboard`, { token: t }),
   contestProblem: (t: string, key: string, code: string, withHeaders = false): Promise<ContestProblemDetail> =>
     raw(`/contests/${encodeURIComponent(key)}/problems/${encodeURIComponent(code)}`, { token: t, submitHeaders: withHeaders }),
   problems: (t: string, o: { page?: number; page_size?: number; search?: string; type?: string; group?: string } = {}): Promise<ProblemListItem[]> => {

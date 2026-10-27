@@ -1,4 +1,4 @@
-import { api, raw, ApiError, clientVersion, syncClientVersion, type ContestListItem } from "../lib/api";
+import { api, raw, ApiError, clientVersion, syncClientVersion, type ContestListItem, type ContestProblem } from "../lib/api";
 import { recordDownload } from "../lib/updater";
 import * as auth from "../lib/auth";
 import { activeId, loadProfiles, saveProfiles } from "../lib/profiles";
@@ -1186,6 +1186,12 @@ export class TmathApp {
   }
   private async rankings(host: HTMLElement, alive: () => boolean): Promise<void> {
     const params = new URLSearchParams(location.hash.split("?")[1] ?? "");
+    // pass #59: inside a contest the Rankings page IS the contest standings (Official's
+    // "Kết quả cuộc thi"); a chip switches back to the global user rankings
+    if (this.contest && params.get("scope") !== "global") {
+      await this.contestRankings(host, params, alive);
+      return;
+    }
     const requestedPage = Number(params.get("page") ?? "1");
     const page = Number.isSafeInteger(requestedPage) && requestedPage > 0
       && requestedPage <= Math.floor(Number.MAX_SAFE_INTEGER / PAGE_SIZE) ? requestedPage : 1;
@@ -1226,7 +1232,9 @@ export class TmathApp {
     }
     const rowHtml = (r: any, index: number): string => `<tr data-profile="${esc(r.username)}"><td>${search ? "—" : number((page - 1) * PAGE_SIZE + index + 1)}</td><td><a href="#/account?user=${encodeURIComponent(r.username)}">${esc(r.display_name || r.username)}</a><br><small class="tm-muted">@${esc(r.username)}</small></td><td>${esc(r.organization?.name || r.organization?.short_name || "—")}</td><td${ratingStyle(r.rating)}>${r.rating == null ? "—" : esc(fmtRateCol(r.rating))}</td><td>${number(r.points)}</td><td>${number(r.problem_count)}</td></tr>`;
     const arrow = (k: string) => sortKey === k ? (sortDir === "asc" ? " ↑" : " ↓") : "";
-    host.innerHTML = this.pageTitle("rankings.eyebrow","rankings.title","rankings.desc","common.refresh") + `<section class="tm-card">
+    // pass #59: inside a contest the global view gains the chip back to contest standings
+    const lbChips = !this.contest ? "" : `<div class="tm-chip-row" role="group" aria-label="${text("subs.scopeLabel")}"><button type="button" class="tm-chip" data-lb-contest aria-pressed="false">${text("subs.scopeContest")}</button><button type="button" class="tm-chip active" aria-pressed="true">${text("subs.scopeGlobal")}</button></div>`;
+    host.innerHTML = this.pageTitle("rankings.eyebrow","rankings.title","rankings.desc","common.refresh") + lbChips + `<section class="tm-card">
       <form class="tm-toolbar tm-card-header"><input name="search" aria-label="${text("rankings.search")}" placeholder="${text("rankings.search")}" value="${esc(search)}" maxlength="200" aria-describedby="tm-rankings-search-hint"><button class="tm-button" type="submit">${text("common.search")}</button>${search ? `<button class="tm-button" type="button" data-action="rankings-all">${text("common.all")}</button>` : ""}</form>
       <p class="tm-card-body tm-muted" id="tm-rankings-search-hint">${text("rankings.searchHint")}</p>${loadingAll ? `<p class="tm-card-body tm-muted" data-rankings-busy role="status">${text("rankings.sortGlobalProgress",{n:String(rows.length)})}</p>` : ""}
       <div class="tm-table-wrap"><table class="tm-table"><thead><tr>${["rankings.rank","rankings.user","rankings.school"].map(k=>`<th scope="col"${k === "rankings.rank" ? ` title="${text("rankings.position")}"` : ""}>${text(k as DictKey)}</th>`).join("")}${[["rating","rankings.rating"],["points","rankings.points"],["solved","rankings.solved"]].map(([k, key]) => `<th scope="col"><button type="button" class="tm-sort-h" data-rsort="${k}" title="${text("rankings.sortGlobal")}">${text(key as DictKey)}${arrow(k)}</button></th>`).join("")}</tr></thead><tbody>${display.map((r,index)=>rowHtml(r,index)).join("")}</tbody></table>${rows.length ? "" : empty("rankings.empty")}</div>
@@ -1286,6 +1294,89 @@ export class TmathApp {
     }
     const total = search ? 0 : sortKey && this.rankingsAll ? this.rankingsAll.length : rows.length;
     this.pager(host, visiblePage, total, params);
+    const lbBack = host.querySelector<HTMLButtonElement>('[data-lb-contest]');
+    if (lbBack) lbBack.onclick = () => this.go("rankings", {});
+  }
+
+  // pass #59 — contest-scoped standings (Official "Kết quả cuộc thi", He's screenshots).
+  // /contests/{key}/leaderboard returns a BARE array (live schema: rank is a STRING,
+  // points/cumulative_time numbers in seconds, tiebreaker, is_disqualified,
+  // participation_type, rating, problem_cells[] with has_data/penalty/points/time/status
+  // "full-score|partial-score|…"). Problem headers (labels + max points) are not in the
+  // payload — they pair by index with /contests/{key}/problems. Anatomy: green AC tiles
+  // (score + AC time + red non-AC attempt count), amber partial tiles, grey "—",
+  // row hover tint, own row tinted + [You] tag, QoL: sticky name columns, sticky header,
+  // stickied own row. 30 s quiet re-poll with a fresh "Cập nhật lúc" stamp.
+  private async contestRankings(host: HTMLElement, params: URLSearchParams, alive: () => boolean): Promise<void> {
+    const key = this.contest!.key;
+    let entries: any[] = [], problems: ContestProblem[] = [], denied = false;
+    try {
+      const [lb, ps] = await Promise.all([
+        api.leaderboard(auth.accessToken()!, key),
+        api.contestProblems(auth.accessToken()!, key).catch(() => [] as ContestProblem[]),
+      ]);
+      entries = list(lb); problems = ps;
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 403 || e.status === 404)) denied = true;
+      else throw e;
+    }
+    if (!alive()) return;
+    const fmtClock = (v: unknown): string => {
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0) return "—";
+      const s = Math.round(n);
+      return [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60].map(x => String(x).padStart(2, "0")).join(":");
+    };
+    const fmtNum = (value: unknown): string => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n.toLocaleString(getLocale()) : "—";
+    };
+    const me = String(this.user?.username ?? "");
+    const medal = (rank: string): string => { const n = Number(rank); return n === 1 ? " gold" : n === 2 ? " silver" : n === 3 ? " bronze" : ""; };
+    const nameMark = (e: any): string =>
+      (typeof e.participation_type === "number" && e.participation_type > 0 ? ` <span class="tm-lb-virtual" aria-hidden="true">†</span><span class="sr-only">${text("contests.virtualMode")}</span>` : "") +
+      (e.participation_type === -1 ? ` <span class="tm-lb-virtual" aria-hidden="true">‡</span>` : "") +
+      (e.is_disqualified ? ` <span class="tm-tag tm-lb-dq">DQ</span>` : "");
+    const cellHtml = (c: any): string => {
+      if (!c || !c.has_data) return `<td class="tm-lb-cell empty" aria-label="—">—</td>`;
+      const pen = Number(c.penalty);
+      const tone = this.scoreClass(typeof c.status === "string" ? c.status : "") === "score-full" ? "full" : "partial";
+      return `<td class="tm-lb-cell ${tone}"><b>${esc(fmtNum(c.points))}</b><small>${esc(fmtClock(c.time))}${Number.isFinite(pen) && pen > 0 ? ` <span class="tm-lb-pen">(${pen})</span>` : ""}</small></td>`;
+    };
+    const rowHtml = (e: any): string => {
+      const username = String(e.username ?? "");
+      const you = !!me && username === me;
+      const cells = Array.isArray(e.problem_cells) ? e.problem_cells : [];
+      return `<tr class="tm-lb-row${you ? " you" : ""}"><td class="tm-lb-sticky c1"><span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span></td><td class="tm-lb-sticky c2"><a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)}${you ? ` <span class="tm-tag tm-lb-you">${text("rankings.you")}</span>` : ""}</td><td class="tm-lb-sticky c3"><b>${esc(fmtNum(e.points))}</b></td><td class="tm-lb-sticky c4">${esc(fmtClock(e.cumulative_time))}</td>${problems.map((_, i) => cellHtml(cells[i])).join("")}</tr>`;
+    };
+    const tabWord = text("contests.tabWord");
+    const paint = (): void => {
+      const tbody = host.querySelector("tbody"); if (tbody) tbody.innerHTML = entries.map(rowHtml).join("");
+      // stickied own row: moved to the table tail so position:sticky;bottom holds it on screen
+      const you = tbody?.querySelector("tr.you");
+      if (you) tbody!.append(you);
+      const stamp = host.querySelector<HTMLElement>("[data-lb-updated]");
+      if (stamp) stamp.textContent = text("rankings.updatedAt", { t: new Date().toLocaleTimeString(getLocale()) });
+    };
+    const head = problems.map((p, i) => {
+      const label = p.label ?? `${tabWord} ${this.idxLetters(typeof (p as any).display_index === "number" ? (p as any).display_index : i)}`;
+      return `<th class="tm-lb-pcol" scope="col"><span>${esc(label)}</span><small>${esc(text("rankings.maxPoints", { n: fmtNum(p.points ?? 0) }))}</small></th>`;
+    }).join("");
+    const chips = `<div class="tm-chip-row" role="group" aria-label="${text("subs.scopeLabel")}"><button type="button" class="tm-chip active" aria-pressed="true">${text("subs.scopeContest")}</button><button type="button" class="tm-chip" data-lb-global aria-pressed="false">${text("subs.scopeGlobal")}</button></div>`;
+    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("subs.scopeContest")}</div><h1>${text("rankings.contestTitle")}</h1><p class="tm-muted">${esc(this.contest!.name)}</p></div>${chips}</div><div class="tm-lb-meta"><span>${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span><span data-lb-updated role="status"></span></div><section class="tm-card"><div class="tm-table-wrap tm-lb-wrap"><table class="tm-table tm-lb-table"><thead><tr><th class="tm-lb-sticky c1" scope="col" title="${text("rankings.position")}">${text("rankings.rank")}</th><th class="tm-lb-sticky c2" scope="col">${text("rankings.user")}</th><th class="tm-lb-sticky c3" scope="col">${text("rankings.totalScore")}</th><th class="tm-lb-sticky c4" scope="col">${text("subs.time")}</th>${head}</tr></thead><tbody>${entries.map(rowHtml).join("")}</tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div></section>`;
+    const lbGlobal = host.querySelector<HTMLButtonElement>('[data-lb-global]');
+    if (lbGlobal) lbGlobal.onclick = () => this.go("rankings", { scope: "global" });
+    paint();
+    const poll = window.setInterval(() => {
+      if (!alive()) { window.clearInterval(poll); return; }
+      void api.leaderboard(auth.accessToken()!, key).then(lb => {
+        if (!alive()) { window.clearInterval(poll); return; }
+        entries = list(lb);
+        paint();
+      }).catch(() => { /* transient — next tick retries */ });
+    }, 30_000);
+    const previous = this.disposeView;
+    this.disposeView = () => { previous?.(); window.clearInterval(poll); };
   }
 
   // official ig: eg(value) persists + repaints; the menu updates trigger/check in place, then closes

@@ -295,6 +295,14 @@ export interface Dict {
   "subs.memory": string;
   "subs.score": string;
   "subs.date": string;
+  "rankings.contestTitle": string;
+  "rankings.participants": string;
+  "rankings.problemsInContest": string;
+  "rankings.updatedAt": string;
+  "rankings.you": string;
+  "rankings.totalScore": string;
+  "rankings.maxPoints": string;
+  "rankings.hidden": string;
   "subs.mine": string;
   "subs.scopeLabel": string;
   "subs.scopeGlobal": string;
