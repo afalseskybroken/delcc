@@ -36,15 +36,23 @@ export const CPH_LANGS: { key: string; label: string }[] = [
 ];
 
 let toolchains: CphToolchain[] | null = null;
-export async function detectOnce(): Promise<CphToolchain[]> {
-  if (toolchains) return toolchains;
-  toolchains = await cphDetect();
-  // QoL (pass #52): auto-detection prints the exact binary each language will run —
-  // surfaces in Settings → Diagnostics, so "why is Run disabled" is answerable
-  // without pressing Detect tools manually.
-  for (const tc of toolchains) logInfo(`toolchain ${tc.lang_key}: ${tc.binary} (${tc.version})`);
-  if (!toolchains.length) logInfo("toolchain detect: none found");
-  return toolchains;
+let detectInFlight: Promise<CphToolchain[]> | null = null;
+export function detectOnce(): Promise<CphToolchain[]> {
+  if (toolchains) return Promise.resolve(toolchains);
+  // pass #56: dedupe the IN-FLIGHT probe too — Settings calls this once per language
+  // (7 concurrent calls raced the null cache and ran the whole probe set 7×)
+  if (!detectInFlight) {
+    detectInFlight = cphDetect().then(tcs => {
+      toolchains = tcs;
+      // QoL (pass #52): auto-detection prints the exact binary each language will run —
+      // surfaces in Settings → Diagnostics, so "why is Run disabled" is answerable
+      // without pressing Detect tools manually.
+      for (const tc of tcs) logInfo(`toolchain ${tc.lang_key}: ${tc.binary} (${tc.version})`);
+      if (!tcs.length) logInfo("toolchain detect: none found");
+      return tcs;
+    }).catch(e => { detectInFlight = null; throw e; });
+  }
+  return detectInFlight;
 }
 export const toolchainFor = (langKey: string): CphToolchain | undefined => {
   const override = toolchainOverride(langKey);

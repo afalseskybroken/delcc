@@ -466,6 +466,23 @@ export class TmathApp {
   private problemsIndexTotal = 0;
   private problemsProgress: (() => void)[] = [];
 
+  // pass #56: 429-aware page fetch for the big sweeps - the rate limiter caps sustained
+  // throughput, so a 12-wide wave rides it with backoff retries instead of silently
+  // skipping pages (the old behavior cached gaps as "complete")
+  private async sweepPage(path: string, token: string, tries = 4): Promise<any> {
+    let lastErr: unknown = null;
+    for (let attempt = 0; attempt < tries; attempt++) {
+      try { return await raw(path, { token }); }
+      catch (e) {
+        lastErr = e;
+        const retryable = e instanceof ApiError && (e.status === 429 || e.status >= 500);
+        if (!retryable || attempt === tries - 1) throw e;
+        await new Promise(r => setTimeout(r, 600 * (attempt + 1) + Math.floor(Math.random() * 300)));
+      }
+    }
+    throw lastErr;
+  }
+
   private warmProblemsIndex(): Promise<void> {
     if (this.problemsSweep) return this.problemsSweep;
     if (this.problemsAttempts >= 2) return Promise.resolve();
@@ -480,7 +497,7 @@ export class TmathApp {
       // pass #55: waves of 12 (server caps page_size at 100 — verified live)
       for (let base = 1; base <= 300; base += 12) {
         const pages = await Promise.allSettled(Array.from({ length: Math.min(12, 300 - base + 1) }, (_, k) =>
-          raw(`/problems?page=${base + k}&page_size=${PS}`, { token })));
+          this.sweepPage(`/problems?page=${base + k}&page_size=${PS}`, token)));
         let short = false;
         for (const r of pages) {
           if (r.status !== "fulfilled") { failures++; continue; }
@@ -507,7 +524,7 @@ export class TmathApp {
         } catch { failures++; }
         for (let base = 1; base <= 50; base += 12) {
           const pages = await Promise.allSettled(Array.from({ length: Math.min(12, 50 - base + 1) }, (_, k) =>
-            raw(`/submissions?user=${encodeURIComponent(me)}&page=${base + k}&page_size=100`, { token })));
+            this.sweepPage(`/submissions?user=${encodeURIComponent(me)}&page=${base + k}&page_size=100`, token)));
           let short = false;
           for (const r of pages) {
             if (r.status !== "fulfilled") { failures++; continue; }
@@ -942,14 +959,15 @@ export class TmathApp {
         const out: any[] = [];
         const seen = new Set<string>();
         let complete = false;
+        let failures = 0;
         // pass #54: waves of 12 (was 5) — the cap forbids bigger pages, so the sweep
         // speed lives in concurrency; hard page cap and short-page detection unchanged
         for (let base = 1; base <= 500; base += 12) {
           const pages = await Promise.allSettled(Array.from({ length: Math.min(12, 500 - base + 1) }, (_, k) =>
-            raw(`/users?page=${base + k}&page_size=${PS}`, { token: auth.accessToken()! })));
+            this.sweepPage(`/users?page=${base + k}&page_size=${PS}`, auth.accessToken()!)));
           let short = false;
           for (const r of pages) {
-            if (r.status !== "fulfilled") continue;
+            if (r.status !== "fulfilled") { failures++; continue; }
             const batch = list(r.value);
             for (const u of batch) {
               if (!u || typeof u.username !== "string" || seen.has(u.username)) continue;
@@ -958,9 +976,11 @@ export class TmathApp {
             if (batch.length < PS) short = true;
           }
           for (const cb of this.rankingsProgress) cb(out);
-          if (short) { complete = true; break; }
+          if (short) { complete = failures === 0; break; }
         }
-        this.rankingsAll = out;
+        // pass #56: only a failure-free sweep may pin — 429-gapped pages would sort wrong
+        if (failures === 0) this.rankingsAll = out;
+        else logInfo(`rankings sweep incomplete: ${failures} pages failed — resweeping on next visit`);
         logInfo(`rankings sweep ${complete ? "complete" : "partial"}: ${out.length} users`);
         // only a complete sweep is worth caching — a truncated list would sort wrong until refetch
         if (complete && out.length) {
