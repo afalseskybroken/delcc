@@ -48,16 +48,20 @@ ok('safeUrl accepts only http/https', () => {
   assert.equal(safeUrl('mailto:a@b.c'), false);
   assert.equal(safeUrl(''), false);
 });
-ok('allowed links render with the exact URL; remote images degrade to links (pass #78 fence)', () => {
+ok('allowed links render with the exact URL; safe images render as real <img> (pass #86 unfence)', () => {
   const h = mdInline('see [docs](https://example.invalid/a?b=1) and ![pic](https://example.invalid/i.png)');
   assert.ok(h.includes('<a href="https://example.invalid/a?b=1"'));
-  assert.ok(!h.includes('<img'), h);
-  assert.ok(h.includes('<a href="https://example.invalid/i.png"'), h);
-  assert.ok(h.includes('>pic</a>'), h);
+  assert.ok(h.includes('<img src="https://example.invalid/i.png"'), h);
+  assert.ok(h.includes('alt="pic"'), h);
 });
-ok('remote image fence: no About markdown shape can emit <img> (pass #78, Sonnet S3)', () => {
+ok('remote images render for safe srcs; unsafe schemes stay inert (pass #86 + #83 isolation)', () => {
   for (const src of ['![x](https://a.invalid/i.png)', '<img src="https://a.invalid/i.png">',
     '<center><img src="https://a.invalid/i.png"></center>', '[![b](https://a.invalid/i.png)](https://b.invalid/)']) {
+    const h = mdInline(src);
+    assert.ok(/<img/i.test(h), `${src} -> ${h}`);
+  }
+  for (const src of ['![x](javascript:alert(1))', '<img src="data:text/html,x">',
+    '![x](data:text/html,x)', '[![b](https://a.invalid/i.png)](javascript:alert(1))']) {
     const h = mdInline(src);
     assert.ok(!/<img/i.test(h), `${src} -> ${h}`);
   }
@@ -97,18 +101,25 @@ ok('bare watch links stay plain https links, never auto-embed', () => {
   assert.ok(h.includes('<a href="https://youtu.be/abc123"'));
   assert.ok(!h.includes('<iframe'));
 });
+ok('image pass: attribute breakout stays escaped (pass #86 unfence, escape-first holds)', () => {
+  const h = mdInline('![x"><script>](https://a.invalid/x"onerror="y)');
+  assert.ok(!/<script/i.test(h), h);
+  assert.ok(!/\sonerror\s*=/i.test(h), h);
+  assert.ok(/<img src="https:\/\/a\.invalid\/x&quot;onerror=&quot;y"/.test(h), h);
+});
 ok('basic inline formatting still applies', () => {
   const h = mdInline('**b** *i* `c`');
   assert.ok(h.includes('<strong>b</strong>') && h.includes('<em>i</em>') && h.includes('<code>c</code>'));
 });
 
 // nested image-in-link (pass #20): the web client renders it; official strips it.
-// Pass #78 fence: the image no longer renders — the outer link carries the alt text.
-ok('nested image inside link renders as the outer link, image fenced', () => {
+// Pass #86 unfence: a linked image — the outer link wraps a real <img> (its src is
+// swapped for a shell-fetched data URL by wireAboutImages in the app).
+ok('nested image inside link renders as a linked image', () => {
   const h = mdInline('[![banner](https://readme-typing-svg.demolab.com?font=Fira+Code)](https://youtu.be/s0K53t4dNyg)');
   assert.ok(h.includes('<a href="https://youtu.be/s0K53t4dNyg"'), h);
-  assert.ok(!h.includes('<img'), h);
-  assert.ok(h.includes('>banner</a>'), h);
+  assert.ok(h.includes('<img src="https://readme-typing-svg.demolab.com?font=Fira+Code"'), h);
+  assert.ok(h.includes('alt="banner"'), h);
   assert.ok(!h.includes(']('), h);
 });
 ok('nested form with a bad image or bad link stays inert', () => {
@@ -131,19 +142,17 @@ ok('raw html subset converts to rendered markdown', () => {
   assert.ok(h.includes('<code>x=1</code>'), h);
   assert.ok(h.includes('line2'), h);
 });
-ok('raw <img> and <a> convert through the allow-list gates (image fenced to a link)', () => {
+ok('raw <img> and <a> convert through the allow-list gates (pass #86: the image renders)', () => {
   const h = mdInline('<img src="https://a.invalid/i.png"> and <a href="https://b.invalid/l">link</a>');
-  assert.ok(!h.includes('<img'), h);
-  assert.ok(h.includes('<a href="https://a.invalid/i.png"'), h);
+  assert.ok(h.includes('<img src="https://a.invalid/i.png"'), h);
   assert.ok(h.includes('<a href="https://b.invalid/l"'), h);
   const bad = mdInline('<img src="javascript:alert(1)"> and <a href="data:x">t</a>');
   assert.ok(!bad.includes('<img'), bad); assert.ok(!bad.includes('<a '), bad);
 });
-ok('img with extra attributes drops them (only src survives, as a link)', () => {
+ok('img with extra attributes drops them (only src survives, as a real img)', () => {
   const h = mdInline('<img onerror="alert(1)" src="https://a.invalid/i.png" width="10">');
   assert.ok(!/onerror|width/.test(h), h);
-  assert.ok(h.includes('<a href="https://a.invalid/i.png"'), h);
-  assert.ok(!h.includes('<img'), h);
+  assert.ok(h.includes('<img src="https://a.invalid/i.png"'), h);
 });
 ok('raw youtube iframe renders, others stay text', () => {
   const h = mdInline('<iframe src="https://www.youtube.com/embed/abc_XY-9" allowfullscreen></iframe>');
@@ -159,8 +168,7 @@ ok('<center> blocks render as centered divs, inner markdown works, XSS does not'
   const h = mdInline('<center><b>hi</b> <img src="https://a.invalid/i.png"></center>');
   assert.ok(h.includes('<div class="tm-md-center">'), h);
   assert.ok(h.includes('<strong>hi</strong>'), h);
-  assert.ok(h.includes('<a href="https://a.invalid/i.png"'), h);
-  assert.ok(!h.includes('<img'), h);
+  assert.ok(h.includes('<img src="https://a.invalid/i.png"'), h);
   const bad = mdInline('<center><img src="javascript:alert(1)"></center>');
   assert.ok(!bad.includes('<img'), bad);
   const lone = mdInline('<center>never closed');
