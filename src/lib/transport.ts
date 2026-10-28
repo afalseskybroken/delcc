@@ -8,7 +8,7 @@ export interface TransportResponse { status: number; json: any; text: string }
 import { logError } from "./applog";
 
 let invokeFn: null | ((cmd: string, args: any) => Promise<string>) = null;
-type InvokeFn = (cmd: string, args: any) => Promise<string>;
+export type InvokeFn = (cmd: string, args: any) => Promise<string>;
 let probe: Promise<InvokeFn | null> | null = null;
 
 // One shared probe promise: a concurrent first caller used to see `probed === true` while the
@@ -17,6 +17,12 @@ let probe: Promise<InvokeFn | null> | null = null;
 function invoke(): Promise<InvokeFn | null> {
   if (!probe) probe = probeBridge();
   return probe;
+}
+
+// pass #78: shared probe accessor — lib/secure.ts rides the same bridge probe as the
+// CPH/API wrappers (one dynamic import, one probe promise for the whole app).
+export async function shellInvoke(): Promise<InvokeFn | null> {
+  return invoke();
 }
 
 async function probeBridge(): Promise<InvokeFn | null> {

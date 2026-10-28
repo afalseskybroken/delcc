@@ -1,7 +1,7 @@
 import { api, raw, ApiError, clientVersion, syncClientVersion, type ContestListItem, type ContestProblem } from "../lib/api";
 import { recordDownload } from "../lib/updater";
 import * as auth from "../lib/auth";
-import { activeId, loadProfiles, saveProfiles, setActiveId, upsertProfile } from "../lib/profiles";
+import { activeId, initProfiles, loadProfiles, saveProfiles, setActiveId, upsertProfile } from "../lib/profiles";
 import { googleLogin, GoogleAbort } from "../lib/google";
 import { openExternal } from "../lib/transport";
 import DOMPurify from "dompurify";
@@ -212,6 +212,10 @@ export class TmathApp {
     applyPreferences(this.prefs);
     this.media.addEventListener("change", this.themeChange);
     window.addEventListener("hashchange", this.hashChange);
+    // pass #78: idempotent — main.ts boot already ran these before bootTmath; kept here
+    // so a direct start() can never read a store the probe hasn't settled.
+    await auth.initAuthStore();
+    await initProfiles();
     const profile = loadProfiles().find(p => p.id === activeId());
     // pass #63: boot trace — every resume decision lands in the Settings log, so a
     // failed auto-login is REPORTABLE instead of a mystery (He's regression reports).
