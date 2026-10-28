@@ -133,6 +133,7 @@ export const viVN: Dict = {
   "contests.upcomingDesc": "Các cuộc thi sắp bắt đầu.",
   "contests.recentDesc": "Các cuộc thi có thể mở lượt luyện tập.",
   "contests.joinable": "Có thể tham gia",
+  "contests.joinableIn": "Có thể tham gia sau {t}",
   "contests.locked": "Chưa thể tham gia",
   "contests.joined": "Đang tham gia",
   "contests.spectator": "Spectator",

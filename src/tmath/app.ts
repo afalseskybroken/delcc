@@ -94,6 +94,17 @@ const ratingStyle = (r: unknown): string => {
 };
 // CF-style Rate display shared by rankings + account (1.501 = 1501)
 const fmtRateCol = (v: unknown): string => typeof v === "number" && Number.isFinite(v) ? (v / 1000).toFixed(3) : "—";
+// pass #84: compact FUTURE duration for the "Joinable in …" contest tag ("2d 3h", "4h 12m",
+// "12m", "45s") — the mirror of ago() for times that have not come yet
+const inStr = (ms: number): string => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${m % 60}m`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
+};
 // official KE avatar: gravatar image layed over the letter initial, hidden on error (carve @858797).
 // Delivery rule (research/gravatar-investigation-2026-10-25.md, live-verified): the server
 // ships gravatar_hash ONLY on the owner's own /me, and only when that account's email is
@@ -565,10 +576,22 @@ export class TmathApp {
     const activeKeys = new Set([...list(home?.current_contests), ...list(home?.future_contests)].map(c => c.key));
     const deduped = list(joined).filter(c => !activeKeys.has(c.key));
     const now = Date.now();
-    const rowTag = (c: ContestListItem): DictKey => c.is_spectator ? "contests.spectator" : this.contest?.key === c.key ? "contests.joined" : new Date(c.end_time).getTime() < now ? (c.can_join ? "contests.practice" : "contests.locked") : (c.can_join ? "contests.joinable" : "contests.locked");
+    // pass #84 (He's outdo): an UPCOMING contest's tag said just "Can join" — useless when
+    // the contest has not started ("Official did it too, which is also DIABOLICAL"). The
+    // tag now states WHEN joining opens: "Joinable in 4h 12m" off start_time; ongoing
+    // keeps "Can join", finished keeps "Practice", locked stays locked.
+    const rowTag = (c: ContestListItem): string => {
+      if (c.is_spectator) return text("contests.spectator");
+      if (this.contest?.key === c.key) return text("contests.joined");
+      const start = new Date(c.start_time).getTime();
+      const end = new Date(c.end_time).getTime();
+      if (end < now) return text(c.can_join ? "contests.practice" : "contests.locked");
+      if (start > now) return c.can_join ? text("contests.joinableIn", { t: inStr(start - now) }) : text("contests.locked");
+      return text(c.can_join ? "contests.joinable" : "contests.locked");
+    };
     const row = (c: ContestListItem) => {
       const status: DictKey = new Date(c.start_time).getTime() > now ? "contests.scheduled" : new Date(c.end_time).getTime() < now ? "contests.finished" : "contests.running";
-      return `<div class="tm-contest-row"><span class="tm-contest-icon" aria-hidden="true">${phIcon("trophy", 24)}</span><div class="tm-contest-summary"><strong>${esc(c.name)}</strong>${c.topic ? `<small class="tm-contest-topic">${esc(c.topic)}</small>` : ""}<small>${date(c.start_time)} – ${date(c.end_time)}</small></div><span class="tm-tag">${text(rowTag(c))}</span><button class="tm-button primary tm-contest-join" aria-label="${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")} ${esc(c.name)}" data-contest="${esc(c.key)}" data-join="${!!c.can_join && !c.is_in_contest}"${!c.can_join && !c.can_view_tasks && !c.is_in_contest ? " disabled" : ""}>${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")}</button></div>`;
+      return `<div class="tm-contest-row"><span class="tm-contest-icon" aria-hidden="true">${phIcon("trophy", 24)}</span><div class="tm-contest-summary"><strong>${esc(c.name)}</strong>${c.topic ? `<small class="tm-contest-topic">${esc(c.topic)}</small>` : ""}<small>${date(c.start_time)} – ${date(c.end_time)}</small></div><span class="tm-tag">${rowTag(c)}</span><button class="tm-button primary tm-contest-join" aria-label="${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")} ${esc(c.name)}" data-contest="${esc(c.key)}" data-join="${!!c.can_join && !c.is_in_contest}"${!c.can_join && !c.can_view_tasks && !c.is_in_contest ? " disabled" : ""}>${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")}</button></div>`;
     };
     const groups: [DictKey, DictKey, "active" | "upcoming" | "ended", ContestListItem[]][] = [
       ["contests.current", "contests.currentDesc", "active", list(home?.current_contests)],
