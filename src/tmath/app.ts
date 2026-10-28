@@ -1452,12 +1452,12 @@ export class TmathApp {
       (typeof e.participation_type === "number" && e.participation_type > 0 ? ` <span class="tm-lb-virtual" aria-hidden="true">†</span><span class="sr-only">${text("contests.virtualMode")}</span>` : "") +
       (e.participation_type === -1 ? ` <span class="tm-lb-virtual" aria-hidden="true">‡</span>` : "") +
       (e.is_disqualified ? ` <span class="tm-tag tm-lb-dq">DQ</span>` : "");
-    // pass #73/#78 — CARVE COPY (assets__index-Sy2kLOLY.css .leaderboard-* +
+    // pass #73/#80 — CARVE COPY (assets__index-Sy2kLOLY.css .leaderboard-* +
     // docs/tmath-contest-ranking-page.md): solid verdict tiles in the carve's dark
-    // palette, score-fastest = the fastest AC per problem (Official has it), row hover
-    // = accent ON THE TR ONLY (opaque tiles never show it), self row = the carve's
-    // 8%-primary mix. Official's exact column grid (colgroup 64/280/112/144 + 100 per
-    // problem, table width 600 + 100·N) keeps the sticky pins at true constants.
+    // palette, score-fastest = the fastest AC per problem (Official has it), self row
+    // = the carve's 8%-primary mix. The frozen-column split (pass #80) carries the
+    // sticky-first-four-columns outdo: info columns live in a lockstep pane, so no
+    // paint region ever overlaps a tile.
     const fastest = problems.map((_, i) => {
       let m = Infinity;
       for (const e of entries) {
@@ -1481,26 +1481,51 @@ export class TmathApp {
       const jump = you && code ? ` class="${cls} ac-jump" data-ac-jump="${esc(code)}" title="${esc(text("rankings.acJump"))}" tabindex="0" role="link"` : ` class="${cls}"`;
       return `<td ${jump}><strong>${esc(fmtNum(c.points))}</strong><small class="score-time">${esc(fmtClock(c.time))}${Number.isFinite(pen) && pen > 0 ? ` <span class="score-penalty">(${pen})</span>` : ""}</small></td>`;
     };
-    const rowHtml = (e: any): string => {
+    // pass #80: each entry renders as a ROW PAIR — the left (info) row and the right
+    // (tile) row share the index, so hover/self sync is positional. The frozen left
+    // pane IS the sticky-columns outdo (He: keep it), without sticky-cell artifacts.
+    const rowHtml = (e: any, i: number): { left: string; right: string } => {
       const username = String(e.username ?? "");
       const you = !!me && username === me;
+      const self = you ? " leaderboard-self" : "";
+      const left = `<tr class="tm-lb-row${self}"><th scope="row" class="tm-lb-rank-cell"><span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span></th><td class="tm-lb-user"><a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)}${you ? ` <span class="tm-tag tm-lb-you">${text("rankings.you")}</span>` : ""}</td><td class="tm-lb-total"><strong>${esc(fmtNum(e.points))}</strong></td><td class="tm-lb-time">${esc(fmtClock(e.cumulative_time))}</td></tr>`;
       const cells = Array.isArray(e.problem_cells) ? e.problem_cells : [];
-      return `<tr class="tm-lb-row${you ? " leaderboard-self" : ""}"><th scope="row" class="tm-lb-rank-cell lb-pin c1"><span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span></th><td class="tm-lb-user lb-pin c2"><a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)}${you ? ` <span class="tm-tag tm-lb-you">${text("rankings.you")}</span>` : ""}</td><td class="tm-lb-total lb-pin c3"><strong>${esc(fmtNum(e.points))}</strong></td><td class="tm-lb-time lb-pin c4">${esc(fmtClock(e.cumulative_time))}</td>${problems.map((_, i) => cellHtml(cells[i], i, you)).join("")}</tr>`;
+      const right = `<tr class="tm-lb-row${self}">${problems.map((_, k) => cellHtml(cells[k], k, you)).join("")}</tr>`;
+      return { left, right };
     };
     const tabWord = text("contests.tabWord");
-    // pass #77/#78: the [You] ghost — a strip BELOW the scroll wrap (never a sticky
-    // footer inside it: that floats over the last visible rows — He's clipping),
-    // shown only while the real row is out of view (IntersectionObserver on the real
-    // row; rebuilt per paint, disposed with the view). Palette = the self-row carve hue.
+    // pass #77/#80: the [You] ghost — a strip BELOW the split (never a sticky footer
+    // inside it: that floats over the last visible rows — He's clipping), shown only
+    // while the real row is out of view (IntersectionObserver on the real row; rebuilt
+    // per paint, disposed with the view). Palette = the self-row carve hue.
     let youObserver: IntersectionObserver | null = null;
+    let wheelForward: ((ev: WheelEvent) => void) | null = null;
+    let scrollSync: (() => void) | null = null;
+    // pass #80, THE scramble fix: every 30 s poll rebuilt tbody.innerHTML while the
+    // wrap was scrolled/hovered, and the compositor served ONE frame mixing the old
+    // tile rasters with the fresh sticky pins — He's "clippings"/scramble that survived
+    // every CSS fix (the harness only ever glitched within ~2 s of a poll tick). A poll
+    // whose payload is unchanged now touches nothing but the timestamp.
+    let lastLb = "";
     const paint = (): void => {
-      const tbody = host.querySelector("tbody");
-      if (tbody) tbody.innerHTML = entries.map(rowHtml).join("");
-      const you = tbody?.querySelector("tr.leaderboard-self");
-      const wrap = host.querySelector<HTMLElement>(".tm-lb-wrap");
+      const stamp = host.querySelector<HTMLElement>("[data-lb-updated]");
+      const sig = JSON.stringify(entries);
+      if (sig === lastLb) {
+        if (stamp) stamp.textContent = text("rankings.updatedAt", { t: new Date().toLocaleTimeString(getLocale()) });
+        return;
+      }
+      lastLb = sig;
+      const leftBody = host.querySelector<HTMLTableSectionElement>("[data-lb-left]");
+      const rightBody = host.querySelector<HTMLTableSectionElement>("[data-lb-right]");
+      const rightPane = host.querySelector<HTMLElement>(".tm-lb-right");
+      const leftPane = host.querySelector<HTMLElement>(".tm-lb-left");
+      const pairs = entries.map((e, i) => rowHtml(e, i));
+      if (leftBody) leftBody.innerHTML = pairs.map(p => p.left).join("");
+      if (rightBody) rightBody.innerHTML = pairs.map(p => p.right).join("");
+      const you = rightBody?.querySelector("tr.leaderboard-self");
       const ghost = host.querySelector<HTMLDivElement>("[data-lb-ghost]");
       youObserver?.disconnect(); youObserver = null;
-      if (you && wrap && ghost) {
+      if (you && rightPane && ghost) {
         const e = entries.find(r => String(r?.username ?? "") === me);
         if (e) {
           const username = String(e.username ?? "");
@@ -1508,16 +1533,59 @@ export class TmathApp {
         }
         youObserver = new IntersectionObserver(obs => {
           for (const en of obs) if (ghost) ghost.hidden = en.isIntersecting;
-        }, { root: wrap, threshold: 0 });
+        }, { root: rightPane, threshold: 0 });
         youObserver.observe(you);
       }
+      // hover sync: rows are positional across the panes — entering a row in either
+      // pane tints BOTH (the wash renders on the info pane, exactly Official's visual)
+      if (leftBody && rightBody) {
+        const leftRows = Array.from(leftBody.children) as HTMLElement[];
+        const rightRows = Array.from(rightBody.children) as HTMLElement[];
+        const setHover = (i: number, on: boolean): void => {
+          leftRows[i]?.classList.toggle("tm-hover", on);
+          rightRows[i]?.classList.toggle("tm-hover", on);
+        };
+        for (const [rows, pane] of [[leftRows, leftBody], [rightRows, rightBody]] as const) {
+          pane.onmouseover = (ev: Event): void => {
+            const tr = (ev.target as HTMLElement).closest("tr");
+            const i = tr ? rows.indexOf(tr) : -1;
+            if (i >= 0) setHover(i, true);
+          };
+          pane.onmouseout = (ev: Event): void => {
+            const tr = (ev.target as HTMLElement).closest("tr");
+            const i = tr ? rows.indexOf(tr) : -1;
+            if (i >= 0) setHover(i, false);
+          };
+        }
+      }
+      // vertical + horizontal lockstep (He: the left pane MUST scroll the tiles): the
+      // right pane is the only real scroller; the left pane never scrolls itself (its
+      // sticky thead lagged one frame under a programmatic scrollTop) — wheel input over
+      // it is FORWARDED into the right pane and the tbody follows via transform, which
+      // the compositor applies without any per-frame sticky repositioning.
+      if (rightPane && leftBody && leftPane) {
+        if (wheelForward) leftPane.removeEventListener("wheel", wheelForward);
+        if (scrollSync) rightPane.removeEventListener("scroll", scrollSync);
+        wheelForward = (ev: WheelEvent): void => {
+          ev.preventDefault();
+          rightPane.scrollLeft += ev.deltaX;
+          rightPane.scrollTop += ev.deltaY;
+        };
+        scrollSync = (): void => { leftBody.style.transform = `translateY(${-rightPane.scrollTop}px)`; };
+        leftPane.addEventListener("wheel", wheelForward, { passive: false });
+        rightPane.addEventListener("scroll", scrollSync);
+        // the right pane's horizontal scrollbar costs it ~10 px of viewport the left
+        // pane doesn't lose — without this the left edge shows a sliver of the next row
+        // the right pane can't (He: "why did it just draw another row")
+        leftPane.style.paddingBottom = `${Math.max(0, rightPane.offsetWidth - rightPane.clientWidth)}px`;
+        scrollSync();
+      }
       // your verdicted tiles jump to the problem's AC submissions (contest scope)
-      tbody?.querySelectorAll<HTMLTableCellElement>("[data-ac-jump]").forEach(td => {
+      rightBody?.querySelectorAll<HTMLTableCellElement>("[data-ac-jump]").forEach(td => {
         const jump = (): void => this.go("submissions", { scope: `contest:${key}`, problem: td.dataset.acJump ?? "", result: "AC" });
         td.onclick = jump;
         td.onkeydown = ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); jump(); } };
       });
-      const stamp = host.querySelector<HTMLElement>("[data-lb-updated]");
       if (stamp) stamp.textContent = text("rankings.updatedAt", { t: new Date().toLocaleTimeString(getLocale()) });
     };
     const head = problems.map((p, i) => {
@@ -1527,10 +1595,15 @@ export class TmathApp {
       const label = raw && !/^\d+$/.test(raw) ? raw : `${tabWord} ${this.idxLetters(typeof (p as any).display_index === "number" ? (p as any).display_index : i)}`;
       return `<th class="tm-lb-pcol" scope="col"><span>${esc(label)}</span><small>${esc(text("rankings.maxPoints", { n: fmtNum(p.points ?? 0) }))}</small></th>`;
     }).join("");
-    const chips = `<div class="tm-chip-row" role="group" aria-label="${text("subs.scopeLabel")}"><button type="button" class="tm-chip active" aria-pressed="true">${text("subs.scopeContest")}</button><button type="button" class="tm-chip" data-lb-global aria-pressed="false">${text("subs.scopeGlobal")}</button></div>`;
-    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("subs.scopeContest")}</div><h1>${text("rankings.contestTitle")}</h1><p class="tm-muted">${esc(this.contest!.name)}</p></div>${chips}</div><div class="tm-lb-meta"><span>${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span><span data-lb-updated role="status"></span></div><section class="tm-card"><div class="tm-table-wrap tm-lb-wrap"><table class="tm-table tm-lb-table" style="width:${600 + problems.length * 100}px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px">${problems.map(() => `<col style="width:100px">`).join("")}</colgroup><thead><tr><th class="lb-pin c1" scope="col" title="${text("rankings.position")}">${text("rankings.rank")}</th><th class="lb-pin c2" scope="col">${text("rankings.user")}</th><th class="lb-pin c3" scope="col">${text("rankings.totalScore")}</th><th class="lb-pin c4" scope="col">${text("subs.time")}</th>${head}</tr></thead><tbody>${entries.map(rowHtml).join("")}</tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div><div class="tm-lb-ghost" data-lb-ghost hidden></div></section>`;
+    const chips = `<div class="tm-chip-row" role="group" aria-label="${text("subs.scopeLabel")}"><button type="button" class="tm-chip active" aria-pressed="true">${text("subs.scopeContest")}</button><button type="button" class="tm-chip" data-lb-global aria-pressed="false">${text("subs.scopeGlobal")}</button><button type="button" class="tm-chip" data-lb-refresh>↻ ${text("common.refresh")}</button></div>`;
+    // pass #80: page + card structure mirrors Official's Ranking page (He's reference):
+    // eyebrow BẢNG XẾP HẠNG → h1 = contest name → subtitle; card head "Kết quả cuộc thi"
+    // + counter; the Cập nhật-lúc row lives INSIDE the card, above the table.
+    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(this.contest!.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div>${chips}</div><section class="tm-card"><div class="tm-card-head"><h2>${text("rankings.contestTitle")}</h2><span class="tm-lb-count">${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span></div><div class="tm-lb-updated" data-lb-updated role="status"></div><div class="tm-lb-split"><div class="tm-lb-left"><table class="tm-table tm-lb-table" style="width:600px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup><thead><tr><th scope="col" title="${text("rankings.position")}">${text("rankings.rank")}</th><th scope="col">${text("rankings.user")}</th><th scope="col">${text("rankings.totalScore")}</th><th scope="col">${text("subs.time")}</th></tr></thead><tbody data-lb-left></tbody></table></div><div class="tm-lb-right"><table class="tm-table tm-lb-table" style="width:${problems.length * 100}px;min-width:100%"><colgroup>${problems.map(() => `<col style="width:100px">`).join("")}</colgroup><thead><tr>${head}</tr></thead><tbody data-lb-right></tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div></div><div class="tm-lb-ghost" data-lb-ghost hidden></div></section>`;
     const lbGlobal = host.querySelector<HTMLButtonElement>('[data-lb-global]');
     if (lbGlobal) lbGlobal.onclick = () => this.go("rankings", { scope: "global" });
+    const lbRefresh = host.querySelector<HTMLButtonElement>('[data-lb-refresh]');
+    if (lbRefresh) lbRefresh.onclick = () => void this.render();
     paint();
     const poll = window.setInterval(() => {
       if (!alive()) { window.clearInterval(poll); return; }
