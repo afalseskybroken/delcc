@@ -1478,6 +1478,20 @@ export class TmathApp {
       }
       const stamp = host.querySelector<HTMLElement>("[data-lb-updated]");
       if (stamp) stamp.textContent = text("rankings.updatedAt", { t: new Date().toLocaleTimeString(getLocale()) });
+      measureSticky();
+    };
+    // pass #70: the sticky columns' left offsets are MEASURED from the header row (auto
+    // layout is back — fixed layout compressed the tiles away from Official) — the vars
+    // re-measure on every paint and on window resize, so seams can never drift.
+    const measureSticky = (): void => {
+      const table = host.querySelector<HTMLElement>(".tm-lb-table");
+      const head = table?.querySelectorAll<HTMLTableCellElement>("thead .tm-lb-sticky");
+      if (!table || !head) return;
+      let acc = 0;
+      head.forEach((c, i) => {
+        table.style.setProperty(`--lb-l${i + 1}`, `${acc}px`);
+        acc += c.offsetWidth;
+      });
     };
     const head = problems.map((p, i) => {
       const label = p.label ?? `${tabWord} ${this.idxLetters(typeof (p as any).display_index === "number" ? (p as any).display_index : i)}`;
@@ -1497,8 +1511,11 @@ export class TmathApp {
         paint();
       }).catch(() => { /* transient — next tick retries */ });
     }, 30_000);
+    const onResize = measureSticky;
+    window.removeEventListener("resize", onResize);
+    window.addEventListener("resize", onResize);
     const previous = this.disposeView;
-    this.disposeView = () => { previous?.(); window.clearInterval(poll); youObserver?.disconnect(); };
+    this.disposeView = () => { previous?.(); window.clearInterval(poll); youObserver?.disconnect(); window.removeEventListener("resize", onResize); };
   }
 
   // official ig: eg(value) persists + repaints; the menu updates trigger/check in place, then closes
