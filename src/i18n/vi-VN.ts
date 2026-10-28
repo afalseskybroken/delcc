@@ -402,6 +402,7 @@ export const viVN: Dict = {
   "rankings.totalScore": "Tổng điểm",
   "rankings.maxPoints": "{n} điểm",
   "rankings.hidden": "Bảng xếp hạng của kỳ thi này không hiển thị với bạn.",
+  "rankings.acJump": "Xem các bài nộp AC của bài này",
   "problems.sortHint": "Sắp xếp trang hiện tại",
   "account.points": "Điểm",
   "account.submissions": "Bài nộp",

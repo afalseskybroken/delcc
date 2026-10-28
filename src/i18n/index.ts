@@ -303,6 +303,7 @@ export interface Dict {
   "rankings.totalScore": string;
   "rankings.maxPoints": string;
   "rankings.hidden": string;
+  "rankings.acJump": string;
   "subs.mine": string;
   "subs.scopeLabel": string;
   "subs.scopeGlobal": string;

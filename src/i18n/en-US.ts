@@ -402,6 +402,7 @@ export const enUS: Dict = {
   "rankings.totalScore": "Total score",
   "rankings.maxPoints": "{n} points",
   "rankings.hidden": "The scoreboard for this contest is not visible to you.",
+  "rankings.acJump": "View AC submissions for this problem",
   "problems.sortHint": "Sort the loaded page",
   "account.points": "Points",
   "account.submissions": "Submissions",

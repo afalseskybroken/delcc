@@ -402,6 +402,7 @@ export const zhCN: Dict = {
   "rankings.totalScore": "总分",
   "rankings.maxPoints": "{n} 分",
   "rankings.hidden": "该比赛的排行榜对你不可见。",
+  "rankings.acJump": "查看此题的 AC 提交",
   "problems.sortHint": "排序当前页",
   "account.points": "分数",
   "account.submissions": "提交次数",
