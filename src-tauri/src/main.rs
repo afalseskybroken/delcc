@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 
 mod fonts;
 mod cph;
-use cph::{cph_compile, cph_detect, cph_run, cph_stop, CphState};
+use cph::{cph_compile, cph_detect, cph_run, cph_set_override, cph_stop, CphState};
 
 // pass #65: ONE shared client per process. Per-call builds paid a fresh TLS
 // handshake + pool teardown on every request — the 10-30s polls and the 500-page
@@ -110,7 +110,7 @@ fn window_title() -> &'static str {
 fn main() {
     tauri::Builder::default()
         .manage(CphState::default())
-        .invoke_handler(tauri::generate_handler![api_fetch, site_fetch, get_layout, open_url, fonts_list, cph_detect, cph_run, cph_compile, cph_stop])
+        .invoke_handler(tauri::generate_handler![api_fetch, site_fetch, get_layout, open_url, fonts_list, cph_detect, cph_set_override, cph_run, cph_compile, cph_stop])
         .setup(move |app| {
             if DELCC_LAYOUT == "tmath" {
                 use tauri::Manager;
