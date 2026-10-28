@@ -133,6 +133,7 @@ export const zhCN: Dict = {
   "contests.upcomingDesc": "Các cuộc thi sắp bắt đầu.",
   "contests.recentDesc": "Các cuộc thi có thể mở lượt luyện tập.",
   "contests.joinable": "Có thể tham gia",
+  "contests.joinableIn": "{t}后可加入",
   "contests.locked": "Chưa thể tham gia",
   "contests.joined": "Đang tham gia",
   "contests.spectator": "Spectator",
