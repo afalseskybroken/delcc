@@ -39,11 +39,11 @@ mod dpapi {
 
     pub fn protect(plain: &[u8]) -> Result<Vec<u8>, String> {
         unsafe {
-            let mut input = CRYPT_INTEGER_BLOB { cbData: plain.len() as u32, pbData: plain.as_ptr() as *mut u8 };
+            let input = CRYPT_INTEGER_BLOB { cbData: plain.len() as u32, pbData: plain.as_ptr() as *mut u8 };
             let mut out = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
             // CRYPTPROTECT_UI_FORBIDDEN: a headless shell must never pop a prompt.
             let ok = CryptProtectData(
-                &mut input, std::ptr::null(), std::ptr::null_mut(), std::ptr::null_mut(),
+                &input, std::ptr::null(), std::ptr::null_mut(), std::ptr::null_mut(),
                 std::ptr::null_mut(), CRYPTPROTECT_UI_FORBIDDEN, &mut out,
             );
             if ok == 0 { return Err(last_err("CryptProtectData")); }
@@ -55,10 +55,10 @@ mod dpapi {
 
     pub fn unprotect(blob: &[u8]) -> Result<Vec<u8>, String> {
         unsafe {
-            let mut input = CRYPT_INTEGER_BLOB { cbData: blob.len() as u32, pbData: blob.as_ptr() as *mut u8 };
+            let input = CRYPT_INTEGER_BLOB { cbData: blob.len() as u32, pbData: blob.as_ptr() as *mut u8 };
             let mut out = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
             let ok = CryptUnprotectData(
-                &mut input, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(),
+                &input, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(),
                 std::ptr::null_mut(), CRYPTPROTECT_UI_FORBIDDEN, &mut out,
             );
             if ok == 0 { return Err(last_err("CryptUnprotectData")); }
