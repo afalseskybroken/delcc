@@ -20,20 +20,27 @@ import "./tmath.css";
 // DOMPurify so raw HTML elements in About text also render (what the web client does;
 // official strips them). XSS guard stays two-layer: md escapes + allow-lists URLs,
 // DOMPurify sanitizes the final structure; iframes survive ONLY for YouTube embed origins.
+// Pass #78 (Sonnet S7): the iframe hook registers ONCE at module scope — addHook mutates a
+// module-global list, so the old per-call re-registration made every hook fire N times
+// after N About renders — and the guard fails CLOSED: a sanitizer crash renders the pane
+// empty and logs, never returns unsanitized HTML.
+const purify: any = (DOMPurify as any).default ?? DOMPurify;
+purify?.addHook?.("uponSanitizeElement", (node: any, data: any) => {
+  if (data?.tagName === "iframe") {
+    const src = String(node.getAttribute?.("src") ?? "");
+    if (!/^https:\/\/(www\.)?(youtube|youtube-nocookie)\.com\/embed\/[A-Za-z0-9_-]+/.test(src)) node.remove?.();
+  }
+});
 const sanitizeAbout = (html: string): string => {
-  const purify: any = (DOMPurify as any).default ?? DOMPurify;
   try {
-    purify?.addHook?.("uponSanitizeElement", (node: any, data: any) => {
-      if (data?.tagName === "iframe") {
-        const src = String(node.getAttribute?.("src") ?? "");
-        if (!/^https:\/\/(www\.)?(youtube|youtube-nocookie)\.com\/embed\/[A-Za-z0-9_-]+/.test(src)) node.remove?.();
-      }
-    });
     return String(purify.sanitize(html, {
-      ALLOWED_TAGS: ["p","br","strong","em","b","i","u","ul","ol","li","blockquote","code","pre","a","img","iframe","span","div","center","h1","h2","h3","h4","h5","h6","table","thead","tbody","tr","td","th","font","small","sub","sup","hr"],
+      ALLOWED_TAGS: ["p","br","strong","em","b","i","u","ul","ol","li","blockquote","code","pre","a","iframe","span","div","center","h1","h2","h3","h4","h5","h6","table","thead","tbody","tr","td","th","font","small","sub","sup","hr"],
       ALLOWED_ATTR: ["href","src","alt","title","target","rel","class","loading","allowfullscreen","width","height","color","align","colspan","rowspan"],
     }));
-  } catch { return html; } // mdInline already escaped everything upstream — never double-escape
+  } catch (e) {
+    logError(`sanitizeAbout: sanitizer failed — rendering empty (${e instanceof Error ? e.message : String(e)})`);
+    return "";
+  }
 };
 
 type Route = "contests" | "problems" | "workspace" | "submissions" | "rankings" | "account" | "settings";
