@@ -4,10 +4,13 @@
 // can never plant javascript:/data:/file: navigation through here. Explicit video
 // embeds stay narrow: authored <iframe> or ![](…), YouTube embed origins only
 // (F29: the authored-iframe form matches the ESCAPED quote, so real embeds render).
-// Pass #78 (Sonnet S3): remote <img> is FENCED — image syntax degrades to a plain
-// link, so an About pane can never make the app fetch from an arbitrary host
-// (the official client strips remote images outright; the link is our honest
-// middle ground). No `src=` but our own embeds ever reaches the output.
+// Pass #78 (Sonnet S3) fenced remote images to links; pass #83+#86 UNFENCE them (He:
+// "isolate it better instead of crippling a feature we once delivered"): safe http(s)
+// image syntax emits a real <img> again — the WEBVIEW never fetches it (the CSP's
+// img-src stays pinned, so a raw src cannot load); src/tmath/app.ts wireAboutImages
+// swaps every remote src for a shell-fetched data: URL via asset_fetch (https-only,
+// public hosts per hop, image-only, 2 MiB, no credentials — see main.rs), degrading to
+// a plain link on refusal. Unsafe schemes stay inert right here.
 
 // mirrors ui.ts esc — kept local so this module stays dependency-free (testable solo)
 const esc = (value: unknown): string => String(value ?? "").replace(/[&<>"']/g,
@@ -51,17 +54,18 @@ export function mdInline(s: string): string {
   // nested image inside a link FIRST (banner SVGs wrapped in a youtu.be link — what the
   // web client renders and the official client butchers). A construct that fails the
   // allow-list is consumed into a sentinel so the later plain passes cannot partially
-  // render its inner image/link — the whole thing stays escaped text. Pass #78: the
-  // inner image no longer renders; the outer link carries the alt text (or the URL).
+  // render its inner image/link — the whole thing stays escaped text. Pass #86: the
+  // inner image renders again as a real <img> inside the outer link (the src is swapped
+  // for a shell-fetched data URL by wireAboutImages; the webview CSP blocks the raw src).
   const shelved: string[] = [];
   const shelve = (text: string) => `\u0000${shelved.push(text) - 1}\u0000`;
   h = h.replace(/\[!\[([^\]]*)\]\(([^)\s]+)\)\]\(([^)\s]+)\)/g, (m, alt, img, url) =>
     safeUrl(img) && safeUrl(url)
-      ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${alt || img}</a>`
+      ? `<a href="${url}" target="_blank" rel="noopener noreferrer"><img src="${img}" alt="${alt || "image"}" loading="lazy"></a>`
       : shelve(m));
   h = h.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (m, alt, url) =>
     embedOk(url) ? `<iframe class="tm-md-embed" src="${url}" title="${alt || "embed"}" loading="lazy" allowfullscreen></iframe>`
-    : safeUrl(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${alt || url}</a>` : m);
+    : safeUrl(url) ? `<img src="${url}" alt="${alt || "image"}" loading="lazy">` : m);
   h = h.replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, (m, txt, url) =>
     safeUrl(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${txt || url}</a>` : m);
   h = h.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>").replace(/`([^`]+)`/g, "<code>$1</code>");

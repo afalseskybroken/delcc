@@ -614,7 +614,7 @@ dependencies = [
 
 [[package]]
 name = "delcc-app"
-version = "0.2.32-alpha"
+version = "0.2.33-alpha"
 dependencies = [
  "base64 0.22.1",
  "reqwest",
