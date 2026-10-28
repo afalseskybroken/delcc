@@ -31,10 +31,18 @@ That is all. Concretely absent:
 - no update auto-download (the release manifest is *read*; binaries are fetched
   by you, the human, from the release page)
 - no third-party CDNs, fonts, or scripts — all assets ship in the bundle. About-pane
-  markdown cannot point `<img>` at arbitrary hosts either: since pass #78, remote
-  images in another user's About render as plain **links** (the official client
-  strips remote images outright; the link is our honest middle ground), so the only
-  image fetches the app ever makes are the gravatar avatars in the table above
+  markdown may contain remote **images** (profiles decorate their About with them; the
+  official client renders them too). Since pass #83 they load through an ISOLATED shell
+  fetch, never from the webview: the `asset_fetch` command is https-only, re-validates
+  every redirect hop against public hosts, accepts `image/*` content types only, caps
+  responses at 2 MiB with a 10 s timeout, and never attaches cookies or tokens — the
+  image bytes enter the page as `data:` URLs, so the webview CSP (`img-src`/`connect-src`)
+  stays pinned and no third party is contacted by the page itself. The image host sees
+  the viewer's IP (identical to the official client). Disclosed limit: a profile author
+  could point at a DNS name resolving into a private range (rebinding); the command
+  carries no credentials and caps the response, so the exposure is one capped-size image
+  fetch, never a token. A failed/refused fetch degrades to a plain **link**. The only
+  other image fetches the app makes are the gravatar avatars in the table above
 - the CPH local runner (`src-tauri/src/cph.rs`) never touches the network — it
   compiles and runs *your* code on *your* machine, sandbox-free, exactly like
   running it in a terminal

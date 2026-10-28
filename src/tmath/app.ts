@@ -3,7 +3,7 @@ import { recordDownload } from "../lib/updater";
 import * as auth from "../lib/auth";
 import { activeId, initProfiles, loadProfiles, saveProfiles, setActiveId, upsertProfile } from "../lib/profiles";
 import { googleLogin, GoogleAbort } from "../lib/google";
-import { openExternal } from "../lib/transport";
+import { openExternal, fetchAsset } from "../lib/transport";
 import DOMPurify from "dompurify";
 import { getLocale, t, type DictKey } from "../i18n";
 import { applyPreferences, loadPreferences, savePreferences, read, write, type Preferences } from "./preferences";
@@ -34,12 +34,43 @@ purify?.addHook?.("uponSanitizeElement", (node: any, data: any) => {
 const sanitizeAbout = (html: string): string => {
   try {
     return String(purify.sanitize(html, {
-      ALLOWED_TAGS: ["p","br","strong","em","b","i","u","ul","ol","li","blockquote","code","pre","a","iframe","span","div","center","h1","h2","h3","h4","h5","h6","table","thead","tbody","tr","td","th","font","small","sub","sup","hr"],
+      // pass #83: img restored (He: isolate, don't cripple) — remote srcs are swapped
+      // for shell-fetched data: URLs by wireAboutImages; a failed fetch degrades to a link
+      ALLOWED_TAGS: ["p","br","strong","em","b","i","u","ul","ol","li","blockquote","code","pre","a","img","iframe","span","div","center","h1","h2","h3","h4","h5","h6","table","thead","tbody","tr","td","th","font","small","sub","sup","hr"],
       ALLOWED_ATTR: ["href","src","alt","title","target","rel","class","loading","allowfullscreen","width","height","color","align","colspan","rowspan"],
     }));
   } catch (e) {
     logError(`sanitizeAbout: sanitizer failed — rendering empty (${e instanceof Error ? e.message : String(e)})`);
     return "";
+  }
+};
+// pass #83: About images are fetched by the SHELL (asset_fetch: https-only, public hosts
+// per redirect hop, image-only, 2 MiB, no credentials — see main.rs) and swapped in as
+// data: URLs, so the webview CSP stays pinned and no third party is contacted by the
+// page itself. Memory cache, FIFO-capped; max 8 remote images per pane.
+const assetCache = new Map<string, string>();
+const wireAboutImages = (root: HTMLElement): void => {
+  const imgs = [...root.querySelectorAll("img")].slice(0, 8);
+  for (const img of imgs) {
+    const src = img.getAttribute("src") ?? "";
+    if (!/^https:\/\//i.test(src)) continue;
+    if (assetCache.has(src)) { img.src = assetCache.get(src)!; continue; }
+    img.removeAttribute("src");
+    img.classList.add("tm-about-img-pending");
+    img.alt = img.alt || "image";
+    void fetchAsset(src).then(du => {
+      if (!du) {
+        const a = document.createElement("a");
+        a.href = src; a.textContent = src; a.rel = "noreferrer noopener"; a.target = "_blank";
+        img.replaceWith(a);
+        return;
+      }
+      assetCache.set(src, du);
+      while (assetCache.size > 60) assetCache.delete(assetCache.keys().next().value as string);
+      if (!img.isConnected) return;
+      img.src = du;
+      img.classList.remove("tm-about-img-pending");
+    });
   }
 };
 
@@ -1526,13 +1557,28 @@ export class TmathApp {
       const ghost = host.querySelector<HTMLDivElement>("[data-lb-ghost]");
       youObserver?.disconnect(); youObserver = null;
       if (you && rightPane && ghost) {
+        // pass #83 (He's vision): the ghost is a MIRRORED MINI-SPLIT — the [You] row
+        // rendered as a real row in real columns (info pane 600px + tiles pane that
+        // follows the right pane's horizontal scroll), not a merged text bar. It reads
+        // your scores under whichever problem columns you're looking at.
         const e = entries.find(r => String(r?.username ?? "") === me);
         if (e) {
-          const username = String(e.username ?? "");
-          ghost.innerHTML = `<span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span> <a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)} <span class="tm-tag tm-lb-you">${text("rankings.you")}</span><span class="tm-lb-ghost-stats">${text("rankings.totalScore")}: <b>${esc(fmtNum(e.points))}</b> · ${text("subs.time")}: ${esc(fmtClock(e.cumulative_time))}</span>`;
+          const pair = rowHtml(e, entries.indexOf(e));
+          const cols = problems.map(() => `<col style="width:100px">`).join("");
+          ghost.innerHTML = `<table class="tm-table tm-lb-table" style="width:600px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup><tbody>${pair.left}</tbody></table><div class="tm-lb-ghost-right"><table class="tm-table tm-lb-table" style="width:${problems.length * 100}px;min-width:100%"><colgroup>${cols}</colgroup><tbody>${pair.right}</tbody></table></div>`;
         }
         youObserver = new IntersectionObserver(obs => {
-          for (const en of obs) if (ghost) ghost.hidden = en.isIntersecting;
+          for (const en of obs) {
+            if (!ghost) continue;
+            ghost.hidden = en.isIntersecting;
+            // pass #83: track WHICH side the row left the view from — above the fold
+            // pins the ghost under the header, below pins it to the bottom edge
+            // (He: a bottom-only bar is misleading when you're rank 2)
+            if (!en.isIntersecting) {
+              const above = en.rootBounds != null && en.boundingClientRect.bottom <= en.rootBounds.top + 1;
+              ghost.classList.toggle("tm-lb-ghost-top", above);
+            }
+          }
         }, { root: rightPane, threshold: 0 });
         youObserver.observe(you);
       }
@@ -1573,7 +1619,13 @@ export class TmathApp {
           if (Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) rightPane.scrollLeft += ev.deltaX;
           else rightPane.scrollTop += ev.deltaY;
         };
-        scrollSync = (): void => { leftBody.style.transform = `translateY(${-rightPane.scrollTop}px)`; };
+        scrollSync = (): void => {
+          leftBody.style.transform = `translateY(${-rightPane.scrollTop}px)`;
+          // pass #83: the ghost's tile pane rides the same horizontal offset — its
+          // columns stay glued to the headers above ("a real column, not a hard merge")
+          const gr = host.querySelector<HTMLElement>(".tm-lb-ghost-right");
+          if (gr) gr.style.transform = `translateX(${-rightPane.scrollLeft}px)`;
+        };
         leftPane.addEventListener("wheel", wheelForward, { passive: false });
         rightPane.addEventListener("scroll", scrollSync);
         // the right pane's horizontal scrollbar costs it ~10 px of viewport the left
@@ -1828,6 +1880,10 @@ export class TmathApp {
       handleBtn.textContent = `${t("common.copied")} @${bare}`;
       setTimeout(() => { if (handleBtn.isConnected) handleBtn.textContent = was; }, 1200);
     };
+    // pass #83: About images load through the isolated shell fetch (asset_fetch) —
+    // failures degrade to the plain-link form the fenced pass shipped
+    const aboutRoot = host.querySelector<HTMLElement>(".tm-about-card .tm-md");
+    if (aboutRoot) wireAboutImages(aboutRoot);
     // avatar via the public profile page (pass #27; audit: also covers the OWN view
     // when /me ships no hash — same bytes the site shows everyone, cached once)
     {

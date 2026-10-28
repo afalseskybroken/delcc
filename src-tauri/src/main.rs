@@ -56,6 +56,72 @@ async fn site_fetch(path: String) -> Result<String, String> {
 // pass #10: installed font families for the settings font picker
 use fonts::fonts_list;
 
+// pass #83 (He): profile-provided About images render again — fetched by the SHELL, not
+// the webview (the CSP stays pinned; images enter the page as data: URLs). Isolation
+// posture: https-only, every redirect hop re-validated against a public host, image-only
+// content types, 2 MiB cap, 10 s timeout, no cookies or tokens ever attached. The image
+// host sees the viewer's IP (same as the official client). Disclosed limit: a profile
+// author can point at a DNS name that resolves into a private range (rebinding); the
+// command carries no credentials and caps the response, so the blast radius is one
+// capped-size image fetch, never a token.
+fn is_public_v4(ip: std::net::Ipv4Addr) -> bool {
+    let o = ip.octets();
+    !(ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified()
+        || ip.is_broadcast() || o[0] == 0
+        || (o[0] == 100 && (o[1] & 0xc0) == 128)
+        || (o[0] == 192 && o[1] == 0 && o[2] == 2)
+        || (o[0] == 198 && (o[1] & 0xfe) == 18))
+}
+fn is_public_v6(ip: std::net::Ipv6Addr) -> bool {
+    !(ip.is_loopback() || ip.is_unspecified()
+        || (ip.segments()[0] & 0xfe00) == 0xfc00
+        || (ip.segments()[0] & 0xffc0) == 0xfe80)
+}
+fn public_https_host(url: &reqwest::Url) -> bool {
+    if url.scheme() != "https" { return false; }
+    match url.host_str() {
+        None => false,
+        Some(h) => {
+            let h = h.trim_matches(|c| c == '[' || c == ']').to_lowercase();
+            if h == "localhost" || h.ends_with(".local") || h.ends_with(".internal") { return false; }
+            match h.parse::<std::net::IpAddr>() {
+                Ok(std::net::IpAddr::V4(v4)) => is_public_v4(v4),
+                Ok(std::net::IpAddr::V6(v6)) => is_public_v6(v6),
+                Err(_) => true,
+            }
+        }
+    }
+}
+#[tauri::command]
+async fn asset_fetch(url: String) -> Result<String, String> {
+    use base64::Engine as _;
+    const MAX: usize = 2 * 1024 * 1024;
+    let parsed: reqwest::Url = url.parse().map_err(|_| "INVALID_ARGUMENT".to_string())?;
+    if !public_https_host(&parsed) { return Err("FORBIDDEN".to_string()); }
+    let client = reqwest::Client::builder()
+        .http1_only()
+        .user_agent(concat!("delcc/", env!("CARGO_PKG_VERSION")))
+        .timeout(std::time::Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 3 { return attempt.error("too many redirects"); }
+            if !public_https_host(attempt.url()) { return attempt.error("redirect to a non-public host"); }
+            attempt.follow()
+        }))
+        .build()
+        .map_err(|e| format!("client: {e}"))?;
+    let resp = client.get(parsed).header("Accept", "image/*").send().await.map_err(|e| format!("send: {e}"))?;
+    let status = resp.status().as_u16();
+    if !(200..300).contains(&status) { return Err(format!("API_ERROR {status}")); }
+    let ct = resp.headers().get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok()).unwrap_or("").split(';').next().unwrap_or("").trim().to_lowercase();
+    if !ct.starts_with("image/") { return Err("UNSUPPORTED".to_string()); }
+    if let Some(len) = resp.content_length() { if len as usize > MAX { return Err("TOO_LARGE".to_string()); } }
+    let bytes = resp.bytes().await.map_err(|e| format!("body: {e}"))?;
+    if bytes.len() > MAX { return Err("TOO_LARGE".to_string()); }
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:{ct};base64,{b64}"))
+}
+
 // Rust-side HTTP transport. The WebView fetch stack proved unreliable on this
 // box (plain `fetch` to a CORS-open endpoint still died with `Failed to fetch`,
 // while curl + python had zero trouble). So: the shell does the talking, the
@@ -151,7 +217,7 @@ fn window_title() -> &'static str {
 fn main() {
     tauri::Builder::default()
         .manage(CphState::default())
-        .invoke_handler(tauri::generate_handler![api_fetch, site_fetch, get_layout, open_url, fonts_list, cph_detect, cph_set_override, cph_run, cph_compile, cph_stop, secure_put, secure_get, secure_del])
+        .invoke_handler(tauri::generate_handler![api_fetch, site_fetch, asset_fetch, get_layout, open_url, fonts_list, cph_detect, cph_set_override, cph_run, cph_compile, cph_stop, secure_put, secure_get, secure_del])
         .setup(move |app| {
             if DELCC_LAYOUT == "tmath" {
                 use tauri::Manager;
