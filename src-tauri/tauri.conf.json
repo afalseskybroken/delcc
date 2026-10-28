@@ -19,7 +19,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://www.gravatar.com https://gravatar.com https://secure.gravatar.com https://oj.tmathcoding.vn; font-src 'self' data:; connect-src 'self' https://oj.tmathcoding.vn; frame-src https://www.youtube-nocookie.com https://www.youtube.com; object-src 'none'; base-uri 'self'"
     }
   },
   "bundle": {
