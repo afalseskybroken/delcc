@@ -402,10 +402,8 @@ pub async fn cph_set_override(state: tauri::State<'_, CphState>, lang_key: Strin
         return Ok(());
     }
     validate_binary_shape(&bin)?;
-    if bin.contains('\\') || bin.contains('/') {
-        if !Path::new(&bin).is_file() {
-            return Err(format!("CPH: no file at '{bin}'"));
-        }
+    if (bin.contains('\\') || bin.contains('/')) && !Path::new(&bin).is_file() {
+        return Err(format!("CPH: no file at '{bin}'"));
     }
     lock(&state.0.allowed).overrides.insert(lang_key, bin);
     Ok(())
