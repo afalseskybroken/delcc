@@ -30,7 +30,6 @@ agent work mergeable. Human contributors: [CONTRIBUTING.md](CONTRIBUTING.md).
 - Gate battery (all of it, every pass): `npx tsc --noEmit`,
   `node scripts/lint-i18n.mjs`, `node scripts/lint-versions.mjs`,
   `node --experimental-vm-modules scripts/test-tmath-md.mjs`,
-  `node --experimental-vm-modules scripts/test-unwrap-bundle.mjs`,
   `node --experimental-vm-modules tools/verify-session-integrity.mjs`,
   `node --test scripts/security-markup.test.mjs`, then `npx vite build`,
   then `cargo build` (in `src-tauri/`) for Rust-side changes.
@@ -52,11 +51,13 @@ agent work mergeable. Human contributors: [CONTRIBUTING.md](CONTRIBUTING.md).
 - Commit prefixes `fix:` / `feat:` / `docs:` / `release:`, one concern per
   commit when practical.
 - Docs have Vietnamese twins (`*.vi.md`) — mirror meaningful doc changes.
-- `tools/verify-session-integrity.mjs` and `tools/unwrap-bundle.mjs` +
-  `scripts/test-unwrap-bundle.mjs` are gate dependencies; do not "clean them
-  up" (the unwrap path validator keeps a historical allowance for
-  `tools/claude11/...` bundle paths — that is deliberate, for old relay
-  chunks).
+- `tools/verify-session-integrity.mjs` is a gate dependency; do not "clean it
+  up". The unwrap gate (`tools/unwrap-bundle.mjs` +
+  `scripts/test-unwrap-bundle.mjs`) is MAINTAINER-LOCAL: gitignored relay
+  tooling that exists only in the maintainer's tree — it must never be
+  referenced from CI or fresh-clone instructions (its path validator keeps a
+  historical allowance for `tools/claude11/...` bundle paths — deliberate,
+  for old relay chunks).
 - Playwright-dependent suites (`scripts/test-tmath-solve.mjs`,
   `scripts/test-tmath-statement.mjs`) are optional lane checks, not part of
   the canonical gate battery.

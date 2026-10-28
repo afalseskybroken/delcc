@@ -101,7 +101,7 @@ as "TMATH Code Client", matching the official client's title for seamless use).
 | i18n key drift (3 locales + Dict interface) | `node scripts/lint-i18n.mjs` |
 | Version consistency (manifests + README release names) | `node scripts/lint-versions.mjs` |
 | Markdown statement rendering | `node --experimental-vm-modules scripts/test-tmath-md.mjs` |
-| Unwrap bundle security | `node --experimental-vm-modules scripts/test-unwrap-bundle.mjs` |
+| Unwrap bundle security | maintainer-local only — gitignored relay tooling, not runnable on CI/fresh clones |
 | Session integrity | `node --experimental-vm-modules tools/verify-session-integrity.mjs` |
 | Security markup | `node --test scripts/security-markup.test.mjs` |
 

@@ -30,7 +30,6 @@ npx tsc --noEmit
 node scripts/lint-i18n.mjs
 node scripts/lint-versions.mjs
 node --experimental-vm-modules scripts/test-tmath-md.mjs
-node --experimental-vm-modules scripts/test-unwrap-bundle.mjs
 node --experimental-vm-modules tools/verify-session-integrity.mjs
 node --test scripts/security-markup.test.mjs
 npx vite build
