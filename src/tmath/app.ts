@@ -1568,8 +1568,10 @@ export class TmathApp {
         if (scrollSync) rightPane.removeEventListener("scroll", scrollSync);
         wheelForward = (ev: WheelEvent): void => {
           ev.preventDefault();
-          rightPane.scrollLeft += ev.deltaX;
-          rightPane.scrollTop += ev.deltaY;
+          // pass #82: forward only the DOMINANT axis — mice emit tiny diagonal noise on
+          // every tick and forwarding it verbatim made the tiles "randomly snap" left
+          if (Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) rightPane.scrollLeft += ev.deltaX;
+          else rightPane.scrollTop += ev.deltaY;
         };
         scrollSync = (): void => { leftBody.style.transform = `translateY(${-rightPane.scrollTop}px)`; };
         leftPane.addEventListener("wheel", wheelForward, { passive: false });
@@ -1599,7 +1601,7 @@ export class TmathApp {
     // pass #80: page + card structure mirrors Official's Ranking page (He's reference):
     // eyebrow BẢNG XẾP HẠNG → h1 = contest name → subtitle; card head "Kết quả cuộc thi"
     // + counter; the Cập nhật-lúc row lives INSIDE the card, above the table.
-    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(this.contest!.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div>${chips}</div><section class="tm-card"><div class="tm-card-head"><h2>${text("rankings.contestTitle")}</h2><span class="tm-lb-count">${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span></div><div class="tm-lb-updated" data-lb-updated role="status"></div><div class="tm-lb-split"><div class="tm-lb-left"><table class="tm-table tm-lb-table" style="width:600px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup><thead><tr><th scope="col" title="${text("rankings.position")}">${text("rankings.rank")}</th><th scope="col">${text("rankings.user")}</th><th scope="col">${text("rankings.totalScore")}</th><th scope="col">${text("subs.time")}</th></tr></thead><tbody data-lb-left></tbody></table></div><div class="tm-lb-right"><table class="tm-table tm-lb-table" style="width:${problems.length * 100}px;min-width:100%"><colgroup>${problems.map(() => `<col style="width:100px">`).join("")}</colgroup><thead><tr>${head}</tr></thead><tbody data-lb-right></tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div></div><div class="tm-lb-ghost" data-lb-ghost hidden></div></section>`;
+    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(this.contest!.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div>${chips}</div><section class="tm-card"><div class="tm-card-head"><h2>${text("rankings.contestTitle")}</h2><span class="tm-lb-count">${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span></div><div class="tm-lb-updated" data-lb-updated role="status"></div><div class="tm-lb-split"><div class="tm-lb-left"><table class="tm-table tm-lb-table" style="width:600px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup><thead><tr><th scope="col" title="${text("rankings.position")}">${text("rankings.rank")}</th><th scope="col">${text("rankings.user")}</th><th scope="col">${text("rankings.totalScore")}</th><th scope="col">${text("subs.time")}</th></tr></thead><tbody data-lb-left></tbody></table></div><div class="tm-lb-right"><table class="tm-table tm-lb-table" style="width:${problems.length * 100}px;min-width:100%"><colgroup>${problems.map(() => `<col style="width:100px">`).join("")}</colgroup><thead><tr>${head}</tr></thead><tbody data-lb-right></tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div><div class="tm-lb-ghost" data-lb-ghost hidden></div></div></section>`;
     const lbGlobal = host.querySelector<HTMLButtonElement>('[data-lb-global]');
     if (lbGlobal) lbGlobal.onclick = () => this.go("rankings", { scope: "global" });
     const lbRefresh = host.querySelector<HTMLButtonElement>('[data-lb-refresh]');

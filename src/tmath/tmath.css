@@ -776,7 +776,14 @@ body[data-persona="tmath"] .tm-table tr.tm-row-attempted > td { background: colo
    works from anywhere), the right pane holds the tiles and is the only real scroller.
    Paint regions never overlap → the seam/bleed class is structurally impossible. The
    grid keeps #78's carve-exact colgroup (64/280/112/144 + 100·N). */
-body[data-persona="tmath"] .tm-lb-split { display: flex; align-items: stretch; }
+body[data-persona="tmath"] .tm-lb-split { display: flex; align-items: stretch; position: relative; }
+/* pass #82: the rankings card is FLUSH — the grid spans the full bounding box (He:
+   Official's grid carries no side margins; the old flush rule keyed on .tm-table-wrap
+   and stopped matching when the split replaced it, leaving the card's 23px padding).
+   The head/updated rows carry their own padding now. */
+body[data-persona="tmath"] .tm-card:has(> .tm-lb-split) { padding: 0; }
+body[data-persona="tmath"] .tm-card:has(> .tm-lb-split) .tm-card-head { margin-bottom: 0; padding: 20px 24px; border-bottom: 1px solid var(--tmath-border); }
+body[data-persona="tmath"] .tm-card:has(> .tm-lb-split) .tm-lb-updated { padding: 12px 16px 10px; }
 body[data-persona="tmath"] .tm-lb-left { flex: none; width: 600px; overflow: hidden; background: var(--tmath-card); }
 body[data-persona="tmath"] .tm-lb-right { flex: 1; min-width: 0; overflow: auto; }
 body[data-persona="tmath"] .tm-lb-left, body[data-persona="tmath"] .tm-lb-right { max-height: 70vh; }
@@ -832,11 +839,12 @@ body[data-persona="tmath"] .tm-lb-pcol { text-align: center; }
 /* card head per the reference: "Kết quả cuộc thi" + counter, then the Cập nhật-lúc row */
 body[data-persona="tmath"] .tm-lb-count { color: var(--tmath-muted-foreground); font-size: 12px; }
 body[data-persona="tmath"] .tm-lb-updated { padding: 10px 16px 8px; color: var(--tmath-muted-foreground); font-size: 13px; }
-/* pass #78: the [You] ghost lives OUTSIDE the scroll wrap, as a sibling of .tm-lb-wrap —
-   a sticky footer inside the wrap floats over the last visible rows (He's clipping);
-   outside it can only ever sit below the table. The IntersectionObserver shows it while
-   the real row is out of view; palette = the same self-row hue + edge bar */
-body[data-persona="tmath"] .tm-lb-ghost { display: flex; align-items: center; border-top: 1px solid var(--tmath-border); background: color-mix(in srgb, var(--tmath-primary) 8%, var(--tmath-background)); box-shadow: inset 3px 0 0 var(--tmath-primary); padding: 10px 16px; }
+/* pass #82 (He's vision): the [You] ghost is a THIRD PANE — an overlay pinned to the
+   split's bottom edge (absolute, inside the scroll region's box) instead of a strip
+   below the card, which "draws another row". It never repositions with scroll, so it
+   cannot enter the stale-raster race the sticky cells lost; the IntersectionObserver
+   shows it while the real row is out of view. Palette = the self-row hue + edge bar. */
+body[data-persona="tmath"] .tm-lb-ghost { position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; display: flex; align-items: center; border-top: 1px solid var(--tmath-border); background: color-mix(in srgb, var(--tmath-primary) 8%, var(--tmath-background)); box-shadow: inset 3px 0 0 var(--tmath-primary); padding: 10px 16px; }
 body[data-persona="tmath"] .tm-lb-ghost[hidden] { display: none; }
 body[data-persona="tmath"] .tm-lb-ghost .tm-lb-rank { min-width: 30px; height: 30px; font-size: 13px; }
 body[data-persona="tmath"] .tm-lb-ghost .tm-lb-ghost-stats { margin-left: 12px; color: var(--tmath-foreground); }

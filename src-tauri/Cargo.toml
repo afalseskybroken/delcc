@@ -1,6 +1,6 @@
 [package]
 name = "delcc-app"
-version = "0.2.28-alpha"
+version = "0.2.29-alpha"
 description = "delcc — custom frontend (not TMATH's work)"
 authors = ["He"]
 edition = "2021"

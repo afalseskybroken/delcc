@@ -53,7 +53,7 @@ npm run tauri build  # bundle phát hành (MSI/NSIS trên Windows)
 Chế độ chỉ-frontend đủ cho đăng nhập và danh sách; shell desktop mới có custom
 headers, phần nộp bài, và trình chạy CPH cục bộ.
 
-## Tính năng hiện có (v0.2.28a-alpha)
+## Tính năng hiện có (v0.2.29a-alpha)
 
 Đăng nhập (+ luồng Google) → thi → workspace → bài tập → nộp bài → poll kết
 quả; bảng xếp hạng, bộ lọc bài nộp, tài khoản, cài đặt; CPH biên dịch/chạy cục
