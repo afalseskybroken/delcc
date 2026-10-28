@@ -1037,7 +1037,7 @@ export class TmathApp {
       const abs = date(s.rawDate ?? s.date);
       return abs !== "—" ? abs : String(s.rawDate ?? s.date ?? "");
     };
-    const rowHtml = (s: any): string => `<tr><td><button type="button" class="tm-sub-id" data-source="${esc(s.id)}"${s.can_view_source ? "" : " disabled"} title="${text(s.can_view_source ? "subs.viewSource" : "subs.noSourcePermission")}" aria-label="${text("subs.viewSource")} #${esc(s.id)}">#${esc(s.id)}</button></td><td><a href="#/account?user=${encodeURIComponent(String(s.user ?? ""))}"${ratingStyle(s.user_rating)} title="${esc(String(s.user_display_name ?? s.user ?? "—"))} (@${esc(String(s.user ?? ""))})">${esc(s.user_display_name ?? s.user ?? "—")}</a></td><td><a href="#/problems?code=${encodeURIComponent(String(s.problem ?? ""))}">${esc(s.problem_name ?? s.problem ?? "—")}</a></td><td title="${esc(dateTip(s))}">${isContestScope ? esc(date(s.date)) : esc(ago(s.date))}</td><td>${esc(langName(s.language))}</td><td><span class="tm-result-pill${s.result === "AC" ? " ok" : !s.is_terminal ? " pending" : " bad"}">${esc(s.result ?? s.status ?? "—")}${!s.is_terminal && s.current_testcase ? ` · #${esc(s.current_testcase)}` : ""}</span></td><td><strong>${esc(s.points ?? "—")}</strong></td><td class="tm-col-eye"><button class="tm-icon-button" data-sub="${s.id}" aria-expanded="false"${detailEnabled(s) ? "" : " disabled"} title="${detailEnabled(s) ? text("subs.details") : text(s.can_view_detail ? "subs.waitGrading" : "subs.noDetailPermission")}" aria-label="${text("subs.showDetails", { n: String(s.id) })}">${eyeSvg}</button></td></tr>`;
+    const rowHtml = (s: any): string => `<tr><td><button type="button" class="tm-sub-id" data-source="${esc(s.id)}"${s.can_view_source ? "" : " disabled"} title="${text(s.can_view_source ? "subs.viewSource" : "subs.noSourcePermission")}" aria-label="${text("subs.viewSource")} #${esc(s.id)}">#${esc(s.id)}</button></td><td><a href="#/account?user=${encodeURIComponent(String(s.user ?? ""))}"${ratingStyle(s.user_rating)} title="${esc(String(s.user_display_name ?? s.user ?? "—"))} (@${esc(String(s.user ?? ""))})">${esc(s.user_display_name ?? s.user ?? "—")}</a></td><td><a href="#/problems?code=${encodeURIComponent(String(s.problem ?? ""))}">${esc(s.problem_name ?? s.problem ?? "—")}</a></td><td title="${esc(dateTip(s))}">${esc(ago(s.date))}</td><td>${esc(langName(s.language))}</td><td><span class="tm-result-pill${s.result === "AC" ? " ok" : !s.is_terminal ? " pending" : " bad"}">${esc(s.result ?? s.status ?? "—")}${!s.is_terminal && s.current_testcase ? ` · #${esc(s.current_testcase)}` : ""}</span></td><td><strong>${esc(s.points ?? "—")}</strong></td><td class="tm-col-eye"><button class="tm-icon-button" data-sub="${s.id}" aria-expanded="false"${detailEnabled(s) ? "" : " disabled"} title="${detailEnabled(s) ? text("subs.details") : text(s.can_view_detail ? "subs.waitGrading" : "subs.noDetailPermission")}" aria-label="${text("subs.showDetails", { n: String(s.id) })}">${eyeSvg}</button></td></tr>`;
     // expanded details survive the 10s poll repaint (audit): the detail row element
     // is kept per submission id and re-inserted after its (repainted) summary row
     const openDetails = new Map<string, { row: HTMLTableRowElement; btn: HTMLButtonElement }>();
@@ -1451,14 +1451,31 @@ export class TmathApp {
       const username = String(e.username ?? "");
       const you = !!me && username === me;
       const cells = Array.isArray(e.problem_cells) ? e.problem_cells : [];
-      return `<tr class="tm-lb-row${you ? " you" : ""}"><td class="tm-lb-sticky c1"><span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span></td><td class="tm-lb-sticky c2"><a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)}${you ? ` <span class="tm-tag tm-lb-you">${text("rankings.you")}</span>` : ""}</td><td class="tm-lb-sticky c3"><b>${esc(fmtNum(e.points))}</b></td><td class="tm-lb-sticky c4">${esc(fmtClock(e.cumulative_time))}</td>${problems.map((_, i) => cellHtml(cells[i])).join("")}</tr>`;
+      return `<tr class="tm-lb-row${you ? " you" : ""}"><td class="tm-lb-sticky c1"><span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span></td><td class="tm-lb-sticky c2"><span class="tm-lb-name"><a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)}${you ? ` <span class="tm-tag tm-lb-you">${text("rankings.you")}</span>` : ""}</span></td><td class="tm-lb-sticky c3"><b>${esc(fmtNum(e.points))}</b></td><td class="tm-lb-sticky c4">${esc(fmtClock(e.cumulative_time))}</td>${problems.map((_, i) => cellHtml(cells[i])).join("")}</tr>`;
     };
     const tabWord = text("contests.tabWord");
+    // pass #69: the [You] row STAYS in its rank position; a ghost twin pinned to the
+    // wrapper's bottom edge appears only while the real row is scrolled out of range
+    // (IntersectionObserver on the real row). Rebuilt per paint, disposed with the view.
+    let ghost: HTMLTableRowElement | null = null;
+    let youObserver: IntersectionObserver | null = null;
     const paint = (): void => {
-      const tbody = host.querySelector("tbody"); if (tbody) tbody.innerHTML = entries.map(rowHtml).join("");
-      // stickied own row: moved to the table tail so position:sticky;bottom holds it on screen
+      const tbody = host.querySelector("tbody");
+      if (tbody) tbody.innerHTML = entries.map(rowHtml).join("");
       const you = tbody?.querySelector("tr.you");
-      if (you) tbody!.append(you);
+      const wrap = host.querySelector<HTMLElement>(".tm-lb-wrap");
+      ghost?.remove(); ghost = null;
+      youObserver?.disconnect(); youObserver = null;
+      if (you && wrap) {
+        ghost = you.cloneNode(true) as HTMLTableRowElement;
+        ghost.classList.add("tm-lb-ghost");
+        ghost.style.display = "none";
+        tbody!.append(ghost);
+        youObserver = new IntersectionObserver(entries => {
+          for (const e of entries) if (ghost) ghost.style.display = e.isIntersecting ? "none" : "";
+        }, { root: wrap, threshold: 0 });
+        youObserver.observe(you);
+      }
       const stamp = host.querySelector<HTMLElement>("[data-lb-updated]");
       if (stamp) stamp.textContent = text("rankings.updatedAt", { t: new Date().toLocaleTimeString(getLocale()) });
     };
@@ -1481,7 +1498,7 @@ export class TmathApp {
       }).catch(() => { /* transient — next tick retries */ });
     }, 30_000);
     const previous = this.disposeView;
-    this.disposeView = () => { previous?.(); window.clearInterval(poll); };
+    this.disposeView = () => { previous?.(); window.clearInterval(poll); youObserver?.disconnect(); };
   }
 
   // official ig: eg(value) persists + repaints; the menu updates trigger/check in place, then closes
