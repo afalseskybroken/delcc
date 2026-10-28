@@ -59,9 +59,12 @@ it in spirit, whatever the repo says:
 4. **The versioning law** in README.md, including the two-spellings rule and the
    pipe-eaten-exit warning. It exists because it was violated once and cost a
    night.
-5. **The license**: CC BY-NC-SA 4.0 — open, non-commercial, share-alike. The
-   no-closed-fork clause is not a preference; it is how this project stays
-   inspectable after its author stops watching.
+5. **The license**: PolyForm Noncommercial 1.0.0 (pass #75, was CC BY-NC-SA
+   4.0) — non-commercial only, written for software, explicit patent grant.
+   Honest note: PolyForm has no ShareAlike clause, so a fork may keep its
+   changes closed (it stays non-commercial); the forced-open-fork property of
+   the old CC SA is gone. If that property is ever needed again, the planned
+   revisit is the Fair Core License family.
 6. **The ledger.** Every pass gets a `todo.md` entry: what, why, hashes, gates.
    This is how a distributed, relay-driven workflow stayed coherent — keep it.
 
@@ -87,9 +90,11 @@ thing worth inheriting.
 
 ## If the maintainer disappears tomorrow
 
-Fork it — that is what the license is for. delcc is **CC BY-NC-SA 4.0**
-([LICENSE](../LICENSE)): any fork inherits non-commercial + share-alike, so a
-closed fork is legally excluded from the start, not just frowned upon. The repo
+Fork it — that is what the license is for. delcc is **PolyForm Noncommercial
+1.0.0** ([LICENSE](../LICENSE)): any fork inherits the non-commercial
+constraint, so a commercial takeover is legally excluded from the start, not
+just frowned upon. A fork may keep its changes closed (PolyForm has no
+ShareAlike) — the inspectability of THIS repo is what the license protects. The repo
 stands on its own. The docs in this set plus the ledger contain the operating
 knowledge. Start a `todo.md` pass entry with your name on it — that is how
 every maintainer here signed their work, and how you sign yours.

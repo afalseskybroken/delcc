@@ -59,9 +59,11 @@ tinh thần, bất kể repo ghi gì:
    user-first phải chỉ cho người dùng biết xác chết chôn ở đâu.
 4. **Luật versioning** trong README.md, gồm luật hai cách viết và cảnh báo
    pipe-eaten-exit. Nó tồn tại vì từng bị vi phạm và phí mất một đêm.
-5. **Giấy phép**: CC BY-NC-SA 4.0 — mở, không thương mại, share-alike. Mệnh đề
-   cấm fork đóng không phải sở thích; đó là cách dự án này giữ được tính kiểm
-   toán được sau khi tác giả ngừng nhìn nó.
+5. **Giấy phép**: PolyForm Noncommercial 1.0.0 (pass #75, trước đây là
+   CC BY-NC-SA 4.0) — chỉ phi thương mại, viết riêng cho phần mềm, có điều khoản
+   sáng chế rõ ràng. Nói thẳng: PolyForm không có ShareAlike, nên fork được phép
+   đóng thay đổi của mình (vẫn phải phi thương mại); tính "fork buộc mở" của CC
+   SA cũ không còn. Nếu cần lại tính đó, hướng revisit đã định là họ Fair Core.
 6. **Sổ cái.** Mọi pass được ghi một entry vào `todo.md`: what, why, hashes,
    gates. Công việc phân tán, relay-driven vẫn giữ tính nhất quán là nhờ nó. Giữ.
 
@@ -86,9 +88,12 @@ Phương pháp đó — không phải tính năng nào cả — mới là thứ 
 
 ## Nếu maintainer biến mất ngày mai
 
-Fork nó — đó chính là lý do giấy phép tồn tại. delcc là **CC BY-NC-SA 4.0**
-([LICENSE](../LICENSE)): mọi fork kế thừa non-commercial + share-alike, nên fork
-đóng bị loại trừ về pháp lý ngay từ đầu, không chỉ bị nhíu mày. Repo tự đứng
+Fork nó — đó chính là lý do giấy phép tồn tại. delcc là **PolyForm
+Noncommercial 1.0.0** ([LICENSE](../LICENSE)): mọi fork kế thừa ràng buộc
+phi-thương-mại, nên chiếm dụng thương mại bị loại trừ về pháp lý ngay từ đầu,
+không chỉ bị nhíu mày. Fork có thể giữ thay đổi của mình ở chế độ đóng
+(PolyForm không có ShareAlike) — giấy phép bảo vệ tính kiểm-toán-được của CHÍNH
+repo này. Repo tự đứng
 được. Các doc trong bộ này cộng sổ cái chứa toàn bộ tri thức vận hành. Mở một
 pass entry `todo.md` với tên của bạn — mọi maintainer ở đây ký công việc của họ
 như vậy, và bạn cũng ký vậy.

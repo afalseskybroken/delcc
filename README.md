@@ -20,7 +20,9 @@ in [SECURITY.md](docs/SECURITY.md); that list is the contract.
 | [SECURITY.md](docs/SECURITY.md) | The complete network surface, data-at-rest inventory, known gaps |
 | [SUCCESSION.md](docs/SUCCESSION.md) | The maintainer handoff: read order, non-negotiables, how to take over |
 | [DISTRIBUTED.md](docs/DISTRIBUTED.md) | Helping with compute or code via PRs — the worker, the doctrine, the anti-botnet checklist |
-| `todo.md` / `states.md` | The ledger — every pass since the beginning, and current feature state |
+| `todo.md` / `states.md` | The ledger — every pass since the beginning, and current feature state *(maintainer-private, deliberately not in the public repo — see [PUBLISH.md](docs/PUBLISH.md))* |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to build, gate, and land a change — commit prefixes, the test battery, doctrine digest |
+| [AGENTS.md](AGENTS.md) | Standing instructions for coding agents working on delcc |
 
 ## The trees (layouts)
 
@@ -35,7 +37,7 @@ delcc boots one of three layouts (`src/main.ts`):
 ## Quick start
 
 ```
-cd delcc-app
+cd delcc              # the clone directory is named after the repo
 npm install
 npm run dev          # frontend only, plain browser
 npm run tauri dev    # full desktop shell (needs Rust — see BUILDING.md)
@@ -46,7 +48,7 @@ Frontend-only mode covers login and lists; the desktop shell adds custom
 headers, submissions, and the local CPH runner. Per-platform details,
 prerequisites, and caveats: [BUILDING.md](docs/BUILDING.md).
 
-## What works (v0.2.1a-alpha)
+## What works (v0.2.23a-alpha)
 
 Login (+ Google flow) → contests → workspace → problem → submit → verdict
 poll; rankings, submissions filters, account, settings; local CPH
@@ -54,35 +56,57 @@ compile/run with per-case limits; multi-profile quick-login with silent
 refresh; i18n (EN / VI / ZH). Errors surface as human text per status —
 never a bare code.
 
-## Contract (read-only, outside this folder)
+## Contract (read-only)
 
-- `../docs/api-docs.md` — endpoint checklist
-- `../tools/openapi-frontend.json` — machine contract
+The API surface is read-only from delcc's side — the app never invents
+endpoints. The human checklist and its machine mirror live in the maintainer
+workspace (private by design); the public canon is the judge's live spec:
+
+- `https://oj.tmathcoding.vn/api/v3/openapi.json` — the judge's own OpenAPI document, public
+- `../docs/api-docs.md`, `../tools/openapi-frontend.json` — private mirrors of it (maintainer workspace)
 - `../delcc/index.html` — PoC reference (kept, not imported)
 
 ## Theming
 Unthemed on purpose. `src/app.css` is the guest-themer lane
 (Claude Sonnet 5.5) — structure stays, palette is theirs.
 
+## Notices
+
+- **Not TMATH's work.** delcc is an independent community client; "TMATH" and
+  the official client belong to their respective owners. delcc ships no official
+  code or assets (the API it calls is documented and public).
+- **Contests and proctored exams**: do not use delcc in any graded, ranked, or
+  proctored contest unless the contest operator explicitly allows third-party
+  clients. The official client ships exam-proctoring machinery (clipboard,
+  fullscreen, lock); delcc deliberately ships none — read that as a boundary,
+  not an invitation.
+
 ## License
 
-**CC BY-NC-SA 4.0** (`SPDX: CC-BY-NC-SA-4.0`, full text in [LICENSE](LICENSE)) —
-chosen deliberately, not by default:
+**PolyForm Noncommercial 1.0.0** (`SPDX: PolyForm-Noncommercial-1.0.0`, full
+text in [LICENSE](LICENSE)) — chosen deliberately, not by default:
 
 - **You may**: use it, study it, modify it, redistribute it, run it anywhere —
-  for any *non-commercial* purpose. School, club, personal, judge-community use:
-  all fine, no permission needed.
+  for any *non-commercial* purpose. School, club, personal, judge-community
+  use: all fine, no permission needed. PolyForm is written for software and
+  includes an explicit **patent grant** (the CC license this replaced had none).
 - **You may not**: commercialize it (sell it, bundle it into a paid product,
-  run it primarily for commercial advantage) — and any fork or adaptation must
-  carry this same license (**ShareAlike**). Closed forks are excluded by design:
-  if you build on delcc, your changes are readable too.
+  run it primarily for commercial advantage).
+- **Honest difference from the old CC BY-NC-SA 4.0**: PolyForm NC has **no
+  ShareAlike clause** — a fork is not forced to publish its changes (it must
+  stay non-commercial and carry this license's notices, but it may keep its
+  code closed). The non-commercialization constraint — the project's actual
+  identity — is unchanged; the forced-openness of forks is a trade documented
+  here rather than hidden. If the project ever needs a free-for-noncommercial +
+  closed-fork-excluding combination again, the planned revisit is the Fair Core
+  License family.
 - **Honest framing**: this is *source-available*, not OSI open source — the OSI
   definition forbids field-of-use limits, and the no-commercialization limit is
-  the point here. The FSF recommends against CC licenses for code; this project
-  chose NC + SA anyway because those two constraints are its identity, and no
-  software-native license encodes both. That trade is documented, not hidden.
+  the point here.
 - **Escape hatch**: copyright remains with the maintainer(s), who may relicense
   future versions; contributions are accepted under the same license.
+
+Required Notice: Copyright afalseskybroken and delcc contributors (https://github.com/afalseskybroken/delcc)
 
 ## Versioning (His scheme — LLMs, read this before touching versions)
 `v[BREAKING].[NON_BREAKING].[TWEAK][MATURITY]`

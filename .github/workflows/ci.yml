@@ -1,0 +1,65 @@
+# delcc CI — pass #75. Gate battery on every push/PR to main.
+# Actions captures real per-step exit codes natively; do NOT pipe steps through
+# filters here (the pipe-eaten-exit-code trap is documented in AGENTS.md).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: typecheck
+        run: npx tsc --noEmit
+      - name: i18n parity (en-US, vi-VN, zh-CN + Dict interface)
+        run: node scripts/lint-i18n.mjs
+      - name: version consistency (manifests + README release names)
+        run: node scripts/lint-versions.mjs
+      - name: markdown suite
+        run: node --experimental-vm-modules scripts/test-tmath-md.mjs
+      - name: unwrap-bundle suite
+        run: node --experimental-vm-modules scripts/test-unwrap-bundle.mjs
+      - name: session integrity suite
+        run: node --experimental-vm-modules tools/verify-session-integrity.mjs
+      - name: security markup suite
+        run: node --test scripts/security-markup.test.mjs
+      - name: production build
+        run: npx vite build
+      - name: dependency audit (production, high+)
+        run: npm audit --omit=dev --audit-level=high
+
+  rust:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: frontend dist (cargo's generate_context! embeds ../dist)
+        run: npx vite build
+      - name: rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+      - name: cargo build (tmath lane, debug — mirrors the dev-box oracle loop)
+        run: cargo build
+        working-directory: src-tauri
+        env:
+          DELCC_LAYOUT: tmath
+      - name: clippy (advisory — warnings do not block)
+        run: cargo clippy
+        working-directory: src-tauri
+        env:
+          DELCC_LAYOUT: tmath

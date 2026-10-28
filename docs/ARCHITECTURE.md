@@ -47,7 +47,9 @@ preference:
    bridge (`window.__TAURI_INTERNALS__` present). The probe is a shared
    promise: N concurrent first callers trigger exactly one probe, and its
    result (bridge found / null) is cached for the session. Test coverage:
-   `tools/claude11/verify/transport-probe.test.ts`.
+   `tools/claude11/verify/transport-probe.test.ts` (that lane payload and the
+   harness were removed in pass #75 — the harness had rotted to 0/6; the
+   transport path is covered by session-integrity and security-markup).
 2. **WebView `fetch`** — plain-browser fallback.
 
 Why Rust-first: the WebView fetch stack failed with `Failed to fetch` against
@@ -109,7 +111,7 @@ optional disposer:
 - Submissions/verdict: poll-based (2 s) with a shared verdict mapper
   (`src/lib/verdict.ts`) and the official result-color mapping.
 - i18n: three locales (`src/i18n/`, `en-US` / `vi-VN` / `zh-CN`), flat dot-key
-  dicts typed by `Dict`; drift lint in `tools/claude11/verify/i18n-lint.mjs`
+  dicts typed by `Dict`; drift lint in `scripts/i18n-lint.mjs` (pass #75)
   (exit 1 + JSON report on key drift).
 - Preferences/theme: `src/tmath/preferences.ts`, light/dark/system.
 
@@ -134,9 +136,9 @@ buried). Key structures:
   feature flag on purpose — see the module comment).
 - **Output caps**: 1 MiB/stream; exceeding is an explicit RE, never a clipped WA.
 
-Tests: `tools/claude11/verify/cph_tests.rs` (`mod t` + `mod stop_semantics`,
+Tests: the pass-#50 scratch-crate recipes (`tools/claude11/verify/cph_tests.rs` header —
 run via the scratch-crate recipe in the file header) and
-`tools/claude11/verify/cph_capture_tests.rs`.
+`tools/claude11/verify/cph_capture_tests.rs` — lane payload removed in pass #75; the verified FFI shipped default-on).
 
 ## Data at rest
 
@@ -149,7 +151,7 @@ CPH uses per-run temp dirs. Full inventory and gaps: SECURITY.md.
 Run before calling anything done (Pass #38's gate list is the precedent):
 
 1. `npx tsc --noEmit` — 0 errors
-2. `node tools/claude11/verify/i18n-lint.mjs src/i18n` — exit 0
+2. `node scripts/lint-i18n.mjs` — exit 0
 3. `npm run build` — tsc + vite, clean (watch for the stale-dist pattern:
    confirm no dev vite running before cargo builds)
 4. `cargo build` in `src-tauri/` — **verify the real exit code** (see the

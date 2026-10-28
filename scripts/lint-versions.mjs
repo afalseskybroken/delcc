@@ -24,8 +24,9 @@ const cargoVersion = /^version\s*=\s*"([^"]+)"/m.exec(cargo)?.[1];
 if (cargoVersion !== machine) fail(`Cargo.toml version ${JSON.stringify(cargoVersion)} != package.json ${JSON.stringify(machine)}`);
 if (conf.version !== machine) fail(`tauri.conf.json version ${JSON.stringify(conf.version)} != package.json ${JSON.stringify(machine)}`);
 
-// human release-name spelling: v0.2.23a-alpha (maturity letter, tag verbatim)
-const name = `v${breaking}.${wave}.${tweak}${maturity[0]}-${maturity}`;
+// human release-name spelling inside the parentheses: 0.2.23a-alpha (the `v` prefix
+// is consumed by the heading regex below — keep this value prefix-free to match)
+const name = `${breaking}.${wave}.${tweak}${maturity[0]}-${maturity}`;
 const readmeEn = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
 const readmeVi = fs.readFileSync(path.join(root, 'README.vi.md'), 'utf8');
 const headingEn = /^## What works \(v([^)]+)\)/m.exec(readmeEn)?.[1];

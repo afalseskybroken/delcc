@@ -28,7 +28,7 @@ Ghi chú webview theo nền tảng:
 ## Chỉ frontend (không cần Rust)
 
 ```
-cd delcc-app
+cd delcc   # the clone directory is named after the repo
 npm install
 npm run dev      # vite dev server — login/danh sách chạy trên trình duyệt thuần
 npm run build    # tsc + vite → dist/
@@ -40,7 +40,7 @@ shell; view chi tiết, nộp bài và CPH cần build Tauri đầy đủ.
 ## Build đầy đủ (Tauri)
 
 ```
-cd delcc-app
+cd delcc   # the clone directory is named after the repo
 npm run tauri dev     # shell dev với hot reload
 npm run tauri build   # bundle release; targets: "all" (xem src-tauri/tauri.conf.json)
 ```
@@ -96,11 +96,18 @@ tiêu đề client chính thức để dùng liền mạch).
 | Bộ | Lệnh |
 |---|---|
 | Type check | `npx tsc --noEmit` |
-| i18n key drift | `node tools/claude11/verify/i18n-lint.mjs src/i18n` |
-| Transport probe cache | `node --experimental-strip-types --experimental-vm-modules tools/claude11/verify/transport-probe.test.ts src/lib/transport.ts` |
-| CPH stop semantics | công thức scratch-crate ở header `tools/claude11/verify/cph_tests.rs` (`cargo test stop_semantics`) |
-| Solve view (jsdom) | `node tools/claude11/verify/solve-jsdom.test.cjs` |
-| Session integrity | `node tools/verify-session-integrity.mjs` |
+| Lệch khoá i18n (3 locale + interface Dict) | `node scripts/lint-i18n.mjs` |
+| Nhất quán phiên bản (manifests + tên release README) | `node scripts/lint-versions.mjs` |
+| Render markdown của đề bài | `node --experimental-vm-modules scripts/test-tmath-md.mjs` |
+| Bảo mật unwrap bundle | `node --experimental-vm-modules scripts/test-unwrap-bundle.mjs` |
+| Toàn vẹn phiên đăng nhập | `node --experimental-vm-modules tools/verify-session-integrity.mjs` |
+| Security markup | `node --test scripts/security-markup.test.mjs` |
+
+Ghi chú pass #75: các dòng phụ trước đây (transport-probe, công thức
+stop-semantics CPH, solve-jsdom) nằm dưới `tools/claude11/verify/` — payload
+lane đó đã bị xoá; bộ i18n lint được vendor về `scripts/i18n-lint.mjs`
+(`scripts/lint-i18n.mjs` là wrapper). Harness transport-probe vốn đã mục ruỗng
+(0/6 — fixture VM của nó từ chối `import "./applog"` của transport.ts).
 
 Caveat môi trường (ghi ngày 2026-10-25): trên máy dev hiện tại, binary g++ (MinGW)
 khi bị spawn thì segfault và `python3` trên PATH là Store stub, nên các cph test

@@ -1479,7 +1479,10 @@ export class TmathApp {
       if (stamp) stamp.textContent = text("rankings.updatedAt", { t: new Date().toLocaleTimeString(getLocale()) });
     };
     const head = problems.map((p, i) => {
-      const label = p.label ?? `${tabWord} ${this.idxLetters(typeof (p as any).display_index === "number" ? (p as any).display_index : i)}`;
+      // pass #76: K59 ships numeric labels ("0".."9") — Official renders letters, so a
+      // purely numeric label falls back to the "Bài + letter" mapping
+      const raw = p.label == null ? "" : String(p.label);
+      const label = raw && !/^\d+$/.test(raw) ? raw : `${tabWord} ${this.idxLetters(typeof (p as any).display_index === "number" ? (p as any).display_index : i)}`;
       return `<th class="tm-lb-pcol" scope="col"><span>${esc(label)}</span><small>${esc(text("rankings.maxPoints", { n: fmtNum(p.points ?? 0) }))}</small></th>`;
     }).join("");
     const chips = `<div class="tm-chip-row" role="group" aria-label="${text("subs.scopeLabel")}"><button type="button" class="tm-chip active" aria-pressed="true">${text("subs.scopeContest")}</button><button type="button" class="tm-chip" data-lb-global aria-pressed="false">${text("subs.scopeGlobal")}</button></div>`;

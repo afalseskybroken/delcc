@@ -25,7 +25,9 @@ mâu thuẫn.
 | [BUILDING.md](docs/BUILDING.md) | Công cụ build theo từng nền tảng, bộ test, nghi thức phát hành |
 | [SECURITY.md](docs/SECURITY.md) | Toàn bộ bề mặt mạng, dữ liệu lưu trữ tại máy, các điểm yếu đã biết |
 | [SUCCESSION.md](docs/SUCCESSION.md) | Bàn giao maintainer: thứ tự đọc, những điều bất di bất dịch |
-| `todo.md` / `states.md` | Nhật ký dự án — mọi pass từ đầu đến nay, và trạng thái tính năng |
+| `todo.md` / `states.md` | Nhật ký dự án — mọi pass từ đầu đến nay, và trạng thái tính năng *(của maintainer, cố ý không nằm trong repo công khai — xem [PUBLISH.md](docs/PUBLISH.md))* |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Cách build, chạy gate, và đưa thay đổi vào — prefix commit, bộ test, tóm tắt doctrine |
+| [AGENTS.md](AGENTS.md) | Chỉ thị cố định cho coding agent làm việc trên delcc |
 
 ## Các "tree" (layout)
 
@@ -41,7 +43,7 @@ delcc khởi động một trong ba layout (`src/main.ts`):
 ## Chạy nhanh
 
 ```
-cd delcc-app
+cd delcc              # thư mục clone mang tên repo
 npm install
 npm run dev          # chỉ frontend, chạy trên trình duyệt thường
 npm run tauri dev    # shell desktop đầy đủ (cần Rust — xem BUILDING.md)
@@ -51,7 +53,7 @@ npm run tauri build  # bundle phát hành (MSI/NSIS trên Windows)
 Chế độ chỉ-frontend đủ cho đăng nhập và danh sách; shell desktop mới có custom
 headers, phần nộp bài, và trình chạy CPH cục bộ.
 
-## Tính năng hiện có (v0.2.1a-alpha)
+## Tính năng hiện có (v0.2.23a-alpha)
 
 Đăng nhập (+ luồng Google) → thi → workspace → bài tập → nộp bài → poll kết
 quả; bảng xếp hạng, bộ lọc bài nộp, tài khoản, cài đặt; CPH biên dịch/chạy cục
@@ -59,36 +61,56 @@ bộ với giới hạn theo từng test; multi-profile quick-login với silent
 i18n (EN / VI / ZH). Lỗi luôn hiện dưới dạng câu chữ dễ hiểu theo từng mã
 trạng thái — không bao giờ là mã trần.
 
-## Hợp đồng API (chỉ đọc, nằm ngoài thư mục này)
+## Hợp đồng API (chỉ đọc)
 
-- `../docs/api-docs.md` — danh mục endpoint
-- `../tools/openapi-frontend.json` — hợp đồng máy đọc được
+Bề mặt API là **chỉ-đọc** từ phía delcc — app không tự bịa endpoint. Checklist
+dạng người-đọc và bản máy của nó nằm trong workspace của maintainer (private
+có chủ đích); chuẩn công khai là spec sống của sàn:
+
+- `https://oj.tmathcoding.vn/api/v3/openapi.json` — tài liệu OpenAPI của chính sàn, công khai
+- `../docs/api-docs.md`, `../tools/openapi-frontend.json` — bản mirror riêng (maintainer workspace)
 - `../delcc/index.html` — tham chiếu PoC (giữ lại, không import)
 
 ## theming
 Cố ý chưa theme. `src/app.css` là lane cho guest-themer
 (Claude Sonnet 5.5) — cấu trúc giữ nguyên, bảng màu là của họ.
 
+## thông báo
+
+- **Không phải sản phẩm của TMATH.** delcc là client cộng đồng độc lập;
+  "TMATH" và client chính thức thuộc về chủ sở hữu tương ứng. delcc không
+  ship bất kỳ code/asset chính thức nào (API nó gọi là API công khai, đã tài liệu hoá).
+- **Thi đấu và thi có giám sát**: đừng dùng delcc trong kỳ thi có điểm, có xếp
+  hạng, hoặc có giám sát trừ khi ban tổ chức cho phép rõ ràng client bên thứ ba.
+  Client chính thức gắn cả khối máy giám sát thi (clipboard, fullscreen, khoá
+  máy); delcc cố ý không ship gì trong số đó — hãy đọc đó là ranh giới,
+  không phải lời mời.
+
 ## giấy phép
 
-**CC BY-NC-SA 4.0** (`SPDX: CC-BY-NC-SA-4.0`, toàn văn trong [LICENSE](LICENSE)) —
-chọn có chủ đích, không phải mặc định:
+**PolyForm Noncommercial 1.0.0** (`SPDX: PolyForm-Noncommercial-1.0.0`, toàn văn
+trong [LICENSE](LICENSE)) — chọn có chủ đích, không phải mặc định:
 
 - **Bạn được**: sử dụng, nghiên cứu, sửa đổi, phân phối lại, chạy ở bất cứ đâu —
   cho mọi mục đích *phi thương mại*. Dùng trong trường học, CLB, cá nhân, cộng
-  đồng sàn thi đấu: đều ổn, không cần xin phép.
+  đồng sàn thi đấu: đều ổn, không cần xin phép. PolyForm viết riêng cho phần
+  mềm và có điều khoản cấp bằng sáng chế rõ ràng (giấy phép CC cũ không có).
 - **Bạn không được**: thương mại hoá (bán, đóng gói vào sản phẩm có phí, vận hành
-  chủ yếu vì lợi thế thương mại) — và mọi fork/phái sinh phải mang chính giấy
-  phép này (**ShareAlike**). Fork đóng bị loại trừ ngay từ thiết kế: xây trên
-  delcc thì thay đổi của bạn cũng phải minh bạch.
+  chủ yếu vì lợi thế thương mại).
+- **Nói thẳng về khác biệt so với CC BY-NC-SA 4.0 cũ**: PolyForm NC **không có
+  mệnh đề ShareAlike** — fork không bị buộc phải công khai thay đổi của mình
+  (nhưng vẫn phải phi thương mại và mang các notice của giấy phép này). Ràng
+  buộc không-thương-mại-hoá — bản sắc thật của dự án — giữ nguyên; tính "fork
+  buộc phải mở" là một đánh đổi được ghi lại ở đây, không giấu. Nếu dự án cần
+  lại tổ hợp phi-thương-mại + cấm-fork-đóng, hướng revisit đã định là họ giấy
+  phép Fair Core.
 - **Nói thẳng**: đây là *source-available*, không phải open source theo OSI —
   định nghĩa OSI cấm giới hạn lĩnh vực sử dụng, còn giới hạn không-thương-mại hoá
-  chính là điểm của dự án này. FSF khuyến cáo không dùng giấy phép CC cho code;
-  dự án vẫn chọn NC + SA vì hai ràng buộc đó là bản sắc của nó, và không có giấy
-  phép "thuần phần mềm" nào mã hoá được cả hai. Sự đánh đổi này được ghi lại,
-  không giấu.
+  chính là điểm của dự án này.
 - **Lối thoát**: bản quyền thuộc về maintainer, người có thể cấp lại giấy phép
   cho các phiên bản tương lai; đóng góp được nhận theo cùng giấy phép.
+
+Required Notice: Copyright afalseskybroken and delcc contributors (https://github.com/afalseskybroken/delcc)
 
 ## versioning (luật của He — LLM, đọc trước khi đụng vào phiên bản)
 `v[BREAKING].[NON_BREAKING].[TWEAK][MATURITY]`

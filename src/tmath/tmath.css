@@ -772,8 +772,16 @@ body[data-persona="tmath"] .tm-table tr.tm-row-attempted > td { background: colo
    structurally impossible here), solid verdict tiles in the carve's dark palette,
    row hover = accent, self row = blue hue, tabular numerals, 70vh scroll wrapper */
 body[data-persona="tmath"] .tm-lb-wrap { max-height: 70vh; overflow: auto; }
+body[data-persona="tmath"] .tm-lb-meta { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; padding: 0 2px 10px; color: var(--tmath-muted-foreground); font-size: 13px; }
 body[data-persona="tmath"] .tm-lb-table { border-collapse: separate; border-spacing: 0; white-space: nowrap; width: 100%; table-layout: fixed; min-width: 100%; font-variant-numeric: tabular-nums; }
 body[data-persona="tmath"] .tm-lb-table thead th { position: sticky; top: 0; z-index: 1; background: var(--tmath-muted); color: var(--tmath-muted-foreground); padding-top: 1px; padding-bottom: 1px; font-size: 12px; }
+/* pass #76: table-layout: fixed reads widths from the FIRST ROW (the header) — the #73
+   widths lived on body cells and were ignored, collapsing the four info columns to ~0
+   (He's "Re/Us/To/Ti" + vertical names). The problem columns keep their 120px. */
+body[data-persona="tmath"] .tm-lb-table thead th:nth-child(1) { width: 72px; }
+body[data-persona="tmath"] .tm-lb-table thead th:nth-child(2) { width: 230px; }
+body[data-persona="tmath"] .tm-lb-table thead th:nth-child(3) { width: 120px; }
+body[data-persona="tmath"] .tm-lb-table thead th:nth-child(4) { width: 120px; }
 body[data-persona="tmath"] .tm-lb-table tbody th,
 body[data-persona="tmath"] .tm-lb-table tbody td { height: 64px; padding-top: 7px; padding-bottom: 7px; }
 body[data-persona="tmath"] .tm-lb-table th:nth-child(n+3),

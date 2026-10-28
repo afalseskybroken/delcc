@@ -45,7 +45,9 @@ transport làm ranh giới này tường minh — xem bên dưới.
    Tauri (`window.__TAURI_INTERNALS__` tồn tại). Probe là một promise dùng chung:
    N caller đầu chạy đồng thời chỉ tạo đúng MỘT probe, và kết quả của nó (có
    bridge / null) được cache cho cả session. Test:
-   `tools/claude11/verify/transport-probe.test.ts`.
+   `tools/claude11/verify/transport-probe.test.ts` (payload lane lẫn harness đã
+   bị xoá ở pass #75 — harness vốn mục ruỗng 0/6; đường transport hiện được
+   phủ bởi session-integrity và security-markup).
 2. **`fetch` của WebView** — phương án dự phòng cho trình duyệt thuần.
 
 Vì sao Rust-first: fetch stack của WebView từng chết với `Failed to fetch` ở ô
@@ -108,7 +110,7 @@ event + disposer (tuỳ chọn):
   (`src/lib/verdict.ts`) và bảng màu kết quả chính thức.
 - i18n: ba locale (`src/i18n/`, `en-US` / `vi-VN` / `zh-CN`), dict phẳng theo
   khoá chấm, kiểu qua `Dict`; lint drift ở
-  `tools/claude11/verify/i18n-lint.mjs` (exit 1 + báo cáo JSON khi lệch khoá).
+  `scripts/i18n-lint.mjs` (pass #75; exit 1 + báo cáo JSON khi lệch khoá).
 - Preferences/theme: `src/tmath/preferences.ts`, light/dark/system.
 
 ## CPH — trình chạy cục bộ (`src-tauri/src/cph.rs`, UI ở `src/tmath/solve.ts`)
@@ -133,9 +135,9 @@ không chôn ở đâu cả). Cấu trúc then chốt:
 - **Giới hạn output**: 1 MiB/stream; vượt là RE tường minh, không bao giờ là WA
   bị cắt cụt.
 
-Test: `tools/claude11/verify/cph_tests.rs` (`mod t` + `mod stop_semantics`, chạy
+Test: công thức scratch-crate pass-#50 (header `tools/claude11/verify/cph_tests.rs` —
 qua công thức scratch-crate ở header file) và
-`tools/claude11/verify/cph_capture_tests.rs`.
+`tools/claude11/verify/cph_capture_tests.rs` — payload lane bị xoá ở pass #75; FFI đã kiểm chứng ship mặc định-bật).
 
 ## Dữ liệu tại máy
 
@@ -149,14 +151,14 @@ SECURITY.vi.md.
 Chạy trước khi gọi là xong (Pass #38 là tiền lệ):
 
 1. `npx tsc --noEmit` — 0 lỗi
-2. `node tools/claude11/verify/i18n-lint.mjs src/i18n` — exit 0
+2. `node scripts/lint-i18n.mjs` — exit 0
 3. `npm run build` — tsc + vite, sạch (co chừng stale-dist: xác nhận không có
    vite dev đang chạy trước khi cargo build)
 4. `cargo build` trong `src-tauri/` — **xác minh exit code thật** (xem cảnh báo
    pipe-eaten-exit ở mục versioning; nó từng phí mất một đêm)
 5. `cargo test` qua scratch crate cho cph test (công thức ở header test; lưu ý
    caveat môi trường về g++/python3 đã ghi trong queue)
-6. `node tools/claude11/verify/transport-probe.test.ts src/lib/transport.ts`
+6. (đã bỏ — transport-probe thuộc lane payload bị xoá ở pass #75)
 7. Session integrity: `tools/verify-session-integrity.mjs`
 
 ## Phương pháp luận (phần đáng được kế thừa)

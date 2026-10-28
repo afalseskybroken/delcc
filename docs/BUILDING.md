@@ -28,7 +28,7 @@ Platform webview notes:
 ## Frontend only (no Rust needed)
 
 ```
-cd delcc-app
+cd delcc   # the clone directory is named after the repo
 npm install
 npm run dev      # vite dev server — login/lists work in a plain browser
 npm run build    # tsc + vite → dist/
@@ -40,7 +40,7 @@ views, submit, and CPH need the full Tauri build.
 ## Full build (Tauri)
 
 ```
-cd delcc-app
+cd delcc   # the clone directory is named after the repo
 npm run tauri dev     # dev shell with hot reload
 npm run tauri build   # release bundle; targets: "all" (see src-tauri/tauri.conf.json)
 ```
@@ -98,11 +98,18 @@ as "TMATH Code Client", matching the official client's title for seamless use).
 | Suite | Command |
 |---|---|
 | Type check | `npx tsc --noEmit` |
-| i18n key drift | `node tools/claude11/verify/i18n-lint.mjs src/i18n` |
-| Transport probe cache | `node --experimental-strip-types --experimental-vm-modules tools/claude11/verify/transport-probe.test.ts src/lib/transport.ts` |
-| CPH stop semantics | scratch-crate recipe in `tools/claude11/verify/cph_tests.rs` header (`cargo test stop_semantics`) |
-| Solve view (jsdom) | `node tools/claude11/verify/solve-jsdom.test.cjs` |
-| Session integrity | `node tools/verify-session-integrity.mjs` |
+| i18n key drift (3 locales + Dict interface) | `node scripts/lint-i18n.mjs` |
+| Version consistency (manifests + README release names) | `node scripts/lint-versions.mjs` |
+| Markdown statement rendering | `node --experimental-vm-modules scripts/test-tmath-md.mjs` |
+| Unwrap bundle security | `node --experimental-vm-modules scripts/test-unwrap-bundle.mjs` |
+| Session integrity | `node --experimental-vm-modules tools/verify-session-integrity.mjs` |
+| Security markup | `node --test scripts/security-markup.test.mjs` |
+
+Pass #75 note: the former auxiliary rows (transport-probe, CPH stop-semantics
+scratch recipe, solve-jsdom) lived under `tools/claude11/verify/` — that lane
+payload was removed; the i18n linter was vendored to `scripts/i18n-lint.mjs`
+(wrapped by `scripts/lint-i18n.mjs`). The transport-probe harness was already
+rotted (0/6 — its VM fixture rejected transport.ts's `import "./applog"`).
 
 Environment caveat (documented 2026-10-25): on the current dev box, spawned
 MinGW-g++ binaries segfault and PATH `python3` is a Store stub, so cph tests

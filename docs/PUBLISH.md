@@ -81,7 +81,7 @@ the handle and the profile bio, deliberately nowhere else.
 
 **Live: https://github.com/afalseskybroken/delcc** (b5f8163, main; commit linked
 to the account via the noreply email). Note: GitHub displays the license as
-"Other" — its picker does not know CC-BY-NC-SA-4.0; LICENSE in-repo is the
+"Other" — its picker did not know CC-BY-NC-SA-4.0; LICENSE in-repo is the
 authority. About-description nit fixed by hand: it briefly read "independentt".
 
 ```
@@ -93,12 +93,13 @@ gh repo create <repo-name> --public --source=. --push
 ```
 
 Repo-name candidates: `delcc` (taken-or-not: check), `delcc-app`, `tmath-delcc`.
-License is CC BY-NC-SA-4.0 — GitHub's license picker does not know it; the
-LICENSE file in-repo is the authority (that is normal for CC-licensed code).
+License is PolyForm-Noncommercial-1.0.0 (SPDX-listed; pass #75) — GitHub's
+picker should detect it via the SPDX identifier; the LICENSE file in-repo
+is the authority.
 
 ## 5. Post-publish repo settings (once)
 
-- About: "Independent, inspectable TMATH client. No telemetry. CC BY-NC-SA-4.0"
+- About: "Independent, inspectable TMATH client. No telemetry. PolyForm-NC"
   + topics: `tauri`, `competitive-programming`, `judge-client`
 - Default branch `main`; disable Wiki and Projects (docs live in-repo).
 - SECURITY.md will surface automatically in the Security tab; fill the reporting
