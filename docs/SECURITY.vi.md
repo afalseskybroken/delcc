@@ -13,9 +13,9 @@ report, và sửa cái sai. Bản gốc tiếng Anh: [SECURITY.md](SECURITY.md).
 | `www.gravatar.com/avatar/<sha256>` | chỉ khi server giao hash gravatar của chính bạn (self-view, tài khoản có email đăng ký Gravatar) | ảnh avatar của bạn, gọi với `referrerpolicy="no-referrer"`, `d=404` nên không thứ gì khác được fetch |
 
 Các request tự mang theo gì, công khai: call có xác thực mang `Authorization: Bearer <token>`;
-POST nộp bài và đọc chi tiết bài mang `X-Device-Id` (một định danh ngẫu nhiên tại máy, `delcc-…`,
-sinh một lần, giữ trong localStorage, không suy ra từ gì cả — không phải phần cứng, không phải tài
-khoản) và `X-Client-Version`, báo phiên bản mới nhất từ feed release chính thức thay vì phiên bản
+POST nộp bài và đọc chi tiết bài mang `X-Device-Id` (một định danh ngẫu nhiên `delcc-…`
+mới theo mỗi lần khởi app, chỉ nằm trong bộ nhớ, không suy ra từ gì cả — không phải phần cứng,
+không phải tài khoản, không bao giờ lưu; key cũ đã lưu bị xoá khi tải) và `X-Client-Version`, báo phiên bản mới nhất từ feed release chính thức thay vì phiên bản
 của delcc — sàn 426-chặn chuỗi cũ hơn, nên shim này chịu tải cho bất kỳ client độc lập nào. Phán
 quyết của maintainer 2026-10-29: sàn không công bố ToS nào, và shim được công khai rõ ràng
 (README §thông báo, `src/lib/api.ts`) — che giấu mới là điều doctrine cấm, không phải shim.

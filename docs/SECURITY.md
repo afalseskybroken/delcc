@@ -15,8 +15,9 @@ file it, and fix whichever is wrong.
 | `www.gravatar.com/avatar/<sha256>` | only when the server delivers your own gravatar hash (self-view, gravatar-registered account) | your avatar image, requested with `referrerpolicy="no-referrer"`, `d=404` so nothing else is fetched |
 
 What requests themselves carry, disclosed: authenticated calls bear `Authorization: Bearer
-<token>`; submit POSTs and problem-detail reads bear `X-Device-Id` (a random local identifier,
-`delcc-…`, generated once, kept in localStorage, derived from nothing — not hardware, not account)
+<token>`; submit POSTs and problem-detail reads bear `X-Device-Id` (a fresh random identifier
+`delcc-…` per app launch, memory-only, derived from nothing — not hardware, not account, never
+persisted; the legacy stored key is deleted on load)
 and `X-Client-Version`, which reports the newest version from the official release feed rather than
 delcc's own — the judge 426-gates older strings, so this shim is load-bearing for any independent
 client. Maintainer verdict 2026-10-29: the judge publishes no Terms of Service, and the shim is

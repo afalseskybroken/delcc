@@ -143,8 +143,9 @@ export async function raw(
   // tools/delcc-e2e.py). Rust transport has no preflight concept, so send
   // them always; WebView-fetch fallback only on submits (CORS Allow-Headers).
   // X-Client-Version's value: the disclosed 426 shim (maintainer-verdict note
-  // at _clientVersion). X-Device-Id: a random local id (device.ts), derived
-  // from nothing — not hardware, not account.
+  // at _clientVersion). X-Device-Id: one fresh random id per runtime (device.ts,
+  // He's 2026-10-29 anti-tracking verdict) — derived from nothing, never
+  // persisted; the server has only ever demanded the header's presence.
   const inTauri = "__TAURI__" in window || (window as any).__TAURI_INTERNALS__ != null;
   const isSubmit = (opt.method === "POST" || opt.method === "PUT") && /\/submit$/.test(path);
   const isDetail = /\/problems\/[^/]+$/.test(path);
