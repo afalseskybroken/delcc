@@ -1467,12 +1467,21 @@ export class TmathApp {
       ghost?.remove(); ghost = null;
       youObserver?.disconnect(); youObserver = null;
       if (you && wrap) {
-        ghost = you.cloneNode(true) as HTMLTableRowElement;
-        ghost.classList.add("tm-lb-ghost");
+        const me2 = String(this.user?.username ?? "");
+        const e = entries.find(r => String(r?.username ?? "") === me2);
+        ghost = document.createElement("tr");
+        ghost.className = "tm-lb-ghost";
+        const td = document.createElement("td");
+        td.colSpan = 4 + problems.length;
+        if (e) {
+          const username = String(e.username ?? "");
+          td.innerHTML = `<span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span> <a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)} <span class="tm-tag tm-lb-you">${text("rankings.you")}</span><span class="tm-lb-ghost-stats">${text("rankings.totalScore")}: <b>${esc(fmtNum(e.points))}</b> · ${text("subs.time")}: ${esc(fmtClock(e.cumulative_time))}</span>`;
+        }
+        ghost.append(td);
         ghost.style.display = "none";
         tbody!.append(ghost);
-        youObserver = new IntersectionObserver(entries => {
-          for (const e of entries) if (ghost) ghost.style.display = e.isIntersecting ? "none" : "";
+        youObserver = new IntersectionObserver(obs => {
+          for (const en of obs) if (ghost) ghost.style.display = en.isIntersecting ? "none" : "";
         }, { root: wrap, threshold: 0 });
         youObserver.observe(you);
       }
