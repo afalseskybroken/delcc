@@ -1441,73 +1441,49 @@ export class TmathApp {
       (typeof e.participation_type === "number" && e.participation_type > 0 ? ` <span class="tm-lb-virtual" aria-hidden="true">†</span><span class="sr-only">${text("contests.virtualMode")}</span>` : "") +
       (e.participation_type === -1 ? ` <span class="tm-lb-virtual" aria-hidden="true">‡</span>` : "") +
       (e.is_disqualified ? ` <span class="tm-tag tm-lb-dq">DQ</span>` : "");
-    const cellHtml = (c: any): string => {
-      if (!c || !c.has_data) return `<td class="tm-lb-cell empty" aria-label="—">—</td>`;
+    // pass #73 — CARVE COPY (assets__index-Sy2kLOLY.css .leaderboard-*): solid verdict
+    // tiles in the carve's dark palette, score-fastest = the fastest AC per problem
+    // (Official has it), row hover = accent, self row = blue hue. NO sticky columns —
+    // Official has none; every seam/clip/ghost bug this view ever had is structurally
+    // impossible in this shape.
+    const fastest = problems.map((_, i) => {
+      let m = Infinity;
+      for (const e of entries) {
+        const c = (Array.isArray(e?.problem_cells) ? e.problem_cells : [])[i];
+        if (c?.has_data && this.scoreClass(String(c.status ?? "")) === "score-full") {
+          const t = Number(c.time);
+          if (Number.isFinite(t) && t < m) m = t;
+        }
+      }
+      return m;
+    });
+    const cellHtml = (c: any, i: number): string => {
+      if (!c || !c.has_data) return `<td class="score-empty">—</td>`;
+      const tone = this.scoreClass(typeof c.status === "string" ? c.status : "");
+      const isFull = tone === "score-full";
+      const cls = isFull ? (Number(c.time) === fastest[i] ? "score-fastest" : "score-full") : tone === "score-partial" ? "score-partial" : "score-failed";
       const pen = Number(c.penalty);
-      const tone = this.scoreClass(typeof c.status === "string" ? c.status : "") === "score-full" ? "full" : "partial";
-      return `<td class="tm-lb-cell ${tone}"><b>${esc(fmtNum(c.points))}</b><small>${esc(fmtClock(c.time))}${Number.isFinite(pen) && pen > 0 ? ` <span class="tm-lb-pen">(${pen})</span>` : ""}</small></td>`;
+      return `<td class="${cls}"><strong>${esc(fmtNum(c.points))}</strong><small class="score-time">${esc(fmtClock(c.time))}${Number.isFinite(pen) && pen > 0 ? ` <span class="score-penalty">(${pen})</span>` : ""}</small></td>`;
     };
     const rowHtml = (e: any): string => {
       const username = String(e.username ?? "");
       const you = !!me && username === me;
       const cells = Array.isArray(e.problem_cells) ? e.problem_cells : [];
-      return `<tr class="tm-lb-row${you ? " you" : ""}"><td class="tm-lb-sticky c1"><span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span></td><td class="tm-lb-sticky c2"><span class="tm-lb-name"><a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)}${you ? ` <span class="tm-tag tm-lb-you">${text("rankings.you")}</span>` : ""}</span></td><td class="tm-lb-sticky c3"><b>${esc(fmtNum(e.points))}</b></td><td class="tm-lb-sticky c4">${esc(fmtClock(e.cumulative_time))}</td>${problems.map((_, i) => cellHtml(cells[i])).join("")}</tr>`;
+      return `<tr class="tm-lb-row${you ? " leaderboard-self" : ""}"><th scope="row" class="tm-lb-rank-cell"><span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span></th><td class="tm-lb-user"><a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)}${you ? ` <span class="tm-tag tm-lb-you">${text("rankings.you")}</span>` : ""}</td><td class="tm-lb-total"><strong>${esc(fmtNum(e.points))}</strong></td><td class="tm-lb-time">${esc(fmtClock(e.cumulative_time))}</td>${problems.map((_, i) => cellHtml(cells[i], i)).join("")}</tr>`;
     };
     const tabWord = text("contests.tabWord");
-    // pass #69: the [You] row STAYS in its rank position; a ghost twin pinned to the
-    // wrapper's bottom edge appears only while the real row is scrolled out of range
-    // (IntersectionObserver on the real row). Rebuilt per paint, disposed with the view.
-    let ghost: HTMLTableRowElement | null = null;
-    let youObserver: IntersectionObserver | null = null;
     const paint = (): void => {
       const tbody = host.querySelector("tbody");
       if (tbody) tbody.innerHTML = entries.map(rowHtml).join("");
-      const you = tbody?.querySelector("tr.you");
-      const wrap = host.querySelector<HTMLElement>(".tm-lb-wrap");
-      ghost?.remove(); ghost = null;
-      youObserver?.disconnect(); youObserver = null;
-      if (you && wrap) {
-        const me2 = String(this.user?.username ?? "");
-        const e = entries.find(r => String(r?.username ?? "") === me2);
-        ghost = document.createElement("tr");
-        ghost.className = "tm-lb-ghost";
-        const td = document.createElement("td");
-        td.colSpan = 4 + problems.length;
-        if (e) {
-          const username = String(e.username ?? "");
-          td.innerHTML = `<span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span> <a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)} <span class="tm-tag tm-lb-you">${text("rankings.you")}</span><span class="tm-lb-ghost-stats">${text("rankings.totalScore")}: <b>${esc(fmtNum(e.points))}</b> · ${text("subs.time")}: ${esc(fmtClock(e.cumulative_time))}</span>`;
-        }
-        ghost.append(td);
-        ghost.style.display = "none";
-        tbody!.append(ghost);
-        youObserver = new IntersectionObserver(obs => {
-          for (const en of obs) if (ghost) ghost.style.display = en.isIntersecting ? "none" : "";
-        }, { root: wrap, threshold: 0 });
-        youObserver.observe(you);
-      }
       const stamp = host.querySelector<HTMLElement>("[data-lb-updated]");
       if (stamp) stamp.textContent = text("rankings.updatedAt", { t: new Date().toLocaleTimeString(getLocale()) });
-      measureSticky();
-    };
-    // pass #70: the sticky columns' left offsets are MEASURED from the header row (auto
-    // layout is back — fixed layout compressed the tiles away from Official) — the vars
-    // re-measure on every paint and on window resize, so seams can never drift.
-    const measureSticky = (): void => {
-      const table = host.querySelector<HTMLElement>(".tm-lb-table");
-      const head = table?.querySelectorAll<HTMLTableCellElement>("thead .tm-lb-sticky");
-      if (!table || !head) return;
-      head.forEach((c, i) => {
-        // offsetLeft = the COLUMN's true start under auto layout (the widest body cell
-        // — e.g. the [You] row's tag — is accounted for), not a header-width sum
-        table.style.setProperty(`--lb-l${i + 1}`, `${c.offsetLeft}px`);
-      });
     };
     const head = problems.map((p, i) => {
       const label = p.label ?? `${tabWord} ${this.idxLetters(typeof (p as any).display_index === "number" ? (p as any).display_index : i)}`;
       return `<th class="tm-lb-pcol" scope="col"><span>${esc(label)}</span><small>${esc(text("rankings.maxPoints", { n: fmtNum(p.points ?? 0) }))}</small></th>`;
     }).join("");
     const chips = `<div class="tm-chip-row" role="group" aria-label="${text("subs.scopeLabel")}"><button type="button" class="tm-chip active" aria-pressed="true">${text("subs.scopeContest")}</button><button type="button" class="tm-chip" data-lb-global aria-pressed="false">${text("subs.scopeGlobal")}</button></div>`;
-    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("subs.scopeContest")}</div><h1>${text("rankings.contestTitle")}</h1><p class="tm-muted">${esc(this.contest!.name)}</p></div>${chips}</div><div class="tm-lb-meta"><span>${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span><span data-lb-updated role="status"></span></div><section class="tm-card"><div class="tm-table-wrap tm-lb-wrap"><table class="tm-table tm-lb-table"><thead><tr><th class="tm-lb-sticky c1" scope="col" title="${text("rankings.position")}">${text("rankings.rank")}</th><th class="tm-lb-sticky c2" scope="col">${text("rankings.user")}</th><th class="tm-lb-sticky c3" scope="col">${text("rankings.totalScore")}</th><th class="tm-lb-sticky c4" scope="col">${text("subs.time")}</th>${head}</tr></thead><tbody>${entries.map(rowHtml).join("")}</tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div></section>`;
+    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("subs.scopeContest")}</div><h1>${text("rankings.contestTitle")}</h1><p class="tm-muted">${esc(this.contest!.name)}</p></div>${chips}</div><div class="tm-lb-meta"><span>${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span><span data-lb-updated role="status"></span></div><section class="tm-card"><div class="tm-table-wrap tm-lb-wrap"><table class="tm-table tm-lb-table"><thead><tr><th scope="col" title="${text("rankings.position")}">${text("rankings.rank")}</th><th scope="col">${text("rankings.user")}</th><th scope="col">${text("rankings.totalScore")}</th><th scope="col">${text("subs.time")}</th>${head}</tr></thead><tbody>${entries.map(rowHtml).join("")}</tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div></section>`;
     const lbGlobal = host.querySelector<HTMLButtonElement>('[data-lb-global]');
     if (lbGlobal) lbGlobal.onclick = () => this.go("rankings", { scope: "global" });
     paint();
@@ -1520,11 +1496,8 @@ export class TmathApp {
         paint();
       }).catch(() => { /* transient — next tick retries */ });
     }, 30_000);
-    const onResize = measureSticky;
-    window.removeEventListener("resize", onResize);
-    window.addEventListener("resize", onResize);
     const previous = this.disposeView;
-    this.disposeView = () => { previous?.(); window.clearInterval(poll); youObserver?.disconnect(); window.removeEventListener("resize", onResize); };
+    this.disposeView = () => { previous?.(); window.clearInterval(poll); };
   }
 
   // official ig: eg(value) persists + repaints; the menu updates trigger/check in place, then closes

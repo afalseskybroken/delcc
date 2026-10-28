@@ -767,29 +767,23 @@ body[data-persona="tmath"] .tm-table tr.tm-row-solved > td { background: color-m
 body[data-persona="tmath"] .tm-table tr.tm-row-attempted > td { background: color-mix(in srgb, #ef4444 11%, transparent); }
 
 
-/* pass #59 — contest standings (Official "Kết quả cuộc thi" anatomy, He's screenshots):
-   green AC tiles with AC time + red non-AC attempt count, amber partial tiles, grey
-   never-attempted cells, hover row tint, own row tinted + [You], sticky name columns,
-   sticky header row, stickied own row (the QoL outdo) */
-body[data-persona="tmath"] .tm-lb-meta { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; padding: 0 2px 10px; color: var(--tmath-muted-foreground); font-size: 13px; }
-body[data-persona="tmath"] .tm-lb-wrap { max-height: calc(100dvh - 320px); min-height: 220px; overflow: auto; }
-/* pass #72: fixed layout + EXPLICIT px widths on every column — tiles stay Official-length
-   at ANY viewport, columns are deterministic, so the sticky offsets can never disagree */
-body[data-persona="tmath"] .tm-lb-table { border-collapse: separate; border-spacing: 0; position: relative; table-layout: fixed; width: max-content; min-width: 100%; }
-body[data-persona="tmath"] .tm-lb-name { display: block; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-body[data-persona="tmath"] .tm-lb-table thead th { position: sticky; top: 0; z-index: 4; }
-body[data-persona="tmath"] .tm-lb-table .tm-lb-sticky { position: sticky; z-index: 2; background: var(--tmath-card); }
-body[data-persona="tmath"] .tm-lb-table thead .tm-lb-sticky { z-index: 5; }
-body[data-persona="tmath"] .tm-lb-table .c1 { left: var(--lb-l1, 0px); width: 72px; text-align: center; }
-body[data-persona="tmath"] .tm-lb-table .c2 { left: var(--lb-l2, 72px); width: 230px; }
-body[data-persona="tmath"] .tm-lb-table .c3 { left: var(--lb-l3, 302px); width: 120px; text-align: right; }
-body[data-persona="tmath"] .tm-lb-table .c4 { left: var(--lb-l4, 422px); width: 120px; }
-body[data-persona="tmath"] .tm-lb-row:hover td { background-image: linear-gradient(color-mix(in srgb, var(--tmath-primary) 10%, transparent), color-mix(in srgb, var(--tmath-primary) 10%, transparent)); }
-body[data-persona="tmath"] .tm-lb-row:hover td.tm-lb-cell.full,
-body[data-persona="tmath"] .tm-lb-row:hover td.tm-lb-cell.partial { background-image: none; }
-body[data-persona="tmath"] .tm-lb-row.you td { background-image: linear-gradient(color-mix(in srgb, var(--tmath-primary) 14%, transparent), color-mix(in srgb, var(--tmath-primary) 14%, transparent)); }
-body[data-persona="tmath"] .tm-lb-row.you td.tm-lb-cell.full,
-body[data-persona="tmath"] .tm-lb-row.you td.tm-lb-cell.partial { background-image: none; }
+/* pass #73 — REBUILT as a carve copy (assets__index-Sy2kLOLY.css .leaderboard-*):
+   NO sticky columns (only the header pins — every seam/clip/ghost bug this view had is
+   structurally impossible here), solid verdict tiles in the carve's dark palette,
+   row hover = accent, self row = blue hue, tabular numerals, 70vh scroll wrapper */
+body[data-persona="tmath"] .tm-lb-wrap { max-height: 70vh; overflow: auto; }
+body[data-persona="tmath"] .tm-lb-table { border-collapse: separate; border-spacing: 0; white-space: nowrap; width: 100%; table-layout: fixed; min-width: 100%; font-variant-numeric: tabular-nums; }
+body[data-persona="tmath"] .tm-lb-table thead th { position: sticky; top: 0; z-index: 1; background: var(--tmath-muted); color: var(--tmath-muted-foreground); padding-top: 1px; padding-bottom: 1px; font-size: 12px; }
+body[data-persona="tmath"] .tm-lb-table tbody th,
+body[data-persona="tmath"] .tm-lb-table tbody td { height: 64px; padding-top: 7px; padding-bottom: 7px; }
+body[data-persona="tmath"] .tm-lb-table th:nth-child(n+3),
+body[data-persona="tmath"] .tm-lb-table td:nth-child(n+3) { text-align: center; }
+body[data-persona="tmath"] .tm-lb-table th:nth-child(n+5),
+body[data-persona="tmath"] .tm-lb-table td:nth-child(n+5) { padding-left: 8px; padding-right: 8px; }
+body[data-persona="tmath"] .tm-lb-row:hover { background: var(--tmath-accent); }
+body[data-persona="tmath"] .tm-lb-row.leaderboard-self { background: color-mix(in srgb, var(--tmath-primary) 14%, var(--tmath-card)); }
+body[data-persona="tmath"] .tm-lb-rank-cell { width: 72px; text-align: center; }
+body[data-persona="tmath"] .tm-lb-user { width: 230px; overflow-wrap: anywhere; white-space: normal; }
 body[data-persona="tmath"] .tm-lb-rank { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 34px; padding: 0 8px; border-radius: 999px; font-weight: 700; }
 body[data-persona="tmath"] .tm-lb-rank.gold { background: #eab308; color: #271a00; }
 body[data-persona="tmath"] .tm-lb-rank.silver { background: #9ca3af; color: #111827; }
@@ -798,22 +792,18 @@ body[data-persona="tmath"] .tm-lb-you, body[data-persona="tmath"] .tm-lb-dq { pa
 body[data-persona="tmath"] .tm-lb-you { background: var(--tmath-primary); color: var(--tmath-primary-foreground, #fff); }
 body[data-persona="tmath"] .tm-lb-dq { border: 1px solid var(--tmath-destructive); color: var(--tmath-destructive); }
 body[data-persona="tmath"] .tm-lb-virtual { color: var(--tmath-muted-foreground); font-weight: 600; }
-body[data-persona="tmath"] .tm-lb-cell { text-align: center; padding: 10px 12px !important; border-left: 1px solid var(--tmath-border); min-width: 104px; }
-body[data-persona="tmath"] .tm-lb-cell b { display: block; font-size: 14px; }
-body[data-persona="tmath"] .tm-lb-cell small { display: block; font-size: 11px; color: inherit; opacity: .85; }
-body[data-persona="tmath"] .tm-lb-cell.full { background: color-mix(in srgb, #22c55e 18%, var(--tmath-card)); color: color-mix(in srgb, #22c55e 80%, var(--tmath-foreground)); }
-body[data-persona="tmath"] .tm-lb-cell.partial { background: color-mix(in srgb, #f59e0b 16%, var(--tmath-card)); color: color-mix(in srgb, #f59e0b 85%, var(--tmath-foreground)); }
-/* pass #72: the [You] ghost is a SINGLE-CELL bar pinned to the wrapper's bottom edge,
-   visible only while the real row is scrolled out of range (IntersectionObserver) — no
-   clone, no compound sticky, no cell-order fragility */
-body[data-persona="tmath"] .tm-lb-ghost { position: sticky; bottom: 0; z-index: 3; }
-body[data-persona="tmath"] .tm-lb-ghost td { background-color: var(--tmath-card); background-image: linear-gradient(color-mix(in srgb, var(--tmath-primary) 14%, transparent), color-mix(in srgb, var(--tmath-primary) 14%, transparent)); border-top: 1px solid var(--tmath-border); padding: 10px 16px; }
-body[data-persona="tmath"] .tm-lb-ghost .tm-lb-rank { min-width: 30px; height: 30px; font-size: 13px; }
-body[data-persona="tmath"] .tm-lb-ghost .tm-lb-ghost-stats { margin-left: 12px; color: var(--tmath-foreground); }
-body[data-persona="tmath"] .tm-lb-cell.empty { background: color-mix(in srgb, var(--tmath-muted) 60%, var(--tmath-card)); color: var(--tmath-muted-foreground); }
-body[data-persona="tmath"] .tm-lb-pen { color: #f87171; font-weight: 600; }
+body[data-persona="tmath"] .tm-lb-table td.score-full { color: #86efac; background: #163e32; }
+body[data-persona="tmath"] .tm-lb-table td.score-partial { color: #fcd38b; background: #44331f; }
+body[data-persona="tmath"] .tm-lb-table td.score-failed { color: #fda4af; background: #482333; }
+body[data-persona="tmath"] .tm-lb-table td.score-fastest { color: #bbf7d0; background: #20513e; }
+body[data-persona="tmath"] .tm-lb-table td.score-fastest .score-penalty { color: #bbf7d0; }
+body[data-persona="tmath"] .tm-lb-table td.score-empty { color: var(--tmath-muted-foreground); }
+body[data-persona="tmath"] .tm-lb-table .score-penalty { color: #f87171; font-weight: 600; }
+body[data-persona="tmath"] .tm-lb-table small.score-time { display: block; font-size: 11px; line-height: 1.4; font-weight: 400; }
+body[data-persona="tmath"] .tm-lb-table strong { font-weight: 700; }
+body[data-persona="tmath"] .tm-lb-pcol span { display: block; color: var(--tmath-primary); font-weight: 700; }
+body[data-persona="tmath"] .tm-lb-pcol small { display: block; font-weight: 500; opacity: .8; }
 body[data-persona="tmath"] .tm-lb-pcol { text-align: center; width: 120px; }
-body[data-persona="tmath"] .tm-lb-cell { width: 120px; }
 body[data-persona="tmath"] .tm-lb-pcol span { display: block; color: var(--tmath-primary); font-weight: 700; }
 body[data-persona="tmath"] .tm-lb-pcol small { display: block; font-weight: 500; opacity: .8; }
 
