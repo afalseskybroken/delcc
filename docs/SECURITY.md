@@ -44,29 +44,42 @@ solved state — so on first visit delcc reads the public problem list page by p
 dropped when delcc closes, and enables the filters once it completes; until then
 the filters are visibly disabled with a progress line. No storage key is written.
 
-## Authentication data at rest — known gaps, stated plainly
+## Authentication data at rest — the honest picture (as of 0.2.26-alpha)
 
-- Refresh tokens live in the webview's `localStorage` (`delcc-profiles`,
-  `delcc-auth`). On Windows the WebView profile is at
-  `%LOCALAPPDATA%\vn.delcc.app\`. That is **plaintext at rest** on the host.
-- Optional quick-login may store a password per profile. There is a vault lane
-  (`src/lib/vault.ts`, design staged in `docs/passkeys-design.md`) intended to
-  replace plaintext storage; until it ships, the gap is real.
+- Refresh tokens live in the **DPAPI-protected secure store** (pass #78): the Rust
+  shell encrypts them with `CryptProtectData` and writes the blob to
+  `%APPDATA%\vn.delcc.app\secure\*.bin`. The webview's `localStorage` no longer
+  holds tokens; pre-#78 plaintext copies (`delcc-auth`, `delcc-profiles`) migrate
+  on first boot and are deleted. Worst case of a failed migration is a one-time
+  re-login (failures are logged in Settings → Diagnostics, never silent).
+- **DPAPI is not a sandbox.** It is user-scope and machine-bound: malware already
+  running as *your* Windows user can decrypt these blobs, exactly like it could
+  steal the official client's Credential Manager entry. What the move buys: the
+  threat shifts from "read a plaintext file" to "run code as the user" — the same
+  boundary every local client (ours and the official one) sits behind. While in
+  use, tokens still cross the webview IPC and ride memory as Bearer headers —
+  inherent to a webview client, stated here rather than hidden.
+- Plain-browser dev (no Tauri shell) keeps plaintext localStorage — that is the
+  dev lane, not a shipped posture.
+- Optional quick-login may store a password per profile: the vault lane
+  (`src/lib/vault.ts`, AES-GCM behind a PBKDF2 lock hash) is unchanged by #78;
+  wiring it into the tmath layout stays queued.
 - For comparison: the official client persists its refresh token in Windows
   Credential Manager (DPAPI, user scope) and has been observed carrying
-  credentials across its IPC surface in plaintext. delcc's stance: document what
-  we store, ship the vault lane before claiming otherwise, never pretend the
-  gap does not exist.
+  credentials across its IPC surface in plaintext. delcc now matches the at-rest
+  posture and discloses the IPC path.
 
 Mitigations available today: profiles can be tokenless (`needsReauth`), the
 lock feature gates profile use behind a hash, and signing out deletes the
-stored session. Machine-level encryption (DPAPI) for the token store is the
-next planned step — see the vault lane.
+stored session (secure-store blob and localStorage keys).
 
 ## Other data at rest
 
 - drafts/filters/preferences: `localStorage` keys, all prefixed `delcc-`
-  (profiles, auth, drafts, preferences, sidebar, sort orders, subs filters)
+  (drafts, preferences, sidebar, sort orders, subs filters, the active-profile
+  pointer)
+- tokens + saved profiles: DPAPI-protected blobs at
+  `%APPDATA%\vn.delcc.app\secure\*.bin` (see above)
 - CPH build dirs: per-run temp dirs (`delcc-cph-*`), removed on every path;
   cache dir removed on app exit via `cleanup()`
 

@@ -41,29 +41,44 @@ từng trang (năm request song song, nhận biết trang ngắn, có chặn tr�
 trong bộ nhớ, mất khi đóng delcc, và bật bộ lọc khi quét xong; trước đó bộ lọc
 hiện rõ là bị tắt kèm dòng tiến độ. Không ghi key lưu trữ nào.
 
-## Dữ liệu xác thực tại máy — khoảng trống đã biết, nói thẳng
+## Dữ liệu xác thực tại máy — bức tranh trung thực (tính từ 0.2.26-alpha)
 
-- Refresh token nằm trong `localStorage` của webview (`delcc-profiles`,
-  `delcc-auth`). Trên Windows, profile WebView ở
-  `%LOCALAPPDATA%\vn.delcc.app\`. Đó là **plaintext tại máy** trên host.
-- Quick-login (tuỳ chọn) có thể lưu mật khẩu theo profile. Đã có lane vault
-  (`src/lib/vault.ts`, thiết kế stage ở `docs/passkeys-design.md`) nhằm thay thế
-  việc lưu plaintext; cho tới khi nó ship, khoảng trống là thật.
+- Refresh token nằm trong **secure store mã hoá DPAPI** (pass #78): shell Rust
+  mã hoá bằng `CryptProtectData` và ghi blob vào
+  `%APPDATA%\vn.delcc.app\secure\*.bin`. `localStorage` của webview không còn
+  giữ token; các bản plaintext trước #78 (`delcc-auth`, `delcc-profiles`) được
+  migrate ở lần boot đầu rồi bị xoá. Trường hợp xấu nhất của migration thất bại
+  là đăng nhập lại một lần (lỗi được log trong Settings → Diagnostics, không
+  bao giờ im lặng).
+- **DPAPI không phải sandbox.** Nó ở scope user và gắn vào máy: malware đã
+  chạy bằng user Windows *của bạn* giải mã được các blob này, y như nó có thể
+  đánh cắp entry Credential Manager của client chính thức. Điều migrate này
+  mua được: mối đe doạ dịch từ "đọc được file plaintext" thành "chạy code bằng
+  user" — đúng ranh giới mà mọi client local (cả của mình lẫn chính thức) đang
+  đứng sau. Khi đang dùng, token vẫn đi qua IPC của webview và nằm trong bộ
+  nhớ dưới dạng Bearer header — điều vốn có của một webview client, nói rõ ở
+  đây thay vì giấu.
+- Dev bằng browser thường (không có shell Tauri) vẫn dùng localStorage
+  plaintext — đó là lane dev, không phải tư thế ship.
+- Quick-login (tuỳ chọn) có thể lưu mật khẩu theo profile: lane vault
+  (`src/lib/vault.ts`, AES-GCM sau hash PBKDF2) không đổi bởi #78; việc nối nó
+  vào layout tmath vẫn nằm trong hàng đợi.
 - Để so sánh: client chính thức lưu refresh token trong Windows Credential
   Manager (DPAPI, scope user) và đã bị quan sát thấy mang credential qua bề mặt
-  IPC dạng plaintext. Thái độ của delcc: ghi rõ mình lưu gì, ship lane vault
-  trước khi tuyên bố điều ngược lại, không bao giờ giả vờ khoảng trống không
-  tồn tại.
+  IPC dạng plaintext. delcc giờ đạt tư thế at-rest tương đương và công khai
+  đường IPC của mình.
 
 Giảm thiểu khả dụng hiện tại: profile có thể không token (`needsReauth`), tính
-năng khoá chặn việc dùng profile sau một hash, và đăng xuất xoá session đã lưu.
-Mã hoá cấp máy (DPAPI) cho token store là bước kế tiếp trong kế hoạch — xem
-lane vault.
+năng khoá chặn việc dùng profile sau một hash, và đăng xuất xoá session đã lưu
+(blob secure store cùng các key localStorage).
 
 ## Dữ liệu khác tại máy
 
 - drafts/filters/preferences: khoá `localStorage`, toàn bộ tiền tố `delcc-`
-  (profiles, auth, drafts, preferences, sidebar, sort orders, subs filters)
+  (drafts, preferences, sidebar, sort orders, subs filters, con trỏ profile
+  đang hoạt động)
+- token + profile đã lưu: blob mã hoá DPAPI tại
+  `%APPDATA%\vn.delcc.app\secure\*.bin` (như trên)
 - build dir CPH: temp dir mỗi lần chạy (`delcc-cph-*`), bị xoá trên mọi đường
   chạy; cache dir bị xoá khi app thoát qua `cleanup()`
 

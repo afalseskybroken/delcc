@@ -23,14 +23,17 @@ serde_json = "1"
 # "OFF by default — unverified" comment above this block predates that flip and
 # was wrong; fixed in pass #75.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security", "Win32_System_Registry"], optional = true }
+# Win32_Security_Cryptography: pass #78 secure store (CryptProtectData token blobs).
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security", "Win32_Security_Cryptography", "Win32_System_Registry"], optional = true }
 
 [features]
-default = ["custom-protocol", "fonts-enum", "job-mem-cap"]
+default = ["custom-protocol", "fonts-enum", "job-mem-cap", "secure-store"]
 custom-protocol = ["tauri/custom-protocol"]
 job-mem-cap = ["dep:windows-sys"]
 # fonts-enum: registry-only font harvest (default on; pure RegReads, no process mutation)
 fonts-enum = ["dep:windows-sys"]
+# secure-store: DPAPI token store (pass #78; default on — SECURITY.md documents the posture)
+secure-store = ["dep:windows-sys"]
 
 # pass #65: the default release profile shipped unstripped. No runtime behavior
 # change — symbols out, thin LTO + one codegen unit (full LTO's link step is a

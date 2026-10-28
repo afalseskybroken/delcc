@@ -2,9 +2,16 @@
 // token store + silent refresh + lock/clear.
 // stop rule: relaunch keeps session, expiry never surfaces mid-contest.
 // Refresh is owned by main.ts boot (single path) — no module-load refresh race.
+// Pass #78 (Sonnet S2): persistence moved to the DPAPI secure store (lib/secure.ts);
+// the plaintext localStorage copy is migrated on first boot and deleted. No shell
+// (plain-browser dev) keeps the documented localStorage fallback.
 import { api, SessionChangedError, setRefreshHook, setSessionGuardHook, type TokenPair } from "./api";
+import { logError, logInfo } from "./applog";
+import { secureDel, secureGet, securePut } from "./secure";
+import { shellInvoke } from "./transport";
 
 const LS = "delcc-auth";
+const SEC_NAME = "auth";
 let cur: TokenPair | null = null;
 let refreshTimer: number | null = null;
 let refreshing: { version: number; promise: Promise<TokenPair | null> } | null = null;
@@ -14,11 +21,63 @@ let retryCount = 0;
 const retryDelays = [5_000, 15_000, 30_000];
 let listener: ((t: TokenPair | null) => void) | null = null;
 
+// Legacy seed from plaintext localStorage: authoritative ONLY until initAuthStore()
+// settles (then the secure store wins and the plaintext copy is deleted); it is the
+// permanent store in plain-browser dev, where no shell exists.
 try {
   const raw = localStorage.getItem(LS);
   if (raw) cur = JSON.parse(raw) as TokenPair;
 } catch { cur = null; }
 let sessionTokens = new Set(cur?.access_token ? [cur.access_token] : []);
+
+// ---- pass #78: DPAPI-backed persistence ----
+let storeInit: Promise<void> | null = null;
+let useShell: boolean | null = null; // null = probe pending; persists queue behind init
+let persistChain: Promise<void> = Promise.resolve();
+
+// Awaited once by the boot path BEFORE any login/refresh; idempotent.
+export function initAuthStore(): Promise<void> {
+  if (!storeInit) {
+    storeInit = (async () => {
+      useShell = (await shellInvoke()) != null;
+      if (!useShell) return; // dev fallback stays as documented
+      const stored = await secureGet(SEC_NAME);
+      if (stored) {
+        try { cur = JSON.parse(stored) as TokenPair; } catch { cur = null; }
+      } else if (cur) {
+        // migrate the legacy plaintext copy, then delete it — one boot, no ceremony
+        if (await securePut(SEC_NAME, JSON.stringify(cur))) {
+          try { localStorage.removeItem(LS); } catch { /* ignore */ }
+          logInfo("auth: token store migrated to the DPAPI secure store");
+        }
+      }
+      if (cur?.access_token) sessionTokens = new Set([cur.access_token]);
+    })();
+  }
+  return storeInit;
+}
+
+function persist(t: TokenPair | null) {
+  // serialized: concurrent saves (a login racing a refresh) must land in call order
+  persistChain = persistChain.then(async () => {
+    if (useShell === null) await initAuthStore(); // a persist can never outrun the probe
+    if (useShell) {
+      if (t) {
+        const ok = await securePut(SEC_NAME, JSON.stringify(t));
+        if (!ok) logError("auth: secure store write failed — session stays memory-only this boot");
+        try { localStorage.removeItem(LS); } catch { /* ignore */ }
+      } else {
+        await secureDel(SEC_NAME);
+        try { localStorage.removeItem(LS); } catch { /* ignore */ }
+      }
+    } else {
+      try {
+        if (t) localStorage.setItem(LS, JSON.stringify(t));
+        else localStorage.removeItem(LS);
+      } catch { /* private mode — session only */ }
+    }
+  }).catch(() => { /* persistence must never break auth */ });
+}
 
 // profiles persist the rotated token through this (refresh tokens rotate; a stale copy = forced re-login).
 export function onTokenChange(f: (t: TokenPair | null) => void) { listener = f; }
@@ -27,10 +86,7 @@ function save(t: TokenPair | null) {
   if (t && t.obtained_at == null) t = { ...t, obtained_at: Date.now() };
   cur = t;
   if (t) sessionTokens.add(t.access_token);
-  try {
-    if (t) localStorage.setItem(LS, JSON.stringify(t));
-    else localStorage.removeItem(LS);
-  } catch { /* private mode — session only */ }
+  persist(t);
   try { listener?.(t); } catch { /* listener must never break auth */ }
 }
 

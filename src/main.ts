@@ -9,7 +9,7 @@ import { checkForUpdate, recordDownload } from "./lib/updater";
 import * as cph from "./lib/cph";
 import { watchVerdict } from "./lib/verdict";
 import DOMPurify from "dompurify";
-import { loadProfiles, saveProfiles, activeId, setActiveId, upsertProfile, type Profile } from "./lib/profiles";
+import { loadProfiles, initProfiles, saveProfiles, activeId, setActiveId, upsertProfile, type Profile } from "./lib/profiles";
 import * as vault from "./lib/vault";
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -1328,6 +1328,10 @@ function poll(id: number, _n = 0) {
 // then the newest official client version, then resume any stored session.
 void (async () => {
   try { S.layout = (await getLayout()) as "baseplate" | "wip" | "tmath"; } catch { S.layout = "baseplate"; }
+  // pass #78: the token/profile stores move to the DPAPI secure store before anything
+  // reads them (idempotent; plain-browser dev keeps the documented localStorage fallback)
+  await auth.initAuthStore();
+  profiles = await initProfiles();
   if (S.layout === "tmath") {
     const { bootTmath } = await import("./tmath");
     // pass #62: a boot rejection used to be a SILENT BLANK PAGE (He's "couldn't draw
