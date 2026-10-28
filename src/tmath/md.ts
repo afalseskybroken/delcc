@@ -1,9 +1,13 @@
 // src/tmath/md.ts — About-pane Markdown subset (account "Giới thiệu" card).
-// Doctrine: escape FIRST, then emit only our own tags. Q01: every href/src the
+// Doctrine: escape FIRST, then emit only our own tags. Q01: every href the
 // renderer emits passes an explicit scheme allow-list — another user's About text
 // can never plant javascript:/data:/file: navigation through here. Explicit video
 // embeds stay narrow: authored <iframe> or ![](…), YouTube embed origins only
 // (F29: the authored-iframe form matches the ESCAPED quote, so real embeds render).
+// Pass #78 (Sonnet S3): remote <img> is FENCED — image syntax degrades to a plain
+// link, so an About pane can never make the app fetch from an arbitrary host
+// (the official client strips remote images outright; the link is our honest
+// middle ground). No `src=` but our own embeds ever reaches the output.
 
 // mirrors ui.ts esc — kept local so this module stays dependency-free (testable solo)
 const esc = (value: unknown): string => String(value ?? "").replace(/[&<>"']/g,
@@ -47,16 +51,17 @@ export function mdInline(s: string): string {
   // nested image inside a link FIRST (banner SVGs wrapped in a youtu.be link — what the
   // web client renders and the official client butchers). A construct that fails the
   // allow-list is consumed into a sentinel so the later plain passes cannot partially
-  // render its inner image/link — the whole thing stays escaped text.
+  // render its inner image/link — the whole thing stays escaped text. Pass #78: the
+  // inner image no longer renders; the outer link carries the alt text (or the URL).
   const shelved: string[] = [];
   const shelve = (text: string) => `\u0000${shelved.push(text) - 1}\u0000`;
   h = h.replace(/\[!\[([^\]]*)\]\(([^)\s]+)\)\]\(([^)\s]+)\)/g, (m, alt, img, url) =>
     safeUrl(img) && safeUrl(url)
-      ? `<a href="${url}" target="_blank" rel="noopener noreferrer"><img alt="${alt}" src="${img}" class="tm-md-img tm-md-img-link" loading="lazy"></a>`
+      ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${alt || img}</a>`
       : shelve(m));
   h = h.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (m, alt, url) =>
     embedOk(url) ? `<iframe class="tm-md-embed" src="${url}" title="${alt || "embed"}" loading="lazy" allowfullscreen></iframe>`
-    : safeUrl(url) ? `<img alt="${alt}" src="${url}" class="tm-md-img" loading="lazy">` : m);
+    : safeUrl(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${alt || url}</a>` : m);
   h = h.replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, (m, txt, url) =>
     safeUrl(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${txt || url}</a>` : m);
   h = h.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>").replace(/`([^`]+)`/g, "<code>$1</code>");

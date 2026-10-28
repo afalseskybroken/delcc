@@ -6,7 +6,7 @@ delcc's promise is simple: **you can read everything it does.** This file is the
 auditable summary. If the code and this file disagree, one of them is a bug —
 file it, and fix whichever is wrong.
 
-## The complete network surface (as of 0.2.1-alpha)
+## The complete network surface (as of 0.2.26-alpha)
 
 | Destination | When | Why |
 |---|---|---|
@@ -20,7 +20,11 @@ That is all. Concretely absent:
 - no crash reporting or error upload
 - no update auto-download (the release manifest is *read*; binaries are fetched
   by you, the human, from the release page)
-- no third-party CDNs, fonts, or scripts — all assets ship in the bundle
+- no third-party CDNs, fonts, or scripts — all assets ship in the bundle. About-pane
+  markdown cannot point `<img>` at arbitrary hosts either: since pass #78, remote
+  images in another user's About render as plain **links** (the official client
+  strips remote images outright; the link is our honest middle ground), so the only
+  image fetches the app ever makes are the gravatar avatars in the table above
 - the CPH local runner (`src-tauri/src/cph.rs`) never touches the network — it
   compiles and runs *your* code on *your* machine, sandbox-free, exactly like
   running it in a terminal
