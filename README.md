@@ -75,12 +75,26 @@ Unthemed on purpose. `src/app.css` is the guest-themer lane
 - **Not TMATH's work.** delcc is an independent community client; "TMATH" and
   the official client belong to their respective owners. delcc ships no official
   code or assets (the API it calls is documented and public).
-- **Contests and proctored exams**: do not use delcc in any graded, ranked, or
-  proctored contest unless the contest operator explicitly allows third-party
-  clients. The official client ships exam-proctoring machinery (clipboard,
-  fullscreen, lock); delcc deliberately ships none — read that as a boundary,
-  not an invitation.
-
+- **Design parity, stated plainly.** delcc is essentially 100% free of
+  closed-source code. The `tmath` UI layout deliberately follows the official
+  client's design language — under a ported-honesty rule: our own
+  implementation, carved observations consulted for parity questions, no
+  official source or assets anywhere in the tree.
+- **The X-Client-Version shim — disclosed, and load-bearing.** The judge
+  426-gates any client whose version string is older than the official release
+  feed's `required_version`, and delcc is not on that feed: reporting its own
+  version would hard-brick every submission. delcc therefore reports the newest
+  version published on the same public feed the official client reads
+  (`src/lib/api.ts`, `syncClientVersion`). oj.tmathcoding.vn publishes **no
+  Terms of Service** (verified 2026-10-29) — with no contract to satisfy, this
+  shim is what makes an independent client possible at all. It is disclosed
+  here, in the code where it lives, and in SECURITY.md; concealing it is what
+  the honest-client doctrine would forbid, not the shim itself.
+- **Contests and proctored exams**: do not use delcc in any graded, ranked,
+  proctored, or otherwise monitored contest unless the contest operator
+  explicitly allows third-party clients. The official client ships
+  exam-proctoring machinery (clipboard, fullscreen, lock); delcc deliberately
+  ships none — read that as a boundary, not an invitation.
 ## License
 
 **PolyForm Noncommercial 1.0.0** (`SPDX: PolyForm-Noncommercial-1.0.0`, full

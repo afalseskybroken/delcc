@@ -6,13 +6,22 @@ delcc's promise is simple: **you can read everything it does.** This file is the
 auditable summary. If the code and this file disagree, one of them is a bug —
 file it, and fix whichever is wrong.
 
-## The complete network surface (as of 0.2.26-alpha)
+## The complete network surface (as of 0.2.27-alpha)
 
 | Destination | When | Why |
 |---|---|---|
 | `oj.tmathcoding.vn/api/v3/*` | all API traffic | the judge itself: auth, contests, problems, submissions, leaderboard, client-release manifest |
 | `oj.tmathcoding.vn/<user profile pages>` | only when viewing another user's profile | reads the site's **public** profile page — the exact bytes any anonymous browser gets, CORS-open — to pick up the gravatar hash the site itself publishes there. Validated (the site's empty-string hash placeholder is rejected), cached locally (FIFO-capped); one *successful* GET per user, retried on the next view if it missed. Fetched by the Rust shell (`site_fetch`) — these pages carry no CORS header for the webview. See `src/tmath/avatars.ts` for the honesty notes. |
 | `www.gravatar.com/avatar/<sha256>` | only when the server delivers your own gravatar hash (self-view, gravatar-registered account) | your avatar image, requested with `referrerpolicy="no-referrer"`, `d=404` so nothing else is fetched |
+
+What requests themselves carry, disclosed: authenticated calls bear `Authorization: Bearer
+<token>`; submit POSTs and problem-detail reads bear `X-Device-Id` (a random local identifier,
+`delcc-…`, generated once, kept in localStorage, derived from nothing — not hardware, not account)
+and `X-Client-Version`, which reports the newest version from the official release feed rather than
+delcc's own — the judge 426-gates older strings, so this shim is load-bearing for any independent
+client. Maintainer verdict 2026-10-29: the judge publishes no Terms of Service, and the shim is
+disclosed openly (README §Notices, `src/lib/api.ts`) — concealment is what doctrine forbids, not
+the shim.
 
 That is all. Concretely absent:
 
