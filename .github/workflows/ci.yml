@@ -27,8 +27,6 @@ jobs:
         run: node scripts/lint-versions.mjs
       - name: markdown suite
         run: node --experimental-vm-modules scripts/test-tmath-md.mjs
-      - name: unwrap-bundle suite
-        run: node --experimental-vm-modules scripts/test-unwrap-bundle.mjs
       - name: session integrity suite
         run: node --experimental-vm-modules tools/verify-session-integrity.mjs
       - name: security markup suite
@@ -55,6 +53,11 @@ jobs:
           toolchain: stable
       - name: cargo build (tmath lane, debug — mirrors the dev-box oracle loop)
         run: cargo build
+        working-directory: src-tauri
+        env:
+          DELCC_LAYOUT: tmath
+      - name: cargo test (allowlist + DPAPI unit tests)
+        run: cargo test
         working-directory: src-tauri
         env:
           DELCC_LAYOUT: tmath

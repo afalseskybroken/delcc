@@ -26,13 +26,29 @@ async function fixture({ holdPkce = false } = {}) {
     window: { setTimeout: setTimer }, setTimeout: setTimer, clearTimeout: id => timers.delete(id),
     crypto: { getRandomValues: bytes => bytes.fill(7), subtle: { digest: () => holdPkce ? digest.promise : Promise.resolve(new Uint8Array(32).buffer) } },
   });
-  const transport = new SyntheticModule(['transport'], function () {
+  const transport = new SyntheticModule(['transport', 'shellInvoke'], function () {
     this.setExport('transport', (method, url, headers, body) => {
       const d = deferred(); requests.push({ method, url, headers: { ...headers }, body, ...d }); return d.promise;
     });
+    // pass #79: shellInvoke (lib/secure.ts's bridge probe) — null = no shell in the VM,
+    // which keeps auth/profiles on the localStorage fallback these tests assert on.
+    this.setExport('shellInvoke', async () => null);
   }, { context });
   const device = new SyntheticModule(['deviceId'], function () { this.setExport('deviceId', () => 'synthetic-device'); }, { context });
-  const modules = new Map([['./transport', transport], ['./device', device]]);
+  // pass #79: auth.ts logs persistence failures to the diagnostics ring (lib/applog) and
+  // persists through the DPAPI secure store (lib/secure). Both are stubbed: applog is a
+  // memory-only module with no session semantics, and secure stubs to the no-shell path —
+  // which drives exactly the localStorage fallback these storage assertions check.
+  const applog = new SyntheticModule(['logError', 'logInfo'], function () {
+    this.setExport('logError', () => {});
+    this.setExport('logInfo', () => {});
+  }, { context });
+  const secure = new SyntheticModule(['secureGet', 'securePut', 'secureDel'], function () {
+    this.setExport('secureGet', async () => null);
+    this.setExport('securePut', async () => false);
+    this.setExport('secureDel', async () => {});
+  }, { context });
+  const modules = new Map([['./transport', transport], ['./device', device], ['./applog', applog], ['./secure', secure]]);
   for (const name of ['api', 'auth', 'google']) {
     const file = path.join(root, 'src/lib', `${name}.ts`);
     modules.set(`./${name}`, new SourceTextModule(stripTypeScriptTypes(fs.readFileSync(file, 'utf8')), { context, identifier: file }));

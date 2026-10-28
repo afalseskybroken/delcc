@@ -99,7 +99,7 @@ tiêu đề client chính thức để dùng liền mạch).
 | Lệch khoá i18n (3 locale + interface Dict) | `node scripts/lint-i18n.mjs` |
 | Nhất quán phiên bản (manifests + tên release README) | `node scripts/lint-versions.mjs` |
 | Render markdown của đề bài | `node --experimental-vm-modules scripts/test-tmath-md.mjs` |
-| Bảo mật unwrap bundle | `node --experimental-vm-modules scripts/test-unwrap-bundle.mjs` |
+| Bảo mật unwrap bundle | chỉ ở máy maintainer — công cụ relay bị gitignore, không chạy được trên CI/clone mới |
 | Toàn vẹn phiên đăng nhập | `node --experimental-vm-modules tools/verify-session-integrity.mjs` |
 | Security markup | `node --test scripts/security-markup.test.mjs` |
 
