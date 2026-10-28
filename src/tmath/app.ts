@@ -1441,11 +1441,12 @@ export class TmathApp {
       (typeof e.participation_type === "number" && e.participation_type > 0 ? ` <span class="tm-lb-virtual" aria-hidden="true">†</span><span class="sr-only">${text("contests.virtualMode")}</span>` : "") +
       (e.participation_type === -1 ? ` <span class="tm-lb-virtual" aria-hidden="true">‡</span>` : "") +
       (e.is_disqualified ? ` <span class="tm-tag tm-lb-dq">DQ</span>` : "");
-    // pass #73 — CARVE COPY (assets__index-Sy2kLOLY.css .leaderboard-*): solid verdict
-    // tiles in the carve's dark palette, score-fastest = the fastest AC per problem
-    // (Official has it), row hover = accent, self row = blue hue. NO sticky columns —
-    // Official has none; every seam/clip/ghost bug this view ever had is structurally
-    // impossible in this shape.
+    // pass #73/#78 — CARVE COPY (assets__index-Sy2kLOLY.css .leaderboard-* +
+    // docs/tmath-contest-ranking-page.md): solid verdict tiles in the carve's dark
+    // palette, score-fastest = the fastest AC per problem (Official has it), row hover
+    // = accent ON THE TR ONLY (opaque tiles never show it), self row = the carve's
+    // 8%-primary mix. Official's exact column grid (colgroup 64/280/112/144 + 100 per
+    // problem, table width 600 + 100·N) keeps the sticky pins at true constants.
     const fastest = problems.map((_, i) => {
       let m = Infinity;
       for (const e of entries) {
@@ -1476,35 +1477,26 @@ export class TmathApp {
       return `<tr class="tm-lb-row${you ? " leaderboard-self" : ""}"><th scope="row" class="tm-lb-rank-cell lb-pin c1"><span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span></th><td class="tm-lb-user lb-pin c2"><a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)}${you ? ` <span class="tm-tag tm-lb-you">${text("rankings.you")}</span>` : ""}</td><td class="tm-lb-total lb-pin c3"><strong>${esc(fmtNum(e.points))}</strong></td><td class="tm-lb-time lb-pin c4">${esc(fmtClock(e.cumulative_time))}</td>${problems.map((_, i) => cellHtml(cells[i], i, you)).join("")}</tr>`;
     };
     const tabWord = text("contests.tabWord");
-    // pass #77: the [You] ghost bar — a single-cell line pinned to the wrapper's bottom
-    // edge, shown only while the real row is scrolled out of range (IntersectionObserver
-    // on the real row; rebuilt per paint, disposed with the view). #72's bar rendered
-    // cleanly on this grid.
-    let ghost: HTMLTableRowElement | null = null;
+    // pass #77/#78: the [You] ghost — a strip BELOW the scroll wrap (never a sticky
+    // footer inside it: that floats over the last visible rows — He's clipping),
+    // shown only while the real row is out of view (IntersectionObserver on the real
+    // row; rebuilt per paint, disposed with the view). Palette = the self-row carve hue.
     let youObserver: IntersectionObserver | null = null;
     const paint = (): void => {
       const tbody = host.querySelector("tbody");
       if (tbody) tbody.innerHTML = entries.map(rowHtml).join("");
       const you = tbody?.querySelector("tr.leaderboard-self");
       const wrap = host.querySelector<HTMLElement>(".tm-lb-wrap");
-      ghost?.remove(); ghost = null;
+      const ghost = host.querySelector<HTMLDivElement>("[data-lb-ghost]");
       youObserver?.disconnect(); youObserver = null;
-      if (you && wrap) {
-        const me2 = String(this.user?.username ?? "");
-        const e = entries.find(r => String(r?.username ?? "") === me2);
-        ghost = document.createElement("tr");
-        ghost.className = "tm-lb-ghost";
-        const td = document.createElement("td");
-        td.colSpan = 4 + problems.length;
+      if (you && wrap && ghost) {
+        const e = entries.find(r => String(r?.username ?? "") === me);
         if (e) {
           const username = String(e.username ?? "");
-          td.innerHTML = `<span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span> <a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)} <span class="tm-tag tm-lb-you">${text("rankings.you")}</span><span class="tm-lb-ghost-stats">${text("rankings.totalScore")}: <b>${esc(fmtNum(e.points))}</b> · ${text("subs.time")}: ${esc(fmtClock(e.cumulative_time))}</span>`;
+          ghost.innerHTML = `<span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span> <a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)} <span class="tm-tag tm-lb-you">${text("rankings.you")}</span><span class="tm-lb-ghost-stats">${text("rankings.totalScore")}: <b>${esc(fmtNum(e.points))}</b> · ${text("subs.time")}: ${esc(fmtClock(e.cumulative_time))}</span>`;
         }
-        ghost.append(td);
-        ghost.style.display = "none";
-        tbody!.append(ghost);
         youObserver = new IntersectionObserver(obs => {
-          for (const en of obs) if (ghost) ghost.style.display = en.isIntersecting ? "none" : "";
+          for (const en of obs) if (ghost) ghost.hidden = en.isIntersecting;
         }, { root: wrap, threshold: 0 });
         youObserver.observe(you);
       }
@@ -1525,7 +1517,7 @@ export class TmathApp {
       return `<th class="tm-lb-pcol" scope="col"><span>${esc(label)}</span><small>${esc(text("rankings.maxPoints", { n: fmtNum(p.points ?? 0) }))}</small></th>`;
     }).join("");
     const chips = `<div class="tm-chip-row" role="group" aria-label="${text("subs.scopeLabel")}"><button type="button" class="tm-chip active" aria-pressed="true">${text("subs.scopeContest")}</button><button type="button" class="tm-chip" data-lb-global aria-pressed="false">${text("subs.scopeGlobal")}</button></div>`;
-    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("subs.scopeContest")}</div><h1>${text("rankings.contestTitle")}</h1><p class="tm-muted">${esc(this.contest!.name)}</p></div>${chips}</div><div class="tm-lb-meta"><span>${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span><span data-lb-updated role="status"></span></div><section class="tm-card"><div class="tm-table-wrap tm-lb-wrap"><table class="tm-table tm-lb-table"><thead><tr><th class="lb-pin c1" scope="col" title="${text("rankings.position")}">${text("rankings.rank")}</th><th class="lb-pin c2" scope="col">${text("rankings.user")}</th><th class="lb-pin c3" scope="col">${text("rankings.totalScore")}</th><th class="lb-pin c4" scope="col">${text("subs.time")}</th>${head}</tr></thead><tbody>${entries.map(rowHtml).join("")}</tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div></section>`;
+    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("subs.scopeContest")}</div><h1>${text("rankings.contestTitle")}</h1><p class="tm-muted">${esc(this.contest!.name)}</p></div>${chips}</div><div class="tm-lb-meta"><span>${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span><span data-lb-updated role="status"></span></div><section class="tm-card"><div class="tm-table-wrap tm-lb-wrap"><table class="tm-table tm-lb-table" style="width:${600 + problems.length * 100}px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px">${problems.map(() => `<col style="width:100px">`).join("")}</colgroup><thead><tr><th class="lb-pin c1" scope="col" title="${text("rankings.position")}">${text("rankings.rank")}</th><th class="lb-pin c2" scope="col">${text("rankings.user")}</th><th class="lb-pin c3" scope="col">${text("rankings.totalScore")}</th><th class="lb-pin c4" scope="col">${text("subs.time")}</th>${head}</tr></thead><tbody>${entries.map(rowHtml).join("")}</tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div><div class="tm-lb-ghost" data-lb-ghost hidden></div></section>`;
     const lbGlobal = host.querySelector<HTMLButtonElement>('[data-lb-global]');
     if (lbGlobal) lbGlobal.onclick = () => this.go("rankings", { scope: "global" });
     paint();
