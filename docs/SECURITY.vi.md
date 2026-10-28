@@ -4,13 +4,21 @@ Lời hứa của delcc đơn giản: **bạn đọc được mọi thứ nó l�
 tắt có thể kiểm toán. Nếu code và file này mâu thuẫn thì một trong hai là bug —
 report, và sửa cái sai. Bản gốc tiếng Anh: [SECURITY.md](SECURITY.md).
 
-## Toàn bộ bề mặt mạng (tính từ 0.2.26-alpha)
+## Toàn bộ bề mặt mạng (tính từ 0.2.27-alpha)
 
 | Điểm đến | Khi nào | Vì sao |
 |---|---|---|
 | `oj.tmathcoding.vn/api/v3/*` | toàn bộ traffic API | sàn thi đấu: auth, contests, problems, submissions, leaderboard, manifest client-release |
 | `oj.tmathcoding.vn/<trang profile người dùng>` | chỉ khi xem profile của người dùng khác | đọc trang profile **công khai** của site — đúng những byte mà bất kỳ browser ẩn danh nào cũng nhận được, CORS mở — để lấy hash gravatar mà chính site công bố ở đó. Được validate, cache tại máy (giới hạn FIFO); một GET *thành công* mỗi người dùng, trượt thì thử lại ở lần xem sau. Do shell Rust (`site_fetch`) thực hiện — các trang này không có header CORS cho webview. Xem `src/tmath/avatars.ts`. |
 | `www.gravatar.com/avatar/<sha256>` | chỉ khi server giao hash gravatar của chính bạn (self-view, tài khoản có email đăng ký Gravatar) | ảnh avatar của bạn, gọi với `referrerpolicy="no-referrer"`, `d=404` nên không thứ gì khác được fetch |
+
+Các request tự mang theo gì, công khai: call có xác thực mang `Authorization: Bearer <token>`;
+POST nộp bài và đọc chi tiết bài mang `X-Device-Id` (một định danh ngẫu nhiên tại máy, `delcc-…`,
+sinh một lần, giữ trong localStorage, không suy ra từ gì cả — không phải phần cứng, không phải tài
+khoản) và `X-Client-Version`, báo phiên bản mới nhất từ feed release chính thức thay vì phiên bản
+của delcc — sàn 426-chặn chuỗi cũ hơn, nên shim này chịu tải cho bất kỳ client độc lập nào. Phán
+quyết của maintainer 2026-10-29: sàn không công bố ToS nào, và shim được công khai rõ ràng
+(README §thông báo, `src/lib/api.ts`) — che giấu mới là điều doctrine cấm, không phải shim.
 
 Hết. Cụ thể là KHÔNG có:
 

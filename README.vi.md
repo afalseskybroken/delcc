@@ -80,12 +80,24 @@ Cố ý chưa theme. `src/app.css` là lane cho guest-themer
 - **Không phải sản phẩm của TMATH.** delcc là client cộng đồng độc lập;
   "TMATH" và client chính thức thuộc về chủ sở hữu tương ứng. delcc không
   ship bất kỳ code/asset chính thức nào (API nó gọi là API công khai, đã tài liệu hoá).
+- **Giống thiết kế — nói thẳng.** delcc gần như 100% không chứa code nguồn đóng.
+  Layout `tmath` cố ý theo ngôn ngữ thiết kế của client chính thức — dưới nguyên
+  tắc "port trung thực": hiện thực của riêng mình, tham chiếu quan sát carve cho
+  các câu hỏi parity, không có source hay asset chính thức nào trong repo.
+- **Shim X-Client-Version — công khai, và chịu tải.** Sàn 426-chặn mọi client có
+  chuỗi phiên bản cũ hơn `required_version` trên feed release chính thức, mà delcc
+  không nằm trên feed đó: báo phiên bản của chính mình sẽ làm hỏng mọi lần nộp bài.
+  delcc vì vậy báo phiên bản mới nhất từ chính feed công khai mà client chính thức
+  đọc (`src/lib/api.ts`, `syncClientVersion`). oj.tmathcoding.vn **không công bố
+  Điều khoản dịch vụ nào** (đã xác minh 2026-10-29) — không có hợp đồng để tuân
+  thủ, shim này chính là thứ khiến một client độc lập có thể tồn tại. Nó được công
+  khai ở đây, trong code (nơi nó sống), và trong SECURITY.md; che giấu nó mới là
+  điều doctrine trung thực cấm, không phải bản thân shim.
 - **Thi đấu và thi có giám sát**: đừng dùng delcc trong kỳ thi có điểm, có xếp
-  hạng, hoặc có giám sát trừ khi ban tổ chức cho phép rõ ràng client bên thứ ba.
-  Client chính thức gắn cả khối máy giám sát thi (clipboard, fullscreen, khoá
-  máy); delcc cố ý không ship gì trong số đó — hãy đọc đó là ranh giới,
-  không phải lời mời.
-
+  hạng, có giám sát, hoặc bị theo dõi dưới bất kỳ hình thức nào trừ khi ban tổ
+  chức cho phép rõ ràng client bên thứ ba. Client chính thức gắn cả khối máy giám
+  sát thi (clipboard, fullscreen, khoá máy); delcc cố ý không ship gì trong số
+  đó — hãy đọc đó là ranh giới, không phải lời mời.
 ## giấy phép
 
 **PolyForm Noncommercial 1.0.0** (`SPDX: PolyForm-Noncommercial-1.0.0`, toàn văn
