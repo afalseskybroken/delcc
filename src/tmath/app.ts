@@ -1487,10 +1487,10 @@ export class TmathApp {
       const table = host.querySelector<HTMLElement>(".tm-lb-table");
       const head = table?.querySelectorAll<HTMLTableCellElement>("thead .tm-lb-sticky");
       if (!table || !head) return;
-      let acc = 0;
       head.forEach((c, i) => {
-        table.style.setProperty(`--lb-l${i + 1}`, `${acc}px`);
-        acc += c.offsetWidth;
+        // offsetLeft = the COLUMN's true start under auto layout (the widest body cell
+        // — e.g. the [You] row's tag — is accounted for), not a header-width sum
+        table.style.setProperty(`--lb-l${i + 1}`, `${c.offsetLeft}px`);
       });
     };
     const head = problems.map((p, i) => {
