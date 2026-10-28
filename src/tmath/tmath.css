@@ -774,6 +774,17 @@ body[data-persona="tmath"] .tm-table tr.tm-row-attempted > td { background: colo
 body[data-persona="tmath"] .tm-lb-wrap { max-height: 70vh; overflow: auto; }
 body[data-persona="tmath"] .tm-lb-table { border-collapse: separate; border-spacing: 0; white-space: nowrap; width: 100%; table-layout: fixed; min-width: 100%; font-variant-numeric: tabular-nums; }
 body[data-persona="tmath"] .tm-lb-table thead th { position: sticky; top: 0; z-index: 1; background: var(--tmath-muted); color: var(--tmath-muted-foreground); padding-top: 1px; padding-bottom: 1px; font-size: 12px; }
+/* pass #74 (He's outdo, restored on the stable grid): sticky name columns — under fixed
+   layout the first four columns are EXACTLY their specified widths, so the left offsets
+   are constants and can never drift; problem columns absorb the viewport leftover */
+body[data-persona="tmath"] .tm-lb-table .lb-pin { position: sticky; z-index: 2; background: var(--tmath-card); }
+body[data-persona="tmath"] .tm-lb-table thead .lb-pin { z-index: 3; }
+body[data-persona="tmath"] .tm-lb-table .c1 { left: 0; }
+body[data-persona="tmath"] .tm-lb-table .c2 { left: 72px; }
+body[data-persona="tmath"] .tm-lb-table .c3 { left: 302px; }
+body[data-persona="tmath"] .tm-lb-table .c4 { left: 422px; }
+body[data-persona="tmath"] .tm-lb-row:hover .lb-pin { background: var(--tmath-accent); }
+body[data-persona="tmath"] .tm-lb-row.leaderboard-self .lb-pin { background: color-mix(in srgb, var(--tmath-primary) 14%, var(--tmath-card)); }
 body[data-persona="tmath"] .tm-lb-table tbody th,
 body[data-persona="tmath"] .tm-lb-table tbody td { height: 64px; padding-top: 7px; padding-bottom: 7px; }
 body[data-persona="tmath"] .tm-lb-table th:nth-child(n+3),
