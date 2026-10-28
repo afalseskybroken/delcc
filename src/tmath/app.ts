@@ -586,7 +586,7 @@ export class TmathApp {
       const start = new Date(c.start_time).getTime();
       const end = new Date(c.end_time).getTime();
       if (end < now) return text(c.can_join ? "contests.practice" : "contests.locked");
-      if (start > now) return c.can_join ? text("contests.joinableIn", { t: inStr(start - now) }) : text("contests.locked");
+      if (start > now) return c.can_join ? text("contests.startsIn", { t: inStr(start - now) }) : text("contests.locked");
       return text(c.can_join ? "contests.joinable" : "contests.locked");
     };
     const row = (c: ContestListItem) => {
