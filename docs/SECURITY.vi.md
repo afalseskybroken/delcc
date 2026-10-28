@@ -4,7 +4,7 @@ Lời hứa của delcc đơn giản: **bạn đọc được mọi thứ nó l�
 tắt có thể kiểm toán. Nếu code và file này mâu thuẫn thì một trong hai là bug —
 report, và sửa cái sai. Bản gốc tiếng Anh: [SECURITY.md](SECURITY.md).
 
-## Toàn bộ bề mặt mạng (tính từ 0.2.1-alpha)
+## Toàn bộ bề mặt mạng (tính từ 0.2.26-alpha)
 
 | Điểm đến | Khi nào | Vì sao |
 |---|---|---|
@@ -18,7 +18,11 @@ Hết. Cụ thể là KHÔNG có:
 - không crash reporting hay upload lỗi
 - không tự động tải update (manifest release chỉ được *đọc*; binary là bạn —
   con người — tự tải từ trang release)
-- không CDN/font/script bên thứ ba — mọi asset đi kèm bundle
+- không CDN/font/script bên thứ ba — mọi asset đi kèm bundle. Markdown trong ô
+  Giới thiệu cũng không thể trỏ `<img>` tới host tùy ý: từ pass #78, ảnh remote
+  trong About của người khác render thành **link** thường (client chính thức cắt
+  hẳn ảnh remote; link là điểm trung gian trung thực của mình), nên lần fetch ảnh
+  duy nhất của app là avatar gravatar trong bảng trên
 - trình chạy CPH cục bộ (`src-tauri/src/cph.rs`) không bao giờ chạm mạng — nó
   biên dịch và chạy *code của bạn* trên *máy của bạn*, không sandbox, y như tự
   bạn chạy nó trong terminal
