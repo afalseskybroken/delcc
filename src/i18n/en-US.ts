@@ -134,7 +134,7 @@ export const enUS: Dict = {
   "contests.upcomingDesc": "Contests that have not started yet.",
   "contests.recentDesc": "Contests you can open for practice.",
   "contests.joinable": "Can join",
-  "contests.joinableIn": "Joinable in {t}",
+  "contests.startsIn": "Starts in {t}",
   "contests.locked": "Not available yet",
   "contests.joined": "Joined",
   "contests.spectator": "Spectator",

@@ -206,7 +206,7 @@ export interface Dict {
   "contests.upcomingDesc": string;
   "contests.recentDesc": string;
   "contests.joinable": string;
-  "contests.joinableIn": string;
+  "contests.startsIn": string;
   "contests.locked": string;
   "contests.joined": string;
   "contests.spectator": string;
