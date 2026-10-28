@@ -65,10 +65,34 @@ export async function transport(
   return { status: r.status, json, text };
 }
 
+// pass #83: profile-provided About images — fetched by the Rust shell (asset_fetch:
+// https-only, public hosts per redirect hop, image-only, 2 MiB cap, no credentials) so
+// the webview CSP stays pinned; the shell answers with a data: URL. Plain-browser dev
+// keeps a direct best-effort fetch with the same caps. null = fetch refused/failed,
+// the caller degrades to a plain link.
+export async function fetchAsset(url: string): Promise<string | null> {
+  const inv = await invoke();
+  if (inv) {
+    try { return (await inv("asset_fetch", { url })) as unknown as string; }
+    catch { return null; }
+  }
+  try {
+    const r = await fetch(url, { headers: { Accept: "image/*" }, signal: AbortSignal.timeout(10_000) });
+    if (!r.ok) return null;
+    const ct = (r.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+    if (!ct.startsWith("image/")) return null;
+    const buf = await r.arrayBuffer();
+    if (buf.byteLength > 2_000_000) return null;
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return `data:${ct};base64,${btoa(bin)}`;
+  } catch { return null; }
+}
+
 // pass #18: public site HTML (avatar harvest). Rust shell first — the webview fetch
 // is CORS-blocked on profile pages; plain-browser dev keeps a best-effort fetch.
-export async function siteGet(path: string): Promise<TransportResponse> {
-  const direct = async (): Promise<TransportResponse> => {
+export async function siteGet(path: string): Promise<TransportResponse> {  const direct = async (): Promise<TransportResponse> => {
     const r = await fetch(`https://oj.tmathcoding.vn${path}`, { headers: { Accept: "text/html" }, signal: AbortSignal.timeout(10_000) });
     return { status: r.status, json: {}, text: await r.text().catch(() => "") };
   };
