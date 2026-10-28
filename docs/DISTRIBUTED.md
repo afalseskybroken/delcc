@@ -59,6 +59,9 @@ maintainer                worker operator (you)           GitHub
 
 - **Time limit**: each case is killed at `timeLimitMs` (capped at 60 s) — the
   cap lives in YOUR worker, so a job asking for an hour still dies at 60 s.
+- **Output cap**: 1 MiB per stream (stdout/stderr), the same bound the desktop
+  client's CPH runner enforces. Exceeding it leaves an explicit truncation
+  marker in the results file — never a silent cut.
 - **Memory**: not enforced by the Node worker (unlike the desktop client's
   Windows Job Object). A runaway job is your Ctrl+C to stop, plus Task Manager.
 - **No network**: the worker never talks to the judge, Gravatar, or anything

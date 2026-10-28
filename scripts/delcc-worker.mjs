@@ -44,9 +44,19 @@ const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "delcc-worker-"));
 const run = (cmd, args, input, timeoutMs) => new Promise((resolve) => {
   const child = spawn(cmd, args, { cwd: workDir, stdio: ["pipe", "pipe", "pipe"] });
   let stdout = "", stderr = "", done = false;
+  // pass #78 (Sonnet S9): per-stream capture cap, 1 MiB — the same bound the CPH
+  // runner enforces (OUTPUT_CAP in src-tauri/src/cph.rs). Exceeding it leaves an
+  // explicit marker in the captured output, never a silent cut (honesty doctrine).
+  const OUTPUT_CAP = 1024 * 1024;
+  const TRUNCATION_MARK = "…[delcc-worker: output truncated at 1048576 bytes per stream]";
+  const capped = (s, chunk) => {
+    if (s.length >= OUTPUT_CAP) return s;
+    const next = s + chunk;
+    return next.length > OUTPUT_CAP ? next.slice(0, OUTPUT_CAP) + "\n" + TRUNCATION_MARK : next;
+  };
   const timer = setTimeout(() => { if (!done) { done = true; child.kill("SIGKILL"); resolve({ kind: "timeout" }); } }, timeoutMs);
-  child.stdout.on("data", d => { stdout += d; });
-  child.stderr.on("data", d => { stderr += d; });
+  child.stdout.on("data", d => { stdout = capped(stdout, d); });
+  child.stderr.on("data", d => { stderr = capped(stderr, d); });
   child.on("error", (e) => { if (!done) { done = true; clearTimeout(timer); resolve({ kind: "spawn-error", stderr: String(e) }); } });
   child.on("close", (code) => { if (!done) { done = true; clearTimeout(timer); resolve({ kind: "exit", code, stdout, stderr }); } });
   child.stdin.on("error", () => { /* EPIPE when the program exits early — stdout already has the answer */ });
