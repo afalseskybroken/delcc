@@ -1,8 +1,9 @@
 {
   "name": "delcc-app",
   "private": true,
-  "version": "0.2.22-alpha",
+  "version": "0.2.23-alpha",
   "type": "module",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -12,13 +13,13 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
     "@types/katex": "^0.16.8",
-    "dompurify": "^3.1.0",
     "typescript": "^5.9.3",
     "vite": "^6.0.0"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
-    "katex": "^0.16.11",
+    "dompurify": "^3.1.0",
+    "katex": "^0.16.47",
     "monaco-editor": "0.47.0"
   }
 }

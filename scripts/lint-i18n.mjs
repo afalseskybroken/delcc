@@ -4,6 +4,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const result = spawnSync(process.execPath,
-  [path.join(root, 'tools/claude11/verify/i18n-lint.mjs'), path.join(root, 'src/i18n')],
+  [path.join(root, 'scripts/i18n-lint.mjs'), path.join(root, 'src/i18n')],
   { stdio: 'inherit' });
 process.exit(result.status ?? 1);
