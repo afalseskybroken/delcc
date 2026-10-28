@@ -12,7 +12,7 @@
 // the single `active` slot in `CphState` is what Stop addresses.
 
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, HashSet, hash_map::DefaultHasher};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -169,6 +169,19 @@ struct Build {
 struct Inner {
     active: Mutex<Option<Arc<ActiveJob>>>,
     cache: Mutex<Option<Build>>,
+    allowed: Mutex<AllowedBinaries>, // pass #78: the exec allowlist, see validate_binary
+}
+
+// pass #78 (Sonnet S1 leg 2): what `cph_run`/`cph_compile` may execute.
+// (a) the fixed candidate names the detector probes, (b) the toolchains the last
+// cph_detect actually answered with, (c) paths the user registered through Settings
+// (mirrored into the shell via `cph_set_override` — localStorage alone is
+// webview-writable, so it cannot be trusted from here). Everything else is rejected
+// before any process is touched.
+#[derive(Default)]
+struct AllowedBinaries {
+    detected: HashMap<String, HashSet<String>>, // lang_key -> binaries the detector answered with
+    overrides: HashMap<String, String>,         // lang_key -> Settings-registered path
 }
 
 #[derive(Default, Clone)]
@@ -318,8 +331,84 @@ fn detect_all() -> Vec<Toolchain> {
 // Async + spawn_blocking: a plain `fn` command runs on the main thread in Tauri 2 and the
 // probes (java -version in particular) would freeze the window while they run.
 #[tauri::command]
-pub async fn cph_detect() -> Vec<Toolchain> {
-    tauri::async_runtime::spawn_blocking(detect_all).await.unwrap_or_default()
+pub async fn cph_detect(state: tauri::State<'_, CphState>) -> Result<Vec<Toolchain>, String> {
+    let found = tauri::async_runtime::spawn_blocking(detect_all).await.unwrap_or_default();
+    {
+        let mut allowed = lock(&state.0.allowed);
+        allowed.detected = found.iter().fold(HashMap::new(), |mut m, t| {
+            m.entry(t.lang_key.clone()).or_default().insert(t.binary.clone());
+            m
+        });
+    }
+    Ok(found)
+}
+
+// ---------- pass #78: execution allowlist (Sonnet S1 leg 2) ----------
+
+fn validate_binary_shape(bin: &str) -> Result<(), String> {
+    if bin.trim().is_empty() {
+        return Err("CPH: no toolchain binary given".into());
+    }
+    if bin.len() > 260 {
+        return Err("CPH: toolchain path too long".into());
+    }
+    if bin.chars().any(|c| c.is_control()) {
+        return Err("CPH: toolchain path has control characters".into());
+    }
+    Ok(())
+}
+
+// The detector's candidate table as a lang -> name floor. A bare name here runs as-is
+// (PATH lookup) — exactly what cph_detect probes before claiming it, so admitting it
+// never admits anything the detector wouldn't have run itself.
+fn candidate_lang(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "g++" | "clang++" => "cpp",
+        "python3" | "python" => "python",
+        "rustc" => "rust",
+        "go" => "go",
+        "fpc" => "pascal",
+        "node" => "javascript",
+        "javac" | "java" => "java",
+        _ => return None,
+    })
+}
+
+fn validate_binary(inner: &Inner, lang_key: &str, binary: &str) -> Result<(), String> {
+    validate_binary_shape(binary)?;
+    if candidate_lang(binary) == Some(lang_key) {
+        return Ok(());
+    }
+    let allowed = lock(&inner.allowed);
+    if allowed.detected.get(lang_key).map(|set| set.contains(binary)).unwrap_or(false) {
+        return Ok(());
+    }
+    if allowed.overrides.get(lang_key).map(|v| v == binary).unwrap_or(false) {
+        return Ok(());
+    }
+    Err(format!(
+        "CPH: binary '{binary}' is not an allowed {lang_key} toolchain (detected candidates or Settings overrides only)"
+    ))
+}
+
+// Settings' per-language toolchain override (lib/cph.ts) mirrors its choice here so
+// cph_run/cph_compile can admit it. A path-shaped binary must exist — an honest error
+// now beats a confusing spawn failure later. Blank clears the registration.
+#[tauri::command]
+pub async fn cph_set_override(state: tauri::State<'_, CphState>, lang_key: String, binary: String) -> Result<(), String> {
+    let bin = binary.trim().to_string();
+    if bin.is_empty() {
+        lock(&state.0.allowed).overrides.remove(&lang_key);
+        return Ok(());
+    }
+    validate_binary_shape(&bin)?;
+    if bin.contains('\\') || bin.contains('/') {
+        if !Path::new(&bin).is_file() {
+            return Err(format!("CPH: no file at '{bin}'"));
+        }
+    }
+    lock(&state.0.allowed).overrides.insert(lang_key, bin);
+    Ok(())
 }
 
 // ---------- wire types ----------
@@ -777,6 +866,7 @@ fn normalize(s: &str) -> String {
 }
 
 fn compile_blocking(inner: Arc<Inner>, req: CphCompileRequest) -> Result<CphCompileResponse, String> {
+    validate_binary(&inner, &req.lang_key, &req.binary)?; // pass #78: before any slot or process is touched
     let guard = JobGuard::begin(&inner)?;
     let t0 = Instant::now();
     let std = sanitize_std(&req.std);
@@ -802,6 +892,7 @@ fn compile_blocking(inner: Arc<Inner>, req: CphCompileRequest) -> Result<CphComp
 }
 
 fn run_blocking(inner: Arc<Inner>, req: CphRunRequest) -> Result<CphRunResponse, String> {
+    validate_binary(&inner, &req.lang_key, &req.binary)?; // pass #78: before any slot or process is touched
     let guard = JobGuard::begin(&inner)?;
     let job: &ActiveJob = &guard.job;
     let limit_ms = req.time_limit_ms.clamp(100, 10_000);
@@ -888,4 +979,64 @@ pub async fn cph_run(state: tauri::State<'_, CphState>, req: CphRunRequest) -> R
 #[tauri::command]
 pub async fn cph_stop(state: tauri::State<'_, CphState>) -> Result<bool, String> {
     Ok(state.stop())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn binary_validation_rejects_unknown_executables() {
+        let inner = Inner::default();
+        for (lang, bin) in [("cpp", "cmd.exe"), ("python", "powershell"), ("cpp", "../../evil"), ("cpp", "")] {
+            assert!(validate_binary(&inner, lang, bin).is_err(), "{lang}:{bin}");
+        }
+    }
+
+    #[test]
+    fn binary_validation_accepts_detector_candidates_for_their_language() {
+        let inner = Inner::default();
+        assert!(validate_binary(&inner, "cpp", "g++").is_ok());
+        assert!(validate_binary(&inner, "cpp", "clang++").is_ok());
+        assert!(validate_binary(&inner, "python", "python").is_ok());
+        assert!(validate_binary(&inner, "python", "python3").is_ok());
+        assert!(validate_binary(&inner, "java", "javac").is_ok());
+        // a candidate of another language is NOT allowed
+        assert!(validate_binary(&inner, "python", "g++").is_err());
+    }
+
+    #[test]
+    fn binary_validation_accepts_live_detected_toolchains() {
+        let inner = Inner::default();
+        lock(&inner.allowed).detected.entry("cpp".into()).or_default().insert("C:\\mingw\\bin\\g++.exe".into());
+        assert!(validate_binary(&inner, "cpp", "C:\\mingw\\bin\\g++.exe").is_ok());
+        // detected for cpp, demanded for python — rejected
+        assert!(validate_binary(&inner, "python", "C:\\mingw\\bin\\g++.exe").is_err());
+    }
+
+    #[test]
+    fn binary_validation_accepts_registered_overrides_per_language() {
+        let inner = Inner::default();
+        lock(&inner.allowed).overrides.insert("cpp".into(), "C:\\tc\\g++-custom.exe".into());
+        assert!(validate_binary(&inner, "cpp", "C:\\tc\\g++-custom.exe").is_ok());
+        assert!(validate_binary(&inner, "python", "C:\\tc\\g++-custom.exe").is_err());
+    }
+
+    #[test]
+    fn run_blocking_rejects_unknown_binary_before_any_process_work() {
+        let inner = Arc::new(Inner::default());
+        let req = CphRunRequest {
+            lang_key: "cpp".into(),
+            binary: "cmd.exe".into(),
+            source: "int main(){}".into(),
+            cases: vec![],
+            time_limit_ms: 1000,
+            memory_limit_mb: None,
+            std: None,
+        };
+        match run_blocking(inner, req) {
+            Err(e) => assert!(e.contains("not an allowed"), "{e}"),
+            Ok(_) => panic!("cph_run accepted binary 'cmd.exe'"),
+        }
+    }
 }

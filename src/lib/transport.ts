@@ -109,6 +109,16 @@ export async function cphDetect(): Promise<CphToolchain[]> {
   try { return (await inv("cph_detect", {})) as unknown as CphToolchain[]; } catch { return []; }
 }
 
+// pass #78: mirror the Settings toolchain override into the shell's execution allowlist
+// (cph_set_override). The shell refuses cph_run/cph_compile for any binary it has not
+// detected or that was not registered here — so an override MUST be mirrored before the
+// first run, and a rejected path surfaces honestly instead of failing at spawn.
+export async function cphSetOverride(langKey: string, binary: string): Promise<void> {
+  const inv = await invoke();
+  if (!inv) return; // plain-browser dev: no shell, no cph_run either
+  await inv("cph_set_override", { langKey, binary });
+}
+
 export async function cphRun(
   langKey: string, binary: string, source: string, cases: CphCase[], timeLimitMs: number, memoryLimitMb?: number, std?: string,
 ): Promise<CphRunResponse> {

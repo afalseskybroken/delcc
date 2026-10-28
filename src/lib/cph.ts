@@ -3,7 +3,7 @@
 // anywhere — there's no server endpoint to source real judge data from). The actual
 // compile/run call lives in lib/transport.ts (cph_detect/cph_run invoke wrappers);
 // this is the bit main.ts drives the panel with.
-import { cphDetect, cphRun, cphCompile, cphStop, type CphToolchain, type CphCase, type CphCaseResult, type CphRunResponse, type CphCompileResponse } from "./transport";
+import { cphDetect, cphSetOverride, cphRun, cphCompile, cphStop, type CphToolchain, type CphCase, type CphCaseResult, type CphRunResponse, type CphCompileResponse } from "./transport";
 import { monacoLang } from "./langmap";
 import { logInfo } from "./applog";
 
@@ -42,13 +42,20 @@ export function detectOnce(): Promise<CphToolchain[]> {
   // pass #56: dedupe the IN-FLIGHT probe too — Settings calls this once per language
   // (7 concurrent calls raced the null cache and ran the whole probe set 7×)
   if (!detectInFlight) {
-    detectInFlight = cphDetect().then(tcs => {
+    detectInFlight = cphDetect().then(async tcs => {
       toolchains = tcs;
       // QoL (pass #52): auto-detection prints the exact binary each language will run —
       // surfaces in Settings → Diagnostics, so "why is Run disabled" is answerable
       // without pressing Detect tools manually.
       for (const tc of tcs) logInfo(`toolchain ${tc.lang_key}: ${tc.binary} (${tc.version})`);
       if (!tcs.length) logInfo("toolchain detect: none found");
+      // pass #78: mirror pre-existing Settings overrides into the shell's execution
+      // allowlist (migration for overrides saved before the registry existed). A path
+      // that no longer exists is surfaced by the awaited mirror in runAll/compileOnly.
+      await Promise.allSettled(CPH_LANGS.map(l => {
+        const o = toolchainOverride(l.key);
+        return o ? cphSetOverride(l.key, o) : null;
+      }));
       return tcs;
     }).catch(e => { detectInFlight = null; throw e; });
   }
@@ -76,11 +83,25 @@ export function saveCases(problemCode: string, cases: CphCase[]) {
 }
 export const newCase = (): CphCase => ({ id: Math.random().toString(36).slice(2, 9), input: "", expected: "" });
 
+// pass #78: the shell refuses to execute any binary it has not detected or that was not
+// registered through cph_set_override — so a Settings override is mirrored (awaited, so
+// the registration is ordered before the run) right before every compile/run that uses it.
+async function mirrorOverride(langKey: string): Promise<void> {
+  const override = toolchainOverride(langKey);
+  if (!override) return;
+  try {
+    await cphSetOverride(langKey, override);
+  } catch (e) {
+    throw new Error(`toolchain override rejected by the shell: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 export async function runAll(
   langKey: string, source: string, cases: CphCase[], timeLimitMs: number, memoryLimitMb?: number, std?: string,
 ): Promise<CphRunResponse> {
   const tc = toolchainFor(langKey);
   if (!tc) throw new Error(`no ${langKey} toolchain detected`);
+  await mirrorOverride(langKey);
   // enabled (mock-submit inclusion) is decided by the caller; Rust gets exactly what it's given.
   // memoryLimitMb is plumbing for lane 1 — no UI control yet (opt-in Rust feature, unverified).
   // std (pass #52): the selected judge language's C++ standard — c++03..c++20; absent =
@@ -149,6 +170,7 @@ export function importCasePool(code: string, json: string): { added: number; ski
 export async function compileOnly(langKey: string, source: string, std?: string): Promise<CphCompileResponse> {
   const tc = toolchainFor(langKey);
   if (!tc) throw new Error(`no ${langKey} toolchain detected`);
+  await mirrorOverride(langKey);
   return cphCompile(langKey, tc.binary, source, std);
 }
 export const stopRun = (): Promise<boolean> => cphStop();
