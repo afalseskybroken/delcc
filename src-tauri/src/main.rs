@@ -21,6 +21,20 @@ fn http() -> &'static reqwest::Client {
         reqwest::Client::builder()
             .http1_only()
             .user_agent(concat!("delcc/", env!("CARGO_PKG_VERSION")))
+            // pass #78 (Sonnet S5): redirect policy made explicit — the pinned-host
+            // posture. Same-host redirects (Django slash normalization etc.) follow,
+            // bounded; anything that would land off the judge stops with the 3xx
+            // response, so the caller sees the status honestly instead of a surprise
+            // host receiving the request.
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                if attempt.previous().len() >= 3 {
+                    return attempt.error("too many redirects");
+                }
+                match (attempt.url().scheme(), attempt.url().host_str()) {
+                    ("https", Some("oj.tmathcoding.vn")) => attempt.follow(),
+                    _ => attempt.stop(),
+                }
+            }))
             .build()
             .expect("delcc http client")
     })
@@ -54,6 +68,14 @@ async fn api_fetch(
     headers: HashMap<String, String>,
 ) -> Result<String, String> {
     const BASE: &str = "https://oj.tmathcoding.vn/api/v3";
+    // pass #78 (Sonnet S5): the path guard site_fetch has always had, copied here — the
+    // WebView is content, not a trusted caller. Scoped to the path portion only: query
+    // strings legitimately carry user search text (fuzzy filters may contain dots).
+    let (ppath, _query) = match path.split_once('?') {
+        Some((p, q)) => (p, Some(q)),
+        None => (path.as_str(), None),
+    };
+    if !ppath.starts_with('/') || ppath.contains("..") { return Err("bad path".into()); }
     let mut req = http().request(
         method.parse::<reqwest::Method>().map_err(|e| format!("method: {e}"))?,
         format!("{BASE}{path}"),
@@ -87,10 +109,27 @@ fn get_layout() -> String {
 
 // System-browser opener for the Google PKCE step. https only; the URL is a single
 // argv entry for the OS opener, never passed through a shell.
+// pass #78 (Sonnet S6): host allowlist — open_url is the only path from webview
+// content to the OS shell, so it opens only hosts delcc has a reason to open: the
+// judge, the Google OAuth consent page, the project's GitHub (repo + release
+// downloads; the browser follows GitHub's own redirects, not us), and YouTube
+// (About-pane video links). Rejections are honest errors the caller can show.
 #[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
     if !url.starts_with("https://") {
         return Err("only https:// urls".into());
+    }
+    const ALLOWED: &[&str] = &[
+        "oj.tmathcoding.vn",                            // the judge itself
+        "downloads.tmathcoding.vn",                     // official release feed installer_url (probe 2026-10-27)
+        "accounts.google.com",                          // Google OAuth consent (PKCE step)
+        "github.com", "objects.githubusercontent.com",  // repo + release downloads
+        "www.youtube.com", "www.youtube-nocookie.com", "youtu.be", "m.youtube.com",
+    ];
+    let parsed = reqwest::Url::parse(&url).map_err(|e| format!("url: {e}"))?;
+    let host = parsed.host_str().unwrap_or("");
+    if !ALLOWED.contains(&host) {
+        return Err(format!("open_url: host '{host}' is not on the allowlist"));
     }
     #[cfg(target_os = "windows")]
     let mut cmd = std::process::Command::new("explorer");
