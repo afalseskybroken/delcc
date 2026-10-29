@@ -60,15 +60,20 @@ use fonts::fonts_list;
 // the webview (the CSP stays pinned; images enter the page as data: URLs). Isolation
 // posture: https-only, every redirect hop re-validated against a public host, image-only
 // content types, 2 MiB cap, 10 s timeout, no cookies or tokens ever attached. The image
-// host sees the viewer's IP (same as the official client). Disclosed limit: a profile
-// author can point at a DNS name that resolves into a private range (rebinding); the
-// command carries no credentials and caps the response, so the blast radius is one
-// capped-size image fetch, never a token.
+// host sees the viewer's IP (same as the official client). pass #96 (re-audit N2): the
+// hostname is resolved ONCE, every resolved address is verified public, and the client is
+// PINNED to that address — the connection can only hit the IP we verified, closing the
+// classic rebind window (verify A, connect B). Disclosed residual: a redirect hop to a
+// fresh host is string-checked and then resolves normally (the pin covers the original
+// host only). The command carries no credentials and caps the response, so the blast
+// radius is one capped-size image fetch, never a token.
 fn is_public_v4(ip: std::net::Ipv4Addr) -> bool {
     let o = ip.octets();
     !(ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified()
         || ip.is_broadcast() || o[0] == 0
-        || (o[0] == 100 && (o[1] & 0xc0) == 128)
+        // CGNAT 100.64.0.0/10: second octet 64..=127. (The pre-#96 mask tested == 128,
+        // which blocks 100.128/10 instead — caught by the #96 table test.)
+        || (o[0] == 100 && (o[1] & 0xc0) == 64)
         || (o[0] == 192 && o[1] == 0 && o[2] == 2)
         || (o[0] == 198 && (o[1] & 0xfe) == 18))
 }
@@ -77,16 +82,26 @@ fn is_public_v6(ip: std::net::Ipv6Addr) -> bool {
         || (ip.segments()[0] & 0xfe00) == 0xfc00
         || (ip.segments()[0] & 0xffc0) == 0xfe80)
 }
+// std treats IPv4-mapped IPv6 (::ffff:a.b.c.d) as neither loopback nor private — the raw
+// v6 checks let ::ffff:127.0.0.1 through. Unwrap it and judge the embedded v4.
+fn is_public_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => is_public_v4(v4),
+        std::net::IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => is_public_v4(v4),
+            None => is_public_v6(v6),
+        },
+    }
+}
 fn public_https_host(url: &reqwest::Url) -> bool {
     if url.scheme() != "https" { return false; }
     match url.host_str() {
         None => false,
         Some(h) => {
             let h = h.trim_matches(|c| c == '[' || c == ']').to_lowercase();
-            if h == "localhost" || h.ends_with(".local") || h.ends_with(".internal") { return false; }
+            if h == "localhost" || h.ends_with(".localhost") || h.ends_with(".local") || h.ends_with(".internal") { return false; }
             match h.parse::<std::net::IpAddr>() {
-                Ok(std::net::IpAddr::V4(v4)) => is_public_v4(v4),
-                Ok(std::net::IpAddr::V6(v6)) => is_public_v6(v6),
+                Ok(ip) => is_public_ip(ip),
                 Err(_) => true,
             }
         }
@@ -98,10 +113,30 @@ async fn asset_fetch(url: String) -> Result<String, String> {
     const MAX: usize = 2 * 1024 * 1024;
     let parsed: reqwest::Url = url.parse().map_err(|_| "INVALID_ARGUMENT".to_string())?;
     if !public_https_host(&parsed) { return Err("FORBIDDEN".to_string()); }
-    let client = reqwest::Client::builder()
+    // pass #96: resolve once, verify every answer, pin. A hostname resolving to ANY
+    // non-public address is refused outright (round-robin rebinding included).
+    let mut builder = reqwest::Client::builder()
         .http1_only()
         .user_agent(concat!("delcc/", env!("CARGO_PKG_VERSION")))
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(10));
+    let host = parsed.host_str().ok_or("FORBIDDEN")?.to_string();
+    let host_is_literal = host.trim_matches(|c| c == '[' || c == ']').parse::<std::net::IpAddr>().is_ok();
+    if !host_is_literal {
+        let target = format!("{host}:{}", parsed.port_or_known_default().unwrap_or(443));
+        let addrs: Vec<std::net::SocketAddr> = tauri::async_runtime::spawn_blocking(move || {
+            use std::net::ToSocketAddrs;
+            target.to_socket_addrs().map(|it| it.collect()).map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| format!("join: {e}"))?
+        .map_err(|e| format!("DNS_RESOLUTION_FAILED {e}"))?;
+        if addrs.is_empty() { return Err("DNS_RESOLUTION_FAILED empty".into()); }
+        if let Some(bad) = addrs.iter().find(|a| !is_public_ip(a.ip())) {
+            return Err(format!("FORBIDDEN non-public address {bad}"));
+        }
+        builder = builder.resolve(&host, addrs[0]);
+    }
+    let client = builder
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             if attempt.previous().len() >= 3 { return attempt.error("too many redirects"); }
             if !public_https_host(attempt.url()) { return attempt.error("redirect to a non-public host"); }
@@ -219,10 +254,20 @@ fn main() {
         .manage(CphState::default())
         .invoke_handler(tauri::generate_handler![api_fetch, site_fetch, asset_fetch, get_layout, open_url, fonts_list, cph_detect, cph_set_override, cph_run, cph_compile, cph_stop, secure_put, secure_get, secure_del])
         .setup(move |app| {
-            if DELCC_LAYOUT == "tmath" {
+            {
                 use tauri::Manager;
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.set_title(window_title());
+                // pass #96: point the CPH override registry at the app data dir and load
+                // what the user already confirmed in previous sessions — the confirm
+                // dialog must only ever fire for a genuinely new/changed override.
+                let state: tauri::State<CphState> = app.state();
+                if let Ok(dir) = app.path().app_data_dir() {
+                    state.set_persist_dir(dir);
+                    state.load_persisted_overrides();
+                }
+                if DELCC_LAYOUT == "tmath" {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.set_title(window_title());
+                    }
                 }
             }
             Ok(())
@@ -238,4 +283,49 @@ fn main() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod asset_tests {
+    use super::*;
+
+    fn u(s: &str) -> reqwest::Url {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn v4_special_ranges_are_not_public() {
+        for ip in ["127.0.0.1", "10.1.2.3", "192.168.1.1", "172.16.0.9", "169.254.9.9",
+            "0.0.0.0", "100.64.0.1", "192.0.2.9", "198.18.0.5", "255.255.255.255"] {
+            let ip: std::net::Ipv4Addr = ip.parse().unwrap();
+            assert!(!is_public_v4(ip), "{ip}");
+        }
+        assert!(is_public_v4("8.8.8.8".parse().unwrap()));
+    }
+
+    #[test]
+    fn v6_locals_are_not_public_and_mapped_v4_unwraps() {
+        for ip in ["::1", "::", "fc00::1", "fe80::1"] {
+            assert!(!is_public_v6(ip.parse().unwrap()), "{ip}");
+        }
+        assert!(is_public_v6("2001:4860:4860::8888".parse().unwrap()));
+        // IPv4-mapped: std's raw v6 checks let 127.0.0.1 through — the unwrap must not.
+        assert!(!is_public_ip("::ffff:127.0.0.1".parse().unwrap()));
+        assert!(!is_public_ip("::ffff:192.168.0.9".parse().unwrap()));
+        assert!(is_public_ip("::ffff:8.8.8.8".parse().unwrap()));
+    }
+
+    #[test]
+    fn public_https_host_gates_scheme_names_and_literals() {
+        assert!(!public_https_host(&u("http://example.com/x")));
+        for bad in ["https://127.0.0.1/x", "https://[::1]/x", "https://[::ffff:127.0.0.1]/x",
+            "https://localhost/x", "https://a.localhost/x", "https://box.local/x",
+            "https://svc.internal/x", "https://10.0.0.9/x", "https://192.168.1.9/x"] {
+            assert!(!public_https_host(&u(bad)), "{bad}");
+        }
+        for good in ["https://example.com/x", "https://oj.tmathcoding.vn/api/v3",
+            "https://8.8.8.8/img.png", "https://[2001:4860:4860::8888]/img.png"] {
+            assert!(public_https_host(&u(good)), "{good}");
+        }
+    }
 }

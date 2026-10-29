@@ -170,6 +170,7 @@ struct Inner {
     active: Mutex<Option<Arc<ActiveJob>>>,
     cache: Mutex<Option<Build>>,
     allowed: Mutex<AllowedBinaries>, // pass #78: the exec allowlist, see validate_binary
+    persist_dir: Mutex<Option<PathBuf>>, // pass #96: where the override registry lives
 }
 
 // pass #78 (Sonnet S1 leg 2): what `cph_run`/`cph_compile` may execute.
@@ -216,6 +217,36 @@ impl Drop for JobGuard {
 }
 
 impl CphState {
+    /// Where the persisted override registry lives (app data dir). Set once in setup().
+    pub fn set_persist_dir(&self, dir: PathBuf) {
+        *lock(&self.0.persist_dir) = Some(dir);
+    }
+
+    /// Boot-time load of the persisted override registry (pass #96). Entries already
+    /// registered in this session win — the load only fills gaps.
+    pub fn load_persisted_overrides(&self) {
+        let Some(dir) = lock(&self.0.persist_dir).clone() else { return; };
+        let Ok(text) = fs::read_to_string(dir.join("cph-overrides.json")) else { return; };
+        let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&text) else { return; };
+        let mut allowed = lock(&self.0.allowed);
+        for (lang, path) in map {
+            allowed.overrides.entry(lang).or_insert(path);
+        }
+    }
+
+    /// Write the registry after every confirmed change (tmp + rename — a crash mid-write
+    /// must never leave a half file that silently loses the user's confirmations).
+    fn save_persisted_overrides(&self) {
+        let Some(dir) = lock(&self.0.persist_dir).clone() else { return; };
+        let map = lock(&self.0.allowed).overrides.clone();
+        if fs::create_dir_all(&dir).is_err() { return; }
+        let Ok(json) = serde_json::to_string_pretty(&map) else { return; };
+        let tmp = dir.join("cph-overrides.json.tmp");
+        if fs::write(&tmp, json).is_ok() {
+            let _ = fs::rename(&tmp, dir.join("cph-overrides.json"));
+        }
+    }
+
     /// Flags the running job; the poll loop in `capture` kills its process tree within ~15 ms.
     pub fn stop(&self) -> bool {
         match lock(&self.0.active).as_ref() {
@@ -391,21 +422,73 @@ fn validate_binary(inner: &Inner, lang_key: &str, binary: &str) -> Result<(), St
     ))
 }
 
+// The version flag each language's own detector probe answers with — kept for reference
+// in comments only; see confirm_override below for why probing is NOT the override gate.
+
 // Settings' per-language toolchain override (lib/cph.ts) mirrors its choice here so
-// cph_run/cph_compile can admit it. A path-shaped binary must exist — an honest error
-// now beats a confusing spawn failure later. Blank clears the registration.
+// cph_run/cph_compile can admit it. pass #96 (re-audit N1): shape + existence alone
+// admitted ANY existing file — the webview could register cmd.exe silently and only the
+// pinned CSP stood in the way. A version-probe gate was tried first and DROPPED: console
+// binaries like cmd.exe exit 0 printing interactive banners ("Microsoft Windows
+// [Version 10.0.…]"), so classifying binaries by their --version output is whack-a-mole.
+// The robust boundary is the one the re-audit recommended: the confirmation happens
+// OUTSIDE the page — a native dialog the user must accept. Registration persists across
+// sessions, so the dialog fires only when an override actually changes (first set, or a
+// value the persisted registry does not already hold). Blank clears the registration.
+#[cfg(all(windows, not(test)))]
+fn confirm_override(lang_key: &str, bin: &str) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        MessageBoxW, IDYES, MB_ICONQUESTION, MB_OKCANCEL, MB_SETFOREGROUND, MB_TOPMOST,
+    };
+    let text: Vec<u16> = format!(
+        "Allow \u{201c}{bin}\u{201d} to be used as the {lang_key} toolchain?\r\n\r\nOnly confirm a path you chose yourself in delcc Settings. Refuse anything else."
+    )
+    .encode_utf16()
+    .chain(std::iter::once(0))
+    .collect();
+    let title: Vec<u16> = "delcc \u{2014} toolchain override\u{0}"
+        .encode_utf16()
+        .collect();
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            text.as_ptr(),
+            title.as_ptr(),
+            MB_OKCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST,
+        ) == IDYES
+    }
+}
+#[cfg(any(not(windows), test))]
+fn confirm_override(_lang_key: &str, _bin: &str) -> bool {
+    true // test builds and non-Windows builds have no dialog to show
+}
+
 #[tauri::command]
 pub async fn cph_set_override(state: tauri::State<'_, CphState>, lang_key: String, binary: String) -> Result<(), String> {
     let bin = binary.trim().to_string();
     if bin.is_empty() {
-        lock(&state.0.allowed).overrides.remove(&lang_key);
+        let changed = { lock(&state.0.allowed).overrides.remove(&lang_key).is_some() };
+        if changed { state.save_persisted_overrides(); }
         return Ok(());
     }
     validate_binary_shape(&bin)?;
     if (bin.contains('\\') || bin.contains('/')) && !Path::new(&bin).is_file() {
         return Err(format!("CPH: no file at '{bin}'"));
     }
+    // already registered verbatim → silent no-op (the mirror fires on every boot/run)
+    {
+        let allowed = lock(&state.0.allowed);
+        if allowed.overrides.get(&lang_key).map(|v| v == &bin).unwrap_or(false) {
+            return Ok(());
+        }
+    }
+    if !confirm_override(&lang_key, &bin) {
+        return Err(format!(
+            "CPH: the {lang_key} toolchain override was not confirmed — nothing registered"
+        ));
+    }
     lock(&state.0.allowed).overrides.insert(lang_key, bin);
+    state.save_persisted_overrides();
     Ok(())
 }
 
@@ -1036,5 +1119,23 @@ mod tests {
             Err(e) => assert!(e.contains("not an allowed"), "{e}"),
             Ok(_) => panic!("cph_run accepted binary 'cmd.exe'"),
         }
+    }
+
+    #[test]
+    fn override_registry_persists_across_a_relaunch() {
+        // pass #96: the confirm dialog must only ever fire for a genuinely new/changed
+        // override — which only holds if the registry survives relaunches.
+        let dir = std::env::temp_dir().join(format!("delcc-test-ovr-{}-{}", std::process::id(), JOB_SEQ.load(Ordering::Relaxed)));
+        let _ = std::fs::remove_dir_all(&dir);
+        let s1 = CphState::default();
+        s1.set_persist_dir(dir.clone());
+        lock(&s1.0.allowed).overrides.insert("cpp".into(), "C:\\tc\\g++.exe".into());
+        s1.save_persisted_overrides();
+
+        let s2 = CphState::default();
+        s2.set_persist_dir(dir.clone());
+        s2.load_persisted_overrides();
+        assert_eq!(lock(&s2.0.allowed).overrides.get("cpp").map(|v| v.as_str()), Some("C:\\tc\\g++.exe"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

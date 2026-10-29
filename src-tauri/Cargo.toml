@@ -1,6 +1,6 @@
 [package]
 name = "delcc-app"
-version = "0.2.42-alpha"
+version = "0.2.43-alpha"
 description = "delcc — custom frontend (not TMATH's work)"
 authors = ["He"]
 edition = "2021"
@@ -25,7 +25,7 @@ base64 = "0.22"
 # was wrong; fixed in pass #75.
 [target.'cfg(windows)'.dependencies]
 # Win32_Security_Cryptography: pass #78 secure store (CryptProtectData token blobs).
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security", "Win32_Security_Cryptography", "Win32_System_Registry"], optional = true }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security", "Win32_Security_Cryptography", "Win32_System_Registry", "Win32_UI_WindowsAndMessaging"], optional = true }
 
 [features]
 default = ["custom-protocol", "fonts-enum", "job-mem-cap", "secure-store"]
