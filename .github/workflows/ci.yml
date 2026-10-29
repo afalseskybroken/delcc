@@ -61,7 +61,7 @@ jobs:
         working-directory: src-tauri
         env:
           DELCC_LAYOUT: tmath
-      - name: clippy (advisory — warnings do not block)
+      - name: clippy (blocking — setup-rust-toolchain pins RUSTFLAGS=-D warnings)
         run: cargo clippy
         working-directory: src-tauri
         env:
