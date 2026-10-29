@@ -785,7 +785,14 @@ body[data-persona="tmath"] .tm-card:has(> .tm-lb-split) { padding: 0; }
 body[data-persona="tmath"] .tm-card:has(> .tm-lb-split) .tm-card-head { margin-bottom: 0; padding: 20px 24px; border-bottom: 1px solid var(--tmath-border); }
 body[data-persona="tmath"] .tm-card:has(> .tm-lb-split) .tm-lb-updated { padding: 12px 16px 10px; }
 body[data-persona="tmath"] .tm-lb-left { flex: none; width: 600px; overflow: hidden; background: var(--tmath-card); }
-body[data-persona="tmath"] .tm-lb-right { flex: 1; min-width: 0; overflow: auto; }
+/* pass #91 (He: "no way to actually make it scroll"): the #88 wrap refactor left the flex
+   sizing on .tm-lb-right — but the wrap became the flex child and defaulted to flex:auto,
+   sizing itself to the 100px-per-column table. The pane never overflowed again: scrollWidth
+   == clientWidth at ANY window size, horizontal scroll structurally impossible, and the
+   card/ghost boxes stuck out past the window (He's "yet another pane fighting" clip).
+   The wrap carries the flex share; the pane fills it and overflows for real. */
+body[data-persona="tmath"] .tm-lb-right-wrap { flex: 1; min-width: 0; }
+body[data-persona="tmath"] .tm-lb-right { overflow: auto; }
 body[data-persona="tmath"] .tm-lb-left, body[data-persona="tmath"] .tm-lb-right { max-height: 70vh; }
 body[data-persona="tmath"] .tm-lb-table { border-collapse: separate; border-spacing: 0; white-space: normal; overflow-wrap: anywhere; table-layout: fixed; font-variant-numeric: tabular-nums; }
 body[data-persona="tmath"] .tm-lb-table thead th { position: sticky; top: 0; z-index: 1; height: 58px; background: var(--tmath-muted); color: var(--tmath-muted-foreground); padding-top: 1px; padding-bottom: 1px; font-size: 12px; }
