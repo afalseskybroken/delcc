@@ -1605,6 +1605,13 @@ export class TmathApp {
       const rightBody = host.querySelector<HTMLTableSectionElement>("[data-lb-right]");
       const rightPane = host.querySelector<HTMLElement>(".tm-lb-right");
       const leftPane = host.querySelector<HTMLElement>(".tm-lb-left");
+      // pass #95 (He: "arrows didn't update"): the header buttons are baked into the
+      // template thead — paint() only rebuilds the bodies, so the indicators went stale
+      // after every tap. Repaint them alongside the bodies.
+      const rankBtn = host.querySelector<HTMLButtonElement>('[data-lb-sort="server"]');
+      if (rankBtn) rankBtn.textContent = `${text("rankings.rank")}${lbArrow("server")}`;
+      const timeBtn = host.querySelector<HTMLButtonElement>('[data-lb-sort="time"]');
+      if (timeBtn) timeBtn.textContent = `${text("subs.time")}${lbArrow("time")}`;
       const pairs = viewRows.map((e, i) => rowHtml(e, i));
       if (leftBody) leftBody.innerHTML = pairs.map(p => p.left).join("");
       if (rightBody) rightBody.innerHTML = pairs.map(p => p.right).join("");
