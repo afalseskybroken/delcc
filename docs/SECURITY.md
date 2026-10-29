@@ -39,9 +39,12 @@ That is all. Concretely absent:
   image bytes enter the page as `data:` URLs, so the webview CSP (`img-src`/`connect-src`)
   stays pinned and no third party is contacted by the page itself. The image host sees
   the viewer's IP (identical to the official client). Disclosed limit: a profile author
-  could point at a DNS name resolving into a private range (rebinding); the command
-  carries no credentials and caps the response, so the exposure is one capped-size image
-  fetch, never a token. A failed/refused fetch degrades to a plain **link**. The only
+  could point at a DNS name resolving into a private range (rebinding). Since pass #96
+  the hostname is resolved once, every resolved address is verified public, and the client
+  is pinned to that address — the connection can only hit the IP that was verified. The
+  command carries no credentials and caps the response, so the exposure is one capped-size
+  image fetch, never a token; a failed/refused fetch degrades to a plain **link**, and
+  images beyond 8 per pane degrade to links too (capped, visibly, per the honesty doctrine). The only
   other image fetches the app makes are the gravatar avatars in the table above
 - the CPH local runner (`src-tauri/src/cph.rs`) never touches the network — it
   compiles and runs *your* code on *your* machine, sandbox-free, exactly like
