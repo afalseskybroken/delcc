@@ -806,13 +806,13 @@ body[data-persona="tmath"] .tm-lb-left tbody tr.tm-hover td { background: var(--
 /* pass #85: problem-column padding applies to the HEADERS too — the generic .tm-table th
    kept 16px sides while tiles got the carve's 8px, so every pill sat ~8px off its column
    (most visible on A/B against the seam). The ghost's tile pane gets the same rule or its
-   columns drift against the real ones. scroll-snap settles horizontal scrolls on column
-   boundaries — a mid-column cut tile at the pane seam read as "clipping" (He). */
+   columns drift against the real ones. (Pass #85's scroll-snap anti-clip hack is GONE as
+   of #90: every cell was a snap point, so touchpad horizontal swipes — small smooth
+   deltas — fought the snap and settled back, reading as "cannot horizontal scroll at
+   all"; a mid-column cut at the seam is how every horizontal scroller looks mid-scroll,
+   Official's own grid included.) */
 body[data-persona="tmath"] .tm-lb-right thead th,
 body[data-persona="tmath"] .tm-lb-right tbody td { padding-left: 8px; padding-right: 8px; }
-body[data-persona="tmath"] .tm-lb-right { scroll-snap-type: x proximity; }
-body[data-persona="tmath"] .tm-lb-right thead th,
-body[data-persona="tmath"] .tm-lb-right tbody td { scroll-snap-align: start; }
 body[data-persona="tmath"] .tm-lb-ghost .tm-lb-ghost-right tbody td { padding-left: 8px; padding-right: 8px; }
 /* self row: the carve's exact effective hue — 8% primary over background — plus the
    3px primary edge bar on the rank cell (the carve's .leaderboard-self>td:first-child) */
