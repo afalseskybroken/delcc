@@ -361,6 +361,10 @@ export interface Dict {
   "settings.tcAutoMode": string;
   "settings.tcManual": string;
   "settings.tcAutoDetected": string;
+  "settings.timeFormat": string;
+  "settings.timeAuto": string;
+  "settings.time12h": string;
+  "settings.time24h": string;
   "settings.uiScale": string;
   "settings.logs": string;
   "settings.logsCopy": string;

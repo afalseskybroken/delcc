@@ -1,9 +1,11 @@
 import { applyScheme } from "../lib/scheme";
 import { setLocale, type Locale, LOCALES } from "../i18n";
+import { setTimeFormat } from "./ui";
 
 export interface Preferences {
   theme: "light" | "dark" | "system";
   locale: Locale;
+  timeFormat: "auto" | "12h" | "24h";
   statementFont: string;
   statementSize: number;
   editorFont: string;
@@ -25,6 +27,7 @@ export function loadPreferences(): Preferences {
   return {
     theme: p.theme === "system" || p.theme === "dark" ? p.theme : read("delcc-scheme") === "dark" && !p.theme ? "dark" : "light",
     locale: LOCALES.includes(locale) ? locale : "en-US",
+    timeFormat: p.timeFormat === "12h" || p.timeFormat === "24h" ? p.timeFormat : "auto",
     statementFont: typeof p.statementFont === "string" ? p.statementFont : "__system__",
     statementSize: clamp(p.statementSize, 12, 28, 16),
     editorFont: typeof p.editorFont === "string" ? p.editorFont : "__sysmono__",
@@ -42,7 +45,11 @@ export const resolveStatementFont = (f: string): string =>
 export const resolveEditorFont = (f: string): string =>
   !f || f === "__default__" ? "Menlo, Consolas, \"Courier New\", monospace"
   : f === "__sysmono__" ? SYSTEM_MONO_STACK : f.replace(/[;{}]/g, "");
+// pass #88: hour12 option for every locale-formatted clock (undefined = locale default)
+export const hour12Opt = (tf: Preferences["timeFormat"]): { hour12?: boolean } =>
+  tf === "12h" ? { hour12: true } : tf === "24h" ? { hour12: false } : {};
 export function applyPreferences(p: Preferences): void {
+  setTimeFormat(p.timeFormat);
   const dark = p.theme === "dark" || (p.theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
   applyScheme("tmath", dark ? "dark" : "light");
   setLocale(p.locale);
