@@ -394,12 +394,7 @@ export const zhCN: Dict = {
   "rankings.rating": "评分",
   "rankings.sortBy": "排序方式",
   "rankings.sortDefault": "服务器顺序",
-  "rankings.orderName": "名称 (A–Z)",
-  "rankings.orderNameDesc": "名称 (Z–A)",
-  "rankings.orderScore": "得分 (高 → 低)",
-  "rankings.orderScoreAsc": "得分 (低 → 高)",
-  "rankings.orderTime": "时间 (最短优先)",
-  "rankings.orderTimeDesc": "时间 (最长优先)",
+
   "rankings.sortRating": "评分",
   "rankings.sortPoints": "积分",
   "rankings.sortSolved": "已解决",

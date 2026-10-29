@@ -1575,23 +1575,23 @@ export class TmathApp {
     // only. The view is a SORTED COPY (the raw server array stays intact so switching
     // back to "server" is real), and the copy feeds the signature so a poll whose
     // payload is unchanged still early-returns while a non-server order is active.
-    const order = read("delcc-tmath-lb-order", "server");
-    // pass #93 (He's ordering set): Name (alphabetically) / Score (= the server's own
-    // ranking key) / Time (shortest first) — each with a reverse — plus the raw server
-    // order. Name sorts locale-aware on the displayed name.
-    const nameOf = (e: any): string => String(e?.fullname ?? e?.username ?? "").trim().toLowerCase();
+    // pass #94 (He): TITLE TAPPING like Submissions/Problems — the Rank and Time headers
+    // are tappable (Rank = server ⇄ reverse server, Time = shortest ⇄ longest); Name and
+    // Score are gone (Score duplicates Rank). Mutable state fixes #93's stale-closure bug
+    // (the order was read once at setup, so switching criteria never re-sorted), and the
+    // copy feeds the signature so polls stay cheap while a non-server order is active.
+    let order = read("delcc-tmath-lb-order", "server");
+    if (!["server", "serverRev", "time", "timeRev"].includes(order)) order = "server";
     const viewOf = (): any[] => {
       const rows = [...entries];
       switch (order) {
-        case "name": return rows.sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
-        case "nameRev": return rows.sort((a, b) => nameOf(b).localeCompare(nameOf(a)));
-        case "points": return rows.sort((a, b) => Number(b?.points ?? 0) - Number(a?.points ?? 0));
-        case "pointsRev": return rows.sort((a, b) => Number(a?.points ?? 0) - Number(b?.points ?? 0));
+        case "serverRev": return rows.reverse();
         case "time": return rows.sort((a, b) => Number(a?.cumulative_time ?? 0) - Number(b?.cumulative_time ?? 0));
         case "timeRev": return rows.sort((a, b) => Number(b?.cumulative_time ?? 0) - Number(a?.cumulative_time ?? 0));
         default: return rows;
       }
     };
+    const lbArrow = (k: string): string => order === k ? " ↑" : order === `${k}Rev` ? " ↓" : "";
     const paint = (): void => {
       const stamp = host.querySelector<HTMLElement>("[data-lb-updated]");
       const viewRows = viewOf();
@@ -1712,13 +1712,17 @@ export class TmathApp {
     // pass #80: page + card structure mirrors Official's Ranking page (He's reference):
     // eyebrow BẢNG XẾP HẠNG → h1 = contest name → subtitle; card head "Kết quả cuộc thi"
     // + counter; the Cập nhật-lúc row lives INSIDE the card, above the table.
-    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(this.contest!.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div>${chips}</div><section class="tm-card"><div class="tm-card-head"><h2>${text("rankings.contestTitle")}</h2><span class="tm-lb-count">${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span><select class="tm-lb-order" data-lb-order aria-label="${text("rankings.sortBy")}"><option value="server"${order === "server" ? " selected" : ""}>${text("rankings.sortDefault")}</option><option value="name"${order === "name" ? " selected" : ""}>${text("rankings.orderName")}</option><option value="nameRev"${order === "nameRev" ? " selected" : ""}>${text("rankings.orderNameDesc")}</option><option value="points"${order === "points" ? " selected" : ""}>${text("rankings.orderScore")}</option><option value="pointsRev"${order === "pointsRev" ? " selected" : ""}>${text("rankings.orderScoreAsc")}</option><option value="time"${order === "time" ? " selected" : ""}>${text("rankings.orderTime")}</option><option value="timeRev"${order === "timeRev" ? " selected" : ""}>${text("rankings.orderTimeDesc")}</option></select></div><div class="tm-lb-updated" data-lb-updated role="status"></div><div class="tm-lb-split"><div class="tm-lb-left"><table class="tm-table tm-lb-table" style="width:600px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup><thead><tr><th scope="col" title="${text("rankings.position")}">${text("rankings.rank")}</th><th scope="col">${text("rankings.user")}</th><th scope="col">${text("rankings.totalScore")}</th><th scope="col">${text("subs.time")}</th></tr></thead><tbody data-lb-left></tbody></table><div class="tm-lb-ghost" data-lb-ghost hidden></div></div><div class="tm-lb-right-wrap"><div class="tm-lb-right"><table class="tm-table tm-lb-table" style="width:${problems.length * 100}px;min-width:100%"><colgroup>${problems.map(() => `<col style="width:100px">`).join("")}</colgroup><thead><tr>${head}</tr></thead><tbody data-lb-right></tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div><div class="tm-lb-ghost tm-lb-ghost-right" data-lb-ghost hidden><div class="tm-lb-ghost-tiles"></div></div></div></div></section>`;
+    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(this.contest!.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div>${chips}</div><section class="tm-card"><div class="tm-card-head"><h2>${text("rankings.contestTitle")}</h2><span class="tm-lb-count">${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span></div><div class="tm-lb-updated" data-lb-updated role="status"></div><div class="tm-lb-split"><div class="tm-lb-left"><table class="tm-table tm-lb-table" style="width:600px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup><thead><tr><th scope="col"><button type="button" class="tm-sort-h" data-lb-sort="server" title="${text("rankings.position")}">${text("rankings.rank")}${lbArrow("server")}</button></th><th scope="col">${text("rankings.user")}</th><th scope="col">${text("rankings.totalScore")}</th><th scope="col"><button type="button" class="tm-sort-h" data-lb-sort="time" title="${text("rankings.sortBy")}">${text("subs.time")}${lbArrow("time")}</button></th></tr></thead><tbody data-lb-left></tbody></table><div class="tm-lb-ghost" data-lb-ghost hidden></div></div><div class="tm-lb-right-wrap"><div class="tm-lb-right"><table class="tm-table tm-lb-table" style="width:${problems.length * 100}px;min-width:100%"><colgroup>${problems.map(() => `<col style="width:100px">`).join("")}</colgroup><thead><tr>${head}</tr></thead><tbody data-lb-right></tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div><div class="tm-lb-ghost tm-lb-ghost-right" data-lb-ghost hidden><div class="tm-lb-ghost-tiles"></div></div></div></div></section>`;
     const lbGlobal = host.querySelector<HTMLButtonElement>('[data-lb-global]');
     if (lbGlobal) lbGlobal.onclick = () => this.go("rankings", { scope: "global" });
     const lbRefresh = host.querySelector<HTMLButtonElement>('[data-lb-refresh]');
     if (lbRefresh) lbRefresh.onclick = () => void this.render();
-    const orderSel = host.querySelector<HTMLSelectElement>("[data-lb-order]");
-    if (orderSel) orderSel.onchange = () => { write("delcc-tmath-lb-order", orderSel.value); paint(); };
+    host.querySelectorAll<HTMLButtonElement>("[data-lb-sort]").forEach(btn => btn.onclick = () => {
+      const k = btn.dataset.lbSort ?? "server";
+      order = order === k ? `${k}Rev` : k;
+      write("delcc-tmath-lb-order", order);
+      paint();
+    });
     paint();
     const poll = window.setInterval(() => {
       if (!alive()) { window.clearInterval(poll); return; }

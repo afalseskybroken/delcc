@@ -867,7 +867,6 @@ body[data-persona="tmath"] .tm-lb-pcol { text-align: center; }
 /* card head per the reference: "Kết quả cuộc thi" + counter, then the Cập nhật-lúc row */
 body[data-persona="tmath"] .tm-lb-count { color: var(--tmath-muted-foreground); font-size: 12px; }
 /* pass #92: the ordering select lives in the card head (Server order / Points / Time) */
-body[data-persona="tmath"] .tm-lb-order { font-size: 12px; padding: 4px 8px; border: 1px solid var(--tmath-border); border-radius: 8px; background: var(--tmath-muted); color: var(--tmath-foreground); }
 body[data-persona="tmath"] .tm-lb-updated { padding: 10px 16px 8px; color: var(--tmath-muted-foreground); font-size: 13px; }
 /* pass #82/#83/#88 (He's vision, refined by "make it divided like the non-stickied
    rows"): the [You] ghost is TWO OVERLAYS — one inside each pane's own box (absolute,
