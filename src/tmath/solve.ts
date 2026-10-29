@@ -363,6 +363,9 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       if (disposed) return;
       if (!Number.isSafeInteger(result.submission_id) || result.submission_id <= 0) throw new Error(t("errors.invalid"));
       submittedHere++; // official decrements the counter on an accepted submission
+      // pass #92: remember the language for the next problem's default (the user's own
+      // submission language beats the first-allowed fallback)
+      write("delcc-tmath-last-lang", language);
       // pass #58 (He: Official jumps to the Submissions tab upon submit) — no local
       // verdict box, no watch loop; the Submissions view is the judging surface
       args.onSubmissions();
@@ -472,6 +475,19 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       if (disposed) return;
       const allowed = Array.isArray(problem.allowed_languages) ? problem.allowed_languages.filter((l): l is string=>typeof l === "string" && !!l) : [];
       const storedLang = read(langKey); language = allowed.includes(storedLang) ? storedLang : allowed[0] ?? "";
+      // pass #92 (He's outdo): with no per-problem choice, default to the USER's own
+      // submission language — remembered from the last accepted submit here, else the
+      // latest public-practice submission the judge holds for this account (fetched
+      // async; a switch already made by the user always wins).
+      const lastLocal = read("delcc-tmath-last-lang");
+      if (!storedLang && allowed.includes(lastLocal) && language !== lastLocal) language = lastLocal;
+      if (!storedLang && !allowed.includes(lastLocal) && language && args.username) {
+        const initial = language;
+        void api.submissions(auth.accessToken()!, { page: 1, page_size: 1, scope: "public_practice", user: args.username }).then(rows => {
+          const latest = Array.isArray(rows) ? String(rows[0]?.language ?? "") : "";
+          if (!disposed && initial === language && allowed.includes(latest) && latest !== language) switchLanguage(latest);
+        }).catch(() => { /* no history — the first allowed language stands */ });
+      }
       const hidden = "statement_hidden" in problem && problem.statement_hidden;
       const statementSource = hidden ? t("problem.hidden") : problem.statement || t("problem.noStatement");
       const canSubmit = !("can_submit" in problem) || problem.can_submit !== false;

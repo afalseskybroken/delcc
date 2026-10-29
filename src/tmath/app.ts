@@ -1073,6 +1073,16 @@ export class TmathApp {
         if (e instanceof ApiError && e.status === 401) {
           try { localStorage.removeItem(SUBS_FILTERS_KEY); } catch { /* unavailable storage */ }
         }
+        // pass #92 (He): a STALE contest scope 403s once the participation is gone
+        // ("You must join this contest first") — hop to the default scope instead of
+        // erroring: the CURRENT contest if we're in one, else All Problems.
+        if (e instanceof ApiError && e.status === 403 && alive() && this.contest?.key !== contestKey) {
+          const fallback = this.contest ? `contest:${this.contest.key}` : "public";
+          logError(`subs: contest scope ${contestKey} 403'd — hopping to ${fallback}`);
+          try { localStorage.removeItem(SUBS_FILTERS_KEY); } catch { /* unavailable storage */ }
+          this.go("submissions", { scope: fallback });
+          return;
+        }
         throw e;
       }
     } else {
@@ -1561,9 +1571,17 @@ export class TmathApp {
     // every CSS fix (the harness only ever glitched within ~2 s of a poll tick). A poll
     // whose payload is unchanged now touches nothing but the timestamp.
     let lastLb = "";
+    // pass #92 (He's outdo): user-selectable ordering — Official renders server order
+    // only. The view is a SORTED COPY (the raw server array stays intact so switching
+    // back to "server" is real), and the copy feeds the signature so a poll whose
+    // payload is unchanged still early-returns while a non-server order is active.
+    const order = read("delcc-tmath-lb-order", "server");
     const paint = (): void => {
       const stamp = host.querySelector<HTMLElement>("[data-lb-updated]");
-      const sig = JSON.stringify(entries);
+      const viewRows = order === "points" ? [...entries].sort((a, b) => Number(b?.points ?? 0) - Number(a?.points ?? 0))
+        : order === "time" ? [...entries].sort((a, b) => Number(a?.cumulative_time ?? 0) - Number(b?.cumulative_time ?? 0))
+        : entries;
+      const sig = JSON.stringify(viewRows);
       if (sig === lastLb) {
         if (stamp) stamp.textContent = text("rankings.updatedAt", { t: new Date().toLocaleTimeString(getLocale(), hour12Opt(this.prefs.timeFormat)) });
         return;
@@ -1573,7 +1591,7 @@ export class TmathApp {
       const rightBody = host.querySelector<HTMLTableSectionElement>("[data-lb-right]");
       const rightPane = host.querySelector<HTMLElement>(".tm-lb-right");
       const leftPane = host.querySelector<HTMLElement>(".tm-lb-left");
-      const pairs = entries.map((e, i) => rowHtml(e, i));
+      const pairs = viewRows.map((e, i) => rowHtml(e, i));
       if (leftBody) leftBody.innerHTML = pairs.map(p => p.left).join("");
       if (rightBody) rightBody.innerHTML = pairs.map(p => p.right).join("");
       const you = rightBody?.querySelector("tr.leaderboard-self");
@@ -1588,7 +1606,7 @@ export class TmathApp {
       if (you && rightPane && ghostLeft && ghostRight) {
         // pass #83 (He's vision): the [You] row rendered as a real row in real columns —
         // it reads your scores under whichever problem columns you're looking at.
-        const e = entries.find(r => String(r?.username ?? "") === me);
+        const e = viewRows.find(r => String(r?.username ?? "") === me);
         if (e) {
           const pair = rowHtml(e, entries.indexOf(e));
           const cols = problems.map(() => `<col style="width:100px">`).join("");
@@ -1680,11 +1698,13 @@ export class TmathApp {
     // pass #80: page + card structure mirrors Official's Ranking page (He's reference):
     // eyebrow BẢNG XẾP HẠNG → h1 = contest name → subtitle; card head "Kết quả cuộc thi"
     // + counter; the Cập nhật-lúc row lives INSIDE the card, above the table.
-    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(this.contest!.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div>${chips}</div><section class="tm-card"><div class="tm-card-head"><h2>${text("rankings.contestTitle")}</h2><span class="tm-lb-count">${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span></div><div class="tm-lb-updated" data-lb-updated role="status"></div><div class="tm-lb-split"><div class="tm-lb-left"><table class="tm-table tm-lb-table" style="width:600px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup><thead><tr><th scope="col" title="${text("rankings.position")}">${text("rankings.rank")}</th><th scope="col">${text("rankings.user")}</th><th scope="col">${text("rankings.totalScore")}</th><th scope="col">${text("subs.time")}</th></tr></thead><tbody data-lb-left></tbody></table><div class="tm-lb-ghost" data-lb-ghost hidden></div></div><div class="tm-lb-right-wrap"><div class="tm-lb-right"><table class="tm-table tm-lb-table" style="width:${problems.length * 100}px;min-width:100%"><colgroup>${problems.map(() => `<col style="width:100px">`).join("")}</colgroup><thead><tr>${head}</tr></thead><tbody data-lb-right></tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div><div class="tm-lb-ghost tm-lb-ghost-right" data-lb-ghost hidden><div class="tm-lb-ghost-tiles"></div></div></div></div></section>`;
+    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(this.contest!.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div>${chips}</div><section class="tm-card"><div class="tm-card-head"><h2>${text("rankings.contestTitle")}</h2><span class="tm-lb-count">${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span><select class="tm-lb-order" data-lb-order aria-label="${text("rankings.sortBy")}"><option value="server"${order === "server" ? " selected" : ""}>${text("rankings.sortDefault")}</option><option value="points"${order === "points" ? " selected" : ""}>${text("rankings.points")}</option><option value="time"${order === "time" ? " selected" : ""}>${text("subs.time")}</option></select></div><div class="tm-lb-updated" data-lb-updated role="status"></div><div class="tm-lb-split"><div class="tm-lb-left"><table class="tm-table tm-lb-table" style="width:600px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup><thead><tr><th scope="col" title="${text("rankings.position")}">${text("rankings.rank")}</th><th scope="col">${text("rankings.user")}</th><th scope="col">${text("rankings.totalScore")}</th><th scope="col">${text("subs.time")}</th></tr></thead><tbody data-lb-left></tbody></table><div class="tm-lb-ghost" data-lb-ghost hidden></div></div><div class="tm-lb-right-wrap"><div class="tm-lb-right"><table class="tm-table tm-lb-table" style="width:${problems.length * 100}px;min-width:100%"><colgroup>${problems.map(() => `<col style="width:100px">`).join("")}</colgroup><thead><tr>${head}</tr></thead><tbody data-lb-right></tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div><div class="tm-lb-ghost tm-lb-ghost-right" data-lb-ghost hidden><div class="tm-lb-ghost-tiles"></div></div></div></div></section>`;
     const lbGlobal = host.querySelector<HTMLButtonElement>('[data-lb-global]');
     if (lbGlobal) lbGlobal.onclick = () => this.go("rankings", { scope: "global" });
     const lbRefresh = host.querySelector<HTMLButtonElement>('[data-lb-refresh]');
     if (lbRefresh) lbRefresh.onclick = () => void this.render();
+    const orderSel = host.querySelector<HTMLSelectElement>("[data-lb-order]");
+    if (orderSel) orderSel.onchange = () => { write("delcc-tmath-lb-order", orderSel.value); paint(); };
     paint();
     const poll = window.setInterval(() => {
       if (!alive()) { window.clearInterval(poll); return; }
