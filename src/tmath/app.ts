@@ -49,9 +49,22 @@ const sanitizeAbout = (html: string): string => {
 // data: URLs, so the webview CSP stays pinned and no third party is contacted by the
 // page itself. Memory cache, FIFO-capped; max 8 remote images per pane.
 const assetCache = new Map<string, string>();
+const IMAGE_CAP = 8;
 const wireAboutImages = (root: HTMLElement): void => {
-  const imgs = [...root.querySelectorAll("img")].slice(0, 8);
-  for (const img of imgs) {
+  const all = [...root.querySelectorAll("img")];
+  // pass #96 (adjudication finding): images beyond the cap used to keep their remote src
+  // and break silently under the pinned CSP (img-src has no such hosts). Honesty doctrine:
+  // degrade them to links, the same path a failed fetch takes, and say so in the log.
+  const overflow = all.slice(IMAGE_CAP);
+  for (const img of overflow) {
+    const src = img.getAttribute("src") ?? "";
+    if (!/^https?:\/\//i.test(src)) continue;
+    const a = document.createElement("a");
+    a.href = src; a.textContent = src; a.rel = "noreferrer noopener"; a.target = "_blank";
+    img.replaceWith(a);
+  }
+  if (overflow.length) logInfo(`about images: ${overflow.length} beyond the ${IMAGE_CAP}-image cap rendered as links`);
+  for (const img of all.slice(0, IMAGE_CAP)) {
     const src = img.getAttribute("src") ?? "";
     if (!/^https:\/\//i.test(src)) continue;
     if (assetCache.has(src)) { img.src = assetCache.get(src)!; continue; }
@@ -76,7 +89,9 @@ const wireAboutImages = (root: HTMLElement): void => {
 
 type Route = "contests" | "problems" | "workspace" | "submissions" | "rankings" | "account" | "settings";
 const titles: Record<Route, DictKey> = { contests:"contests.title", problems:"problems.title", workspace:"app.workspace", submissions:"subs.title", rankings:"rankings.title", account:"account.title", settings:"settings.title" };
-// Official icon mapping (weighed duotone, ported verbatim from the 1.0.9 client).
+// Official icon mapping — the route→icon pairs are carve-observed from the 1.0.9 client
+// (He's 2026-10-29 provenance ruling: the icons themselves are Phosphor, MIT; the mapping
+// is carve-observed/RE'd, which nothing prohibits — the judge ships no ToS).
 const navIcons: Record<Route, PhName> = { contests:"squares-four", problems:"code", workspace:"code", submissions:"list-checks", rankings:"trophy", account:"user-circle", settings:"gear" };
 const routes = Object.keys(titles) as Route[];
 const PAGE_SIZE = 20;
