@@ -413,12 +413,7 @@ export interface Dict {
   "rankings.rating": string;
   "rankings.sortBy": string;
   "rankings.sortDefault": string;
-  "rankings.orderName": string;
-  "rankings.orderNameDesc": string;
-  "rankings.orderScore": string;
-  "rankings.orderScoreAsc": string;
-  "rankings.orderTime": string;
-  "rankings.orderTimeDesc": string;
+
   "rankings.sortRating": string;
   "rankings.sortPoints": string;
   "rankings.sortSolved": string;
