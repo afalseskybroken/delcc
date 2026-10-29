@@ -7,10 +7,16 @@ export const text = (key: DictKey, vars?: Record<string, string | number>) => es
 /** dict strings may carry \n break markers (esc-neutralized markup is never re-parsed) */
 export const textBr = (key: DictKey) => esc(t(key)).replace(/\n/g, "<br>");
 export const list = <T = any>(value: any): T[] => Array.isArray(value) ? value : Array.isArray(value?.results) ? value.results : Array.isArray(value?.items) ? value.items : [];
+// pass #88: 12h/24h preference (Settings → Appearance) — undefined = locale default;
+// preferences.applyPreferences pushes the value here at boot and on every change.
+let hour12: boolean | undefined;
+export const setTimeFormat = (tf: "auto" | "12h" | "24h"): void => {
+  hour12 = tf === "12h" ? true : tf === "24h" ? false : undefined;
+};
 export const date = (value: unknown) => {
   if (!value) return "—";
   const d = new Date(String(value));
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString(getLocale(), { dateStyle: "medium", timeStyle: "short" });
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString(getLocale(), { dateStyle: "medium", timeStyle: "short", hour12 });
 };
 export const button = (key: DictKey, action: string, primary = false) => `<button type="button" class="tm-button${primary ? " primary" : ""}" data-action="${action}">${text(key)}</button>`;
 export const empty = (key: DictKey = "common.empty") => `<div class="tm-empty">${text(key)}</div>`;

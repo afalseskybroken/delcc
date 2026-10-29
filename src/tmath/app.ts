@@ -6,7 +6,7 @@ import { googleLogin, GoogleAbort } from "../lib/google";
 import { openExternal, fetchAsset } from "../lib/transport";
 import DOMPurify from "dompurify";
 import { getLocale, t, type DictKey } from "../i18n";
-import { applyPreferences, loadPreferences, savePreferences, read, write, type Preferences } from "./preferences";
+import { applyPreferences, hour12Opt, loadPreferences, savePreferences, read, write, type Preferences } from "./preferences";
 import { button, date, empty, errorBox, errorText, esc, list, loading, text, textBr } from "./ui";
 import { mdInline as mdInlineRender } from "./md";
 import { cachedAvatar, hydrateAvatars } from "./avatars";
@@ -1565,7 +1565,7 @@ export class TmathApp {
       const stamp = host.querySelector<HTMLElement>("[data-lb-updated]");
       const sig = JSON.stringify(entries);
       if (sig === lastLb) {
-        if (stamp) stamp.textContent = text("rankings.updatedAt", { t: new Date().toLocaleTimeString(getLocale()) });
+        if (stamp) stamp.textContent = text("rankings.updatedAt", { t: new Date().toLocaleTimeString(getLocale(), hour12Opt(this.prefs.timeFormat)) });
         return;
       }
       lastLb = sig;
@@ -1577,30 +1577,34 @@ export class TmathApp {
       if (leftBody) leftBody.innerHTML = pairs.map(p => p.left).join("");
       if (rightBody) rightBody.innerHTML = pairs.map(p => p.right).join("");
       const you = rightBody?.querySelector("tr.leaderboard-self");
-      const ghost = host.querySelector<HTMLDivElement>("[data-lb-ghost]");
+      // pass #88 (He: "make it divided like the non-stickied rows"): the ghost is TWO
+      // overlays, one inside each pane's own box — the info table lives in the left
+      // pane, the tile strip in the right pane's wrap — so each aligns with its pane by
+      // construction instead of one bar whose internal boundary had to match by luck.
+      const ghosts = [...host.querySelectorAll<HTMLDivElement>("[data-lb-ghost]")];
+      const ghostLeft = ghosts.find(g => !g.classList.contains("tm-lb-ghost-right"));
+      const ghostRight = ghosts.find(g => g.classList.contains("tm-lb-ghost-right"));
       youObserver?.disconnect(); youObserver = null;
-      if (you && rightPane && ghost) {
-        // pass #83 (He's vision): the ghost is a MIRRORED MINI-SPLIT — the [You] row
-        // rendered as a real row in real columns (info pane 600px + tiles pane that
-        // follows the right pane's horizontal scroll), not a merged text bar. It reads
-        // your scores under whichever problem columns you're looking at.
+      if (you && rightPane && ghostLeft && ghostRight) {
+        // pass #83 (He's vision): the [You] row rendered as a real row in real columns —
+        // it reads your scores under whichever problem columns you're looking at.
         const e = entries.find(r => String(r?.username ?? "") === me);
         if (e) {
           const pair = rowHtml(e, entries.indexOf(e));
           const cols = problems.map(() => `<col style="width:100px">`).join("");
-          ghost.innerHTML = `<table class="tm-table tm-lb-table" style="width:600px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup><tbody>${pair.left}</tbody></table><div class="tm-lb-ghost-right"><table class="tm-table tm-lb-table" style="width:${problems.length * 100}px;min-width:100%"><colgroup>${cols}</colgroup><tbody>${pair.right}</tbody></table></div>`;
+          ghostLeft.innerHTML = `<table class="tm-table tm-lb-table" style="width:600px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup><tbody>${pair.left}</tbody></table>`;
+          ghostRight.innerHTML = `<div class="tm-lb-ghost-tiles"><table class="tm-table tm-lb-table" style="width:${problems.length * 100}px;min-width:100%"><colgroup>${cols}</colgroup><tbody>${pair.right}</tbody></table></div>`;
         }
         youObserver = new IntersectionObserver(obs => {
           for (const en of obs) {
-            if (!ghost) continue;
-            ghost.hidden = en.isIntersecting;
             // pass #83: track WHICH side the row left the view from — above the fold
-            // pins the ghost under the header, below pins it to the bottom edge
+            // pins the ghosts under the header, below pins them to the bottom edge
             // (He: a bottom-only bar is misleading when you're rank 2)
             if (!en.isIntersecting) {
               const above = en.rootBounds != null && en.boundingClientRect.bottom <= en.rootBounds.top + 1;
-              ghost.classList.toggle("tm-lb-ghost-top", above);
+              for (const g of ghosts) g.classList.toggle("tm-lb-ghost-top", above);
             }
+            for (const g of ghosts) g.hidden = en.isIntersecting;
           }
         }, { root: rightPane, threshold: 0 });
         youObserver.observe(you);
@@ -1644,10 +1648,10 @@ export class TmathApp {
         };
         scrollSync = (): void => {
           leftBody.style.transform = `translateY(${-rightPane.scrollTop}px)`;
-          // pass #83: the ghost's tile pane rides the same horizontal offset — its
+          // pass #83/#88: the ghost's tile strip rides the same horizontal offset — its
           // columns stay glued to the headers above ("a real column, not a hard merge")
-          const gr = host.querySelector<HTMLElement>(".tm-lb-ghost-right");
-          if (gr) gr.style.transform = `translateX(${-rightPane.scrollLeft}px)`;
+          const tiles = host.querySelector<HTMLElement>(".tm-lb-ghost-tiles");
+          if (tiles) tiles.style.transform = `translateX(${-rightPane.scrollLeft}px)`;
         };
         leftPane.addEventListener("wheel", wheelForward, { passive: false });
         rightPane.addEventListener("scroll", scrollSync);
@@ -1663,7 +1667,7 @@ export class TmathApp {
         td.onclick = jump;
         td.onkeydown = ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); jump(); } };
       });
-      if (stamp) stamp.textContent = text("rankings.updatedAt", { t: new Date().toLocaleTimeString(getLocale()) });
+      if (stamp) stamp.textContent = text("rankings.updatedAt", { t: new Date().toLocaleTimeString(getLocale(), hour12Opt(this.prefs.timeFormat)) });
     };
     const head = problems.map((p, i) => {
       // pass #76: K59 ships numeric labels ("0".."9") — Official renders letters, so a
@@ -1676,7 +1680,7 @@ export class TmathApp {
     // pass #80: page + card structure mirrors Official's Ranking page (He's reference):
     // eyebrow BẢNG XẾP HẠNG → h1 = contest name → subtitle; card head "Kết quả cuộc thi"
     // + counter; the Cập nhật-lúc row lives INSIDE the card, above the table.
-    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(this.contest!.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div>${chips}</div><section class="tm-card"><div class="tm-card-head"><h2>${text("rankings.contestTitle")}</h2><span class="tm-lb-count">${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span></div><div class="tm-lb-updated" data-lb-updated role="status"></div><div class="tm-lb-split"><div class="tm-lb-left"><table class="tm-table tm-lb-table" style="width:600px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup><thead><tr><th scope="col" title="${text("rankings.position")}">${text("rankings.rank")}</th><th scope="col">${text("rankings.user")}</th><th scope="col">${text("rankings.totalScore")}</th><th scope="col">${text("subs.time")}</th></tr></thead><tbody data-lb-left></tbody></table></div><div class="tm-lb-right"><table class="tm-table tm-lb-table" style="width:${problems.length * 100}px;min-width:100%"><colgroup>${problems.map(() => `<col style="width:100px">`).join("")}</colgroup><thead><tr>${head}</tr></thead><tbody data-lb-right></tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div><div class="tm-lb-ghost" data-lb-ghost hidden></div></div></section>`;
+    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(this.contest!.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div>${chips}</div><section class="tm-card"><div class="tm-card-head"><h2>${text("rankings.contestTitle")}</h2><span class="tm-lb-count">${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span></div><div class="tm-lb-updated" data-lb-updated role="status"></div><div class="tm-lb-split"><div class="tm-lb-left"><table class="tm-table tm-lb-table" style="width:600px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup><thead><tr><th scope="col" title="${text("rankings.position")}">${text("rankings.rank")}</th><th scope="col">${text("rankings.user")}</th><th scope="col">${text("rankings.totalScore")}</th><th scope="col">${text("subs.time")}</th></tr></thead><tbody data-lb-left></tbody></table><div class="tm-lb-ghost" data-lb-ghost hidden></div></div><div class="tm-lb-right-wrap"><div class="tm-lb-right"><table class="tm-table tm-lb-table" style="width:${problems.length * 100}px;min-width:100%"><colgroup>${problems.map(() => `<col style="width:100px">`).join("")}</colgroup><thead><tr>${head}</tr></thead><tbody data-lb-right></tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div><div class="tm-lb-ghost tm-lb-ghost-right" data-lb-ghost hidden><div class="tm-lb-ghost-tiles"></div></div></div></div></section>`;
     const lbGlobal = host.querySelector<HTMLButtonElement>('[data-lb-global]');
     if (lbGlobal) lbGlobal.onclick = () => this.go("rankings", { scope: "global" });
     const lbRefresh = host.querySelector<HTMLButtonElement>('[data-lb-refresh]');
