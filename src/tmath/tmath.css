@@ -839,14 +839,25 @@ body[data-persona="tmath"] .tm-lb-you, body[data-persona="tmath"] .tm-lb-dq { pa
 body[data-persona="tmath"] .tm-lb-you { background: var(--tmath-primary); color: var(--tmath-primary-foreground, #fff); }
 body[data-persona="tmath"] .tm-lb-dq { border: 1px solid var(--tmath-destructive); color: var(--tmath-destructive); }
 body[data-persona="tmath"] .tm-lb-virtual { color: var(--tmath-muted-foreground); font-weight: 600; }
-body[data-persona="tmath"] .tm-lb-table tbody td.score-full { color: #86efac; background: #163e32; }
-body[data-persona="tmath"] .tm-lb-table tbody td.score-partial { color: #fcd38b; background: #44331f; }
-body[data-persona="tmath"] .tm-lb-table tbody td.score-failed { color: #fda4af; background: #482333; }
-body[data-persona="tmath"] .tm-lb-table tbody td.score-fastest { color: #bbf7d0; background: #20513e; }
-body[data-persona="tmath"] .tm-lb-table td.score-fastest .score-penalty { color: #bbf7d0; }
+/* pass #92 (He's video: "Light Mode Leaderboard — likely CSS issue"): the tiles carried
+   the carve's DARK palette unconditionally — dark tiles on a light page. The carve ships
+   BOTH: the light palette is the default, dark overrides scope to html.dark (same shapes
+   as .tm-contest-tab above). score-time takes the muted token in both themes (the carve's
+   .leaderboard-table small rule). */
+body[data-persona="tmath"] .tm-lb-table tbody td.score-full { color: #166534; background: #dcfce7; }
+body[data-persona="tmath"] .tm-lb-table tbody td.score-partial { color: #92400e; background: #fef3c7; }
+body[data-persona="tmath"] .tm-lb-table tbody td.score-failed { color: #b91c1c; background: #fee2e2; }
+body[data-persona="tmath"] .tm-lb-table tbody td.score-fastest { color: #14532d; background: #86efac; }
+body[data-persona="tmath"] .tm-lb-table td.score-fastest .score-penalty { color: #166534; }
 body[data-persona="tmath"] .tm-lb-table td.score-empty { color: var(--tmath-muted-foreground); }
-body[data-persona="tmath"] .tm-lb-table .score-penalty { color: #f87171; font-weight: 600; }
-body[data-persona="tmath"] .tm-lb-table small.score-time { display: block; font-size: 11px; line-height: 1.4; font-weight: 400; }
+body[data-persona="tmath"] .tm-lb-table .score-penalty { color: #dc2626; font-weight: 600; }
+body[data-persona="tmath"] .tm-lb-table small.score-time { display: block; font-size: 11px; line-height: 1.4; font-weight: 400; color: var(--tmath-muted-foreground); }
+html.dark body[data-persona="tmath"] .tm-lb-table tbody td.score-full { color: #86efac; background: #163e32; }
+html.dark body[data-persona="tmath"] .tm-lb-table tbody td.score-partial { color: #fcd38b; background: #44331f; }
+html.dark body[data-persona="tmath"] .tm-lb-table tbody td.score-failed { color: #fda4af; background: #482333; }
+html.dark body[data-persona="tmath"] .tm-lb-table tbody td.score-fastest { color: #bbf7d0; background: #20513e; }
+html.dark body[data-persona="tmath"] .tm-lb-table td.score-fastest .score-penalty { color: #bbf7d0; }
+html.dark body[data-persona="tmath"] .tm-lb-table .score-penalty { color: #f87171; font-weight: 600; }
 body[data-persona="tmath"] .tm-lb-table strong { font-weight: 700; }
 /* problem headers: Official renders the label in a primary pill with the max points
    below (He's reference: "Bài A" pill + "100 điểm") */
@@ -855,6 +866,8 @@ body[data-persona="tmath"] .tm-lb-pcol small { display: block; margin-top: 3px; 
 body[data-persona="tmath"] .tm-lb-pcol { text-align: center; }
 /* card head per the reference: "Kết quả cuộc thi" + counter, then the Cập nhật-lúc row */
 body[data-persona="tmath"] .tm-lb-count { color: var(--tmath-muted-foreground); font-size: 12px; }
+/* pass #92: the ordering select lives in the card head (Server order / Points / Time) */
+body[data-persona="tmath"] .tm-lb-order { font-size: 12px; padding: 4px 8px; border: 1px solid var(--tmath-border); border-radius: 8px; background: var(--tmath-muted); color: var(--tmath-foreground); }
 body[data-persona="tmath"] .tm-lb-updated { padding: 10px 16px 8px; color: var(--tmath-muted-foreground); font-size: 13px; }
 /* pass #82/#83/#88 (He's vision, refined by "make it divided like the non-stickied
    rows"): the [You] ghost is TWO OVERLAYS — one inside each pane's own box (absolute,
