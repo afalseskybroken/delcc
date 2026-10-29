@@ -858,7 +858,13 @@ body[data-persona="tmath"] .tm-lb-updated { padding: 10px 16px 8px; color: var(-
    vertical scroll → still outside the stale-raster race. The top variant
    (tm-lb-ghost-top) pins under the sticky header when your row left the view upward. */
 body[data-persona="tmath"] .tm-lb-left, body[data-persona="tmath"] .tm-lb-right-wrap { position: relative; }
-body[data-persona="tmath"] .tm-lb-ghost { position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; overflow: hidden; border-top: 1px solid var(--tmath-border); background: var(--tmath-card); }
+body[data-persona="tmath"] .tm-lb-ghost { position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; overflow: hidden; border-top: 1px solid var(--tmath-border); background: var(--tmath-card); pointer-events: none; }
+/* pass #89 (He: "cannot horizontal scroll now"): the overlays are purely visual, but an
+   interactive one sat OVER the right pane's horizontal scrollbar and bottom strip —
+   wheel/scrollbar input died whenever the ghost was visible (i.e. almost always at the
+   bottom of the board). pointer-events: none passes wheel and scrollbar drags straight
+   through to the pane beneath; the ghost never needed clicks (its tiles are not the
+   wired ac-jump targets — the real row's are). */
 body[data-persona="tmath"] .tm-lb-ghost.tm-lb-ghost-top { bottom: auto; top: 58px; border-top: 0; border-bottom: 1px solid var(--tmath-border); }
 body[data-persona="tmath"] .tm-lb-ghost[hidden] { display: none; }
 body[data-persona="tmath"] .tm-lb-ghost tbody td { border-bottom: 0; }
