@@ -280,6 +280,17 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   function confirmSubmit(): void {
     if (submitting || disposed || switchingLanguage || !language) return;
     if (host.querySelector("dialog[data-confirm-submit]")) return;
+    // pass #99 (1.1.0 parity): file-I/O problems require the source to reference the
+    // judge's input/output file names before submit — official blocks the submit; so
+    // do we, naming the missing files (case-insensitive contains, like official).
+    const ioMeta = problem.io_method as { method?: unknown; input?: unknown; output?: unknown } | null | undefined;
+    if (ioMeta?.method === "file") {
+      const srcLower = source().toLowerCase();
+      const missing = (["input", "output"] as const)
+        .map(side => (typeof ioMeta[side] === "string" ? (ioMeta[side] as string).trim() : ""))
+        .filter(name => !!name && !srcLower.includes(name.toLowerCase()));
+      if (missing.length) { note(t("problem.ioFilesMissing", { names: missing.join(", ") }), "error"); return; }
+    }
     const dlg = document.createElement("dialog");
     dlg.className = "tm-confirm"; dlg.setAttribute("data-confirm-submit", ""); dlg.setAttribute("aria-labelledby", "tm-confirm-title");
     dlg.innerHTML = `<h2 id="tm-confirm-title">${text("problem.confirmTitle")}</h2><p>${text("problem.confirmBody", { name: String(problem.name ?? args.code) })}</p><div class="tm-confirm-actions"><button type="button" class="tm-button" data-confirm="back">${text("common.back")}</button><button type="button" class="tm-button primary" data-confirm="yes">${text("problem.confirmYes")}</button></div>`;
@@ -423,6 +434,12 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       write(grip.dataset.mode === "v" ? "delcc-tmath-split-v" : "delcc-tmath-split", String(grip.dataset.mode === "v" ? vv : hv));
     };
     grip.onlostpointercapture = () => { delete split.dataset.dragging; };
+    // pass #99 (1.1.0 parity): double-click the splitter to reset to the official 1:1
+    // default for the current orientation; persisted like a drag so the reset sticks
+    grip.ondblclick = () => {
+      if (stacked()) { vv = 50; applyV(); grip.setAttribute("aria-valuenow", "50"); write("delcc-tmath-split-v", "50"); }
+      else { hv = 50; applyH(); grip.setAttribute("aria-valuenow", "50"); write("delcc-tmath-split", "50"); }
+    };
       grip.onkeydown = e => {
         const vertical = stacked();
         if (vertical && e.key === "ArrowUp") vv = Math.max(25, vv-2);

@@ -606,7 +606,18 @@ export class TmathApp {
     };
     const row = (c: ContestListItem) => {
       const status: DictKey = new Date(c.start_time).getTime() > now ? "contests.scheduled" : new Date(c.end_time).getTime() < now ? "contests.finished" : "contests.running";
-      return `<div class="tm-contest-row"><span class="tm-contest-icon" aria-hidden="true">${phIcon("trophy", 24)}</span><div class="tm-contest-summary"><strong>${esc(c.name)}</strong>${c.topic ? `<small class="tm-contest-topic">${esc(c.topic)}</small>` : ""}<small>${date(c.start_time)} – ${date(c.end_time)}</small></div><span class="tm-tag">${rowTag(c)}</span><button class="tm-button primary tm-contest-join" aria-label="${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")} ${esc(c.name)}" data-contest="${esc(c.key)}" data-join="${!!c.can_join && !c.is_in_contest}"${!c.can_join && !c.can_view_tasks && !c.is_in_contest ? " disabled" : ""}>${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")}</button></div>`;
+      // pass #99 (1.1.0 parity, carved): Rated/Unrated badge (official: Rated red /
+      // Unrated green) plus the rate-ceiling cap badge ("< N") with the limit tooltip
+      const rated = c.is_rated
+        ? `<span class="tm-rate-badge yes" title="${text("contests.ratedTip")}">${text("contests.rated")}</span>${c.rate_ceiling != null ? `<span class="tm-rate-badge yes" title="${text("contests.rateCapTip", { n: String(c.rate_ceiling) })}">&lt; ${esc(String(c.rate_ceiling))}</span>` : ""}`
+        : `<span class="tm-rate-badge no" title="${text("contests.unratedTip")}">${text("contests.unrated")}</span>`;
+      // pass #99 (1.1.0 parity): an upcoming contest blocks its JOIN button until
+      // start_time; the data-starts-in timer flips it (and the "Joinable in X" tag)
+      // open at the hour, like official's auto-enable
+      const startMs = new Date(c.start_time).getTime();
+      const joinWait = !c.is_in_contest && c.can_join && startMs > now;
+      const disabled = (!c.can_join && !c.can_view_tasks && !c.is_in_contest) || joinWait;
+      return `<div class="tm-contest-row"><span class="tm-contest-icon" aria-hidden="true">${phIcon("trophy", 24)}</span><div class="tm-contest-summary"><strong>${esc(c.name)}</strong>${rated}${c.topic ? `<small class="tm-contest-topic">${esc(c.topic)}</small>` : ""}<small>${date(c.start_time)} – ${date(c.end_time)}</small></div><span class="tm-tag"${joinWait ? ` data-starts-in="${startMs}"` : ""}>${rowTag(c)}</span><button class="tm-button primary tm-contest-join" aria-label="${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")} ${esc(c.name)}" data-contest="${esc(c.key)}" data-join="${!!c.can_join && !c.is_in_contest}"${disabled ? " disabled" : ""}>${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")}</button></div>`;
     };
     const groups: [DictKey, DictKey, "active" | "upcoming" | "ended", ContestListItem[]][] = [
       ["contests.current", "contests.currentDesc", "active", list(home?.current_contests)],
@@ -627,6 +638,22 @@ export class TmathApp {
     const cont = host.querySelector<HTMLButtonElement>('[data-action="continue"]');
     if (cont) cont.onclick = () => this.go("workspace", {contest: this.contest!.key});
     host.querySelector<HTMLFormElement>("form")!.onsubmit = event => { event.preventDefault(); this.go("contests", {search: new FormData(event.currentTarget as HTMLFormElement).get("search") as string}); };
+    // pass #99 (1.1.0 parity): the join buttons blocked on start_time flip open at
+    // the hour — one timer per waiting row (clamped to setTimeout's 32-bit range),
+    // chained into the view's disposal so navigation cancels pending flips
+    const previous = this.disposeView;
+    const joinTimers: number[] = [];
+    host.querySelectorAll<HTMLElement>("[data-starts-in]").forEach(tag => {
+      const wait = Number(tag.dataset.startsIn) - Date.now();
+      if (!(wait > 0)) return;
+      joinTimers.push(window.setTimeout(() => {
+        tag.removeAttribute("data-starts-in");
+        tag.textContent = text("contests.joinable");
+        const btn = tag.parentElement?.querySelector<HTMLButtonElement>(".tm-contest-join");
+        if (btn) btn.disabled = false;
+      }, Math.min(wait, 2_147_000_000)));
+    });
+    this.disposeView = () => { joinTimers.forEach(id => window.clearTimeout(id)); previous?.(); };
     host.querySelectorAll<HTMLButtonElement>("[data-contest]").forEach(b => b.onclick = async () => {
       b.disabled = true;
       const c = all.find(c => c.key === b.dataset.contest)!;
@@ -1263,7 +1290,18 @@ export class TmathApp {
     const casesHtml = Array.isArray(s.cases) && s.cases.length
       ? `<div class="tm-sub-cases-wrap"><table class="tm-sub-cases" aria-label="${text("subs.testcase")}"><thead><tr><th>${text("subs.testcase")}</th><th>${text("subs.group")}</th><th>${text("subs.result")}</th><th>${text("subs.time")} (s)</th><th>${text("subs.memory")} (MB)</th><th>${text("subs.score")}</th></tr></thead><tbody>${caseRows(s.cases, null)}</tbody></table></div>`
       : `<p class="tm-muted">${text("subs.noCaseDetail")}</p>`;
-    return `<div class="tm-sub-detail"><p class="tm-sub-detail-summary">${text("subs.testSummary", { p: String(s.case_points ?? "—"), t: String(s.case_total ?? "—"), time: fmtT(s.time), mem: fmtM(s.memory) })}</p>${casesHtml}</div>`;
+    // pass #99 (1.1.0 parity): the judge's compile errors/warnings ride
+    // SubmissionDetailSchema.error. Compilers emit ANSI escapes (SGR colors, cursor
+    // moves, OSC titles) that a <pre> renders as garbage — strip CSI/OSC sequences
+    // and stray C0 controls, keeping tab/LF/CR.
+    const err = typeof s.error === "string" && s.error.trim()
+      ? s.error
+          .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
+          .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+          .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "")
+          .trim()
+      : "";
+    return `<div class="tm-sub-detail">${err ? `<div class="tm-case-panel bad tm-compile-error"><b>${text("subs.compileOutput")}</b><pre>${esc(err)}</pre></div>` : ""}<p class="tm-sub-detail-summary">${text("subs.testSummary", { p: String(s.case_points ?? "—"), t: String(s.case_total ?? "—"), time: fmtT(s.time), mem: fmtM(s.memory) })}</p>${casesHtml}</div>`;
   }
 
   private wireCaseToggles(scope: ParentNode): void {
@@ -1548,7 +1586,13 @@ export class TmathApp {
       }
       return m;
     });
-    const cellHtml = (c: any, i: number, you: boolean): string => {
+    // pass #99: one label mapping shared by the header and the drill-through tooltips
+    // (pass #76 rule: numeric labels fall back to the "Bài + letter" mapping)
+    const probLabel = (p: any, i: number): string => {
+      const raw = p?.label == null ? "" : String(p.label);
+      return raw && !/^\d+$/.test(raw) ? raw : `${tabWord} ${this.idxLetters(typeof p?.display_index === "number" ? p.display_index : i)}`;
+    };
+    const cellHtml = (c: any, i: number, you: boolean, username: string): string => {
       if (!c || !c.has_data) return `<td class="score-empty">—</td>`;
       const tone = this.scoreClass(typeof c.status === "string" ? c.status : "");
       const isFull = tone === "score-full";
@@ -1556,8 +1600,15 @@ export class TmathApp {
       const pen = Number(c.penalty);
       // pass #77 (He's outdo): YOUR verdicted tiles are clickable — jump to the
       // contest-scoped Submissions view filtered to that problem's AC results
+      // pass #99 (1.1.0 parity — official's per-cell drill, carved: the scored cell
+      // becomes a button whose target is (problem, username)): EVERY scored tile now
+      // drills, 0-point rows included. Yours keep the #77 AC jump.
       const code = String(problems[i]?.code ?? "");
-      const jump = you && code ? ` class="${cls} ac-jump" data-ac-jump="${esc(code)}" title="${esc(text("rankings.acJump"))}" tabindex="0" role="link"` : ` class="${cls}"`;
+      const jump = you && code
+        ? ` class="${cls} ac-jump" data-ac-jump="${esc(code)}" title="${esc(text("rankings.acJump"))}" tabindex="0" role="link"`
+        : !you && code
+          ? ` class="${cls} ac-jump" data-drill="${esc(code)}" data-drill-user="${esc(username)}" title="${esc(text("rankings.drill", { p: probLabel(problems[i], i), u: username }))}" tabindex="0" role="link"`
+          : ` class="${cls}"`;
       return `<td ${jump}><strong>${esc(fmtNum(c.points))}</strong><small class="score-time">${esc(fmtClock(c.time))}${Number.isFinite(pen) && pen > 0 ? ` <span class="score-penalty">(${pen})</span>` : ""}</small></td>`;
     };
     // pass #80: each entry renders as a ROW PAIR — the left (info) row and the right
@@ -1569,7 +1620,7 @@ export class TmathApp {
       const self = you ? " leaderboard-self" : "";
       const left = `<tr class="tm-lb-row${self}"><th scope="row" class="tm-lb-rank-cell"><span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span></th><td class="tm-lb-user"><a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)}${you ? ` <span class="tm-tag tm-lb-you">${text("rankings.you")}</span>` : ""}</td><td class="tm-lb-total"><strong>${esc(fmtNum(e.points))}</strong></td><td class="tm-lb-time">${esc(fmtClock(e.cumulative_time))}</td></tr>`;
       const cells = Array.isArray(e.problem_cells) ? e.problem_cells : [];
-      const right = `<tr class="tm-lb-row${self}">${problems.map((_, k) => cellHtml(cells[k], k, you)).join("")}</tr>`;
+      const right = `<tr class="tm-lb-row${self}">${problems.map((_, k) => cellHtml(cells[k], k, you, username)).join("")}</tr>`;
       return { left, right };
     };
     const tabWord = text("contests.tabWord");
@@ -1721,13 +1772,20 @@ export class TmathApp {
         td.onclick = jump;
         td.onkeydown = ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); jump(); } };
       });
+      // pass #99 (1.1.0 parity): other users' scored tiles drill to that user's
+      // submissions on that problem — the contest scope client-refines by user
+      // (app.ts refine uMatch), so the filter survives refresh/back like official's
+      rightBody?.querySelectorAll<HTMLTableCellElement>("[data-drill]").forEach(td => {
+        const drill = (): void => this.go("submissions", { scope: `contest:${key}`, problem: td.dataset.drill ?? "", user: td.dataset.drillUser ?? "" });
+        td.onclick = drill;
+        td.onkeydown = ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); drill(); } };
+      });
       if (stamp) stamp.textContent = text("rankings.updatedAt", { t: new Date().toLocaleTimeString(getLocale(), hour12Opt(this.prefs.timeFormat)) });
     };
     const head = problems.map((p, i) => {
       // pass #76: K59 ships numeric labels ("0".."9") — Official renders letters, so a
       // purely numeric label falls back to the "Bài + letter" mapping
-      const raw = p.label == null ? "" : String(p.label);
-      const label = raw && !/^\d+$/.test(raw) ? raw : `${tabWord} ${this.idxLetters(typeof (p as any).display_index === "number" ? (p as any).display_index : i)}`;
+      const label = probLabel(p, i);
       return `<th class="tm-lb-pcol" scope="col"><span>${esc(label)}</span><small>${esc(text("rankings.maxPoints", { n: fmtNum(p.points ?? 0) }))}</small></th>`;
     }).join("");
     const chips = `<div class="tm-chip-row" role="group" aria-label="${text("subs.scopeLabel")}"><button type="button" class="tm-chip active" aria-pressed="true">${text("subs.scopeContest")}</button><button type="button" class="tm-chip" data-lb-global aria-pressed="false">${text("subs.scopeGlobal")}</button><button type="button" class="tm-chip" data-lb-refresh>↻ ${text("common.refresh")}</button></div>`;

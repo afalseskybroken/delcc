@@ -95,6 +95,7 @@ export interface Dict {
   "cph.fileAvailableHint": string;
   "cph.fileMissingHint": string;
   "cph.fileUnsupported": string;
+  "problem.ioFilesMissing": string;
   "cph.notRun": string;
   "cph.executing": string;
   "cph.timedOut": string;
@@ -206,6 +207,10 @@ export interface Dict {
   "contests.upcomingDesc": string;
   "contests.recentDesc": string;
   "contests.joinable": string;
+  "contests.ratedTip": string;
+  "contests.unrated": string;
+  "contests.unratedTip": string;
+  "contests.rateCapTip": string;
   "contests.startsIn": string;
   "contests.locked": string;
   "contests.joined": string;
@@ -305,6 +310,7 @@ export interface Dict {
   "rankings.maxPoints": string;
   "rankings.hidden": string;
   "rankings.acJump": string;
+  "rankings.drill": string;
   "subs.mine": string;
   "subs.scopeLabel": string;
   "subs.scopeGlobal": string;
@@ -327,6 +333,7 @@ export interface Dict {
   "subs.yourOutput": string;
   "subs.judgeFeedback": string;
   "subs.noCaseDetail": string;
+  "subs.compileOutput": string;
   "subs.sourceTitle": string;
   "subs.backToSubs": string;
   "subs.loadingSource": string;

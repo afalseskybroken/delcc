@@ -905,3 +905,18 @@ body[data-persona="tmath"] .tm-mono-grip { display: flex; align-items: center; j
 body[data-persona="tmath"] .tm-mono-grip::before { width: 48px; height: 4px; border-radius: 999px; background: var(--tmath-border); content: ""; }
 body[data-persona="tmath"] .tm-mono-grip:is(:hover, :focus-visible)::before,
 body[data-persona="tmath"] .tm-mono-grip[data-dragging]::before { background: var(--tmath-primary); }
+
+/* pass #99 — 1.1.0 parity: contest rows carry the official Rated/Unrated badge
+   (official palette: Rated red-100/red-700, Unrated green-100/green-700, dark
+   counterparts red-950/red-300, green-950/green-300) + the rate-ceiling cap badge */
+body[data-persona="tmath"] .tm-rate-badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 16px; vertical-align: middle; }
+body[data-persona="tmath"] .tm-rate-badge.yes { background: #fee2e2; color: #b91c1c; }
+body[data-persona="tmath"] .tm-rate-badge.no { background: #dcfce7; color: #166534; }
+html.dark body[data-persona="tmath"] .tm-rate-badge.yes { background: #450a0a; color: #fca5a5; }
+html.dark body[data-persona="tmath"] .tm-rate-badge.no { background: #052e16; color: #86efac; }
+
+/* pass #99 — the drill-through tiles reuse .ac-jump's cursor affordance (no hover
+   repaint: the #69/#80 hover-cascade lesson stands); the compile-output panel in the
+   submission detail just needs the same breathing room as the case panels */
+body[data-persona="tmath"] .tm-compile-error { margin: 0 0 10px; }
+body[data-persona="tmath"] .tm-compile-error pre { max-height: 240px; overflow: auto; }
