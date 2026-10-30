@@ -42,7 +42,7 @@ export interface Dict {
   "problem.ioMethod": string;
   "problem.mark": string;
   "problem.copy": string;
-  "problem.saveMarkdown": string;
+  "problem.saveStatement": string;
   "problem.mathRaw": string;
   "problem.mathRendered": string;
   "cph.title": string;
