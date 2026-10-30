@@ -138,6 +138,7 @@ export const enUS: Dict = {
   "contests.unrated": "Unrated",
   "contests.unratedTip": "Unrated contest",
   "contests.rateCapTip": "Rating limit: below {n}",
+  "contests.staleOpen": "This contest is no longer open to you — the list was stale. Refreshing.",
   "contests.startsIn": "Starts in {t}",
   "contests.locked": "Not available yet",
   "contests.joined": "Joined",
