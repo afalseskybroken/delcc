@@ -347,6 +347,18 @@ fn push(out: &mut Vec<Toolchain>, lang_key: &str, label: &str, found: Option<(St
 fn detect_all() -> Vec<Toolchain> {
     let mut out = Vec::new();
     push(&mut out, "cpp", "C++", probe_one(&["g++", "clang++"], &["--version"]));
+    // pass #99 (1.1.0 parity, carve-verified): official also probes the per-user
+    // Code::Blocks install (the dappcdn setup exe; its MinGW bundle is NOT on PATH)
+    // at %LOCALAPPDATA%\Programs\CodeBlocks\MinGW\bin\g++.exe — delcc falls back to
+    // it only when no PATH g++/clang++ answered, so PATH toolchains keep priority.
+    if !out.iter().any(|t| t.lang_key == "cpp") {
+        if let Some(lad) = std::env::var_os("LOCALAPPDATA") {
+            let cb_gpp = std::path::PathBuf::from(lad).join(r"Programs\CodeBlocks\MinGW\bin\g++.exe");
+            if cb_gpp.is_file() {
+                push(&mut out, "cpp", "C++ (Code::Blocks)", probe_one(&[cb_gpp.to_string_lossy().as_ref()], &["--version"]));
+            }
+        }
+    }
     push(&mut out, "python", "Python", probe_one(&["python3", "python"], &["--version"]));
     push(&mut out, "rust", "Rust", probe_one(&["rustc"], &["--version"]));
     push(&mut out, "go", "Go", probe_one(&["go"], &["version"]));
