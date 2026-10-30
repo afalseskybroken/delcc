@@ -211,6 +211,7 @@ export interface Dict {
   "contests.unrated": string;
   "contests.unratedTip": string;
   "contests.rateCapTip": string;
+  "contests.staleOpen": string;
   "contests.startsIn": string;
   "contests.locked": string;
   "contests.joined": string;

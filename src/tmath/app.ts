@@ -660,6 +660,24 @@ export class TmathApp {
       try {
         if (b.dataset.join === "true") await api.join(auth.accessToken()!, c.key);
         if (!alive()) return;
+        // pass #100 (He's stale-Open bug): the feed sometimes keeps listing a contest
+        // the user has LEFT (or that closed server-side) — clicking Open then died
+        // inside the workspace view. The Open path now probes the SAME fetch the
+        // workspace would make: success navigates; failure means the row was stale —
+        // honest message, button back, and the list refreshes itself clean.
+        if (b.dataset.join !== "true") {
+          try {
+            await api.workspace(auth.accessToken()!, c.key);
+            if (!alive()) return;
+          } catch (staleErr) {
+            if (!alive()) return;
+            logInfo(`contest open: stale row (workspace fetch failed) key=${c.key}`);
+            host.querySelector("#tm-contest-message")!.innerHTML = `<p class="tm-ac-banner" role="status">${text("contests.staleOpen")}</p>`;
+            b.disabled = false;
+            window.setTimeout(() => { if (alive()) this.go("contests", { search: params.get("search") ?? "" }); }, 1500);
+            return;
+          }
+        }
         this.contest = c; this.go("workspace", {contest:c.key});
       } catch(e) { if (alive()) { host.querySelector("#tm-contest-message")!.innerHTML = errorBox(e); b.disabled = false; } }
     });

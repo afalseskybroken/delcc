@@ -344,21 +344,108 @@ fn push(out: &mut Vec<Toolchain>, lang_key: &str, label: &str, found: Option<(St
     }
 }
 
-fn detect_all() -> Vec<Toolchain> {
-    let mut out = Vec::new();
-    push(&mut out, "cpp", "C++", probe_one(&["g++", "clang++"], &["--version"]));
-    // pass #99 (1.1.0 parity, carve-verified): official also probes the per-user
-    // Code::Blocks install (the dappcdn setup exe; its MinGW bundle is NOT on PATH)
-    // at %LOCALAPPDATA%\Programs\CodeBlocks\MinGW\bin\g++.exe — delcc falls back to
-    // it only when no PATH g++/clang++ answered, so PATH toolchains keep priority.
-    if !out.iter().any(|t| t.lang_key == "cpp") {
-        if let Some(lad) = std::env::var_os("LOCALAPPDATA") {
-            let cb_gpp = std::path::PathBuf::from(lad).join(r"Programs\CodeBlocks\MinGW\bin\g++.exe");
-            if cb_gpp.is_file() {
-                push(&mut out, "cpp", "C++ (Code::Blocks)", probe_one(&[cb_gpp.to_string_lossy().as_ref()], &["--version"]));
+fn have(out: &[Toolchain], lang_key: &str) -> bool {
+    out.iter().any(|t| t.lang_key == lang_key)
+}
+
+// pass #100 (He: "more probing locations — standard default installation paths of
+// common compilers/interpreters, if non-PATH'd"): after the PATH probes fail for a
+// language, try the well-known fixed install locations. is_file() gates every
+// candidate, so nothing spawns unless the binary is actually there; PATH keeps
+// priority (a fixed path is only probed when the language has no answer yet).
+fn push_fixed(out: &mut Vec<Toolchain>, lang_key: &str, label: &str, candidates: Vec<std::path::PathBuf>, version_args: &[&str]) {
+    if have(out, lang_key) {
+        return;
+    }
+    for c in candidates {
+        if !c.is_file() {
+            continue;
+        }
+        if let Some((binary, version)) = probe_one(&[c.to_string_lossy().as_ref()], version_args) {
+            out.push(Toolchain { lang_key: lang_key.into(), label: label.into(), binary, version });
+            return;
+        }
+    }
+}
+
+// Version-numbered install dirs (Python312, jdk-21.0.3, 3.2.2 …): newest first so the
+// probe prefers the latest toolchain when several are installed.
+fn glob_dirs(dir: &std::path::Path, prefix: &str) -> Vec<std::path::PathBuf> {
+    let mut v: Vec<std::path::PathBuf> = match std::fs::read_dir(dir) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_dir() && p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(prefix)))
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    v.sort();
+    v.reverse();
+    v
+}
+
+// pass #100 (He: "same for probing compiler/interpreter off VSCode"): some VS Code
+// extensions bundle a MinGW/Python toolchain. The scan is BOUNDED so it can never
+// become a filesystem crawl: direct extension dirs only (60 max), walk depth 3,
+// hard entry cap, node_modules/.git pruned, at most two hits per language.
+fn walk_find(dir: &std::path::Path, name: &str, depth: u8, checked: &mut usize, cap: usize) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    if depth == 0 || *checked >= cap {
+        return found;
+    }
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.filter_map(|e| e.ok()) {
+            *checked += 1;
+            if *checked >= cap {
+                break;
+            }
+            let p = e.path();
+            let fname = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            if fname == "node_modules" || fname == ".git" {
+                continue;
+            }
+            if p.is_file() && fname == name {
+                found.push(p);
+            } else if p.is_dir() {
+                found.extend(walk_find(&p, name, depth - 1, checked, cap));
+            }
+            if found.len() >= 2 {
+                break;
             }
         }
     }
+    found
+}
+
+fn vscode_extension_toolchains(profile: &std::path::Path) -> (Vec<std::path::PathBuf>, Vec<std::path::PathBuf>) {
+    let mut gpp = Vec::new();
+    let mut py = Vec::new();
+    let ext = profile.join(".vscode").join("extensions");
+    let mut checked = 0usize;
+    if let Ok(rd) = std::fs::read_dir(&ext) {
+        for e in rd.filter_map(|e| e.ok()).take(60) {
+            let d = e.path();
+            if !d.is_dir() {
+                continue;
+            }
+            if gpp.len() < 2 {
+                gpp.extend(walk_find(&d, "g++.exe", 3, &mut checked, 400).into_iter().take(2));
+            }
+            if py.len() < 2 {
+                py.extend(walk_find(&d, "python.exe", 3, &mut checked, 400).into_iter().take(2));
+            }
+            if gpp.len() >= 2 && py.len() >= 2 {
+                break;
+            }
+        }
+    }
+    (gpp, py)
+}
+
+fn detect_all() -> Vec<Toolchain> {
+    let mut out = Vec::new();
+    // PATH probes first — a toolchain the user put on PATH always wins.
+    push(&mut out, "cpp", "C++", probe_one(&["g++", "clang++"], &["--version"]));
     push(&mut out, "python", "Python", probe_one(&["python3", "python"], &["--version"]));
     push(&mut out, "rust", "Rust", probe_one(&["rustc"], &["--version"]));
     push(&mut out, "go", "Go", probe_one(&["go"], &["version"]));
@@ -367,6 +454,117 @@ fn detect_all() -> Vec<Toolchain> {
     // java needs both compiler and runtime; only claim it when both answer.
     if probe_one(&["javac"], &["-version"]).is_some() {
         push(&mut out, "java", "Java", probe_one(&["java"], &["-version"]));
+    }
+    let local = std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from);
+    let profile = std::env::var_os("USERPROFILE").map(std::path::PathBuf::from);
+    let pf = |p: std::path::PathBuf| -> Vec<std::path::PathBuf> { vec![p] };
+    // pass #99/#100 (carve-verified Code::Blocks + the common defaults): MinGW-family
+    // installs that never touch PATH — Code::Blocks (per-user AND all-users), the
+    // classic C:\MinGW, WinLibs, TDM-GCC, MSYS2, and Dev-C++ (common in VN classrooms).
+    push_fixed(&mut out, "cpp", "C++", {
+        let mut v = Vec::new();
+        if let Some(lad) = &local {
+            v.push(lad.join(r"Programs\CodeBlocks\MinGW\bin\g++.exe"));
+        }
+        v.extend([
+            std::path::PathBuf::from(r"C:\MinGW\bin\g++.exe"),
+            std::path::PathBuf::from(r"C:\mingw64\bin\g++.exe"),
+            std::path::PathBuf::from(r"C:\TDM-GCC-64\bin\g++.exe"),
+            std::path::PathBuf::from(r"C:\msys64\mingw64\bin\g++.exe"),
+            std::path::PathBuf::from(r"C:\msys64\ucrt64\bin\g++.exe"),
+            std::path::PathBuf::from(r"C:\Program Files\CodeBlocks\MinGW\bin\g++.exe"),
+            std::path::PathBuf::from(r"C:\Program Files (x86)\Dev-Cpp\MinGW64\bin\g++.exe"),
+            std::path::PathBuf::from(r"C:\Dev-Cpp\MinGW64\bin\g++.exe"),
+        ]);
+        v
+    }, &["--version"]);
+    // python: the per-user installer default (newest first) + the old all-users roots
+    if let Some(lad) = &local {
+        let mut py = glob_dirs(&lad.join(r"Programs\Python"), "Python");
+        py.extend(glob_dirs(std::path::Path::new(r"C:\"), "Python3"));
+        for d in py {
+            let exe = d.join("python.exe");
+            push_fixed(&mut out, "python", "Python", pf(exe), &["--version"]);
+            if have(&out, "python") {
+                break;
+            }
+        }
+    } else {
+        for d in glob_dirs(std::path::Path::new(r"C:\"), "Python3") {
+            let exe = d.join("python.exe");
+            push_fixed(&mut out, "python", "Python", pf(exe), &["--version"]);
+            if have(&out, "python") {
+                break;
+            }
+        }
+    }
+    // rustup's default never touches PATH on machines where cargo was skipped
+    if let Some(prof) = &profile {
+        push_fixed(&mut out, "rust", "Rust", pf(prof.join(r".cargo\bin\rustc.exe")), &["--version"]);
+    }
+    push_fixed(&mut out, "go", "Go", vec![
+        std::path::PathBuf::from(r"C:\Go\bin\go.exe"),
+        std::path::PathBuf::from(r"C:\Program Files\Go\bin\go.exe"),
+    ], &["version"]);
+    // FPC ships versioned (C:\FPC\3.2.2\bin\i386-win32); Lazarus bundles its own
+    if !have(&out, "pascal") {
+        'fpc: for root in [std::path::PathBuf::from(r"C:\FPC"), std::path::PathBuf::from(r"C:\lazarus\fpc")] {
+            for d in glob_dirs(&root, "") {
+                for arch in ["i386-win32", "x86_64-win64"] {
+                    let exe = d.join("bin").join(arch).join("fpc.exe");
+                    if exe.is_file() {
+                        push_fixed(&mut out, "pascal", "Pascal", pf(exe), &["-iV"]);
+                        if have(&out, "pascal") {
+                            break 'fpc;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    push_fixed(&mut out, "javascript", "Node.js", vec![
+        std::path::PathBuf::from(r"C:\Program Files\nodejs\node.exe"),
+    ], &["--version"]);
+    // java: the JDK vendors' default roots (newest first); both javac and java must
+    // answer from the SAME directory, matching the PATH rule above.
+    if !have(&out, "java") {
+        'java: for root in [std::path::PathBuf::from(r"C:\Program Files\Java"), std::path::PathBuf::from(r"C:\Program Files\Eclipse Adoptium"), std::path::PathBuf::from(r"C:\Program Files (x86)\Java")] {
+            for d in glob_dirs(&root, "jdk") {
+                let bin = d.join("bin");
+                let javac = bin.join("javac.exe");
+                let java = bin.join("java.exe");
+                if javac.is_file() && java.is_file() {
+                    if let (Some((_c1, jc)), Some((_c2, _jr))) = (
+                        probe_one(&[javac.to_string_lossy().as_ref()], &["-version"]),
+                        probe_one(&[java.to_string_lossy().as_ref()], &["-version"]),
+                    ) {
+                        out.push(Toolchain {
+                            lang_key: "java".into(),
+                            label: "Java".into(),
+                            binary: javac.to_string_lossy().to_string(),
+                            version: jc,
+                        });
+                        break 'java;
+                    }
+                }
+            }
+        }
+    }
+    // VS Code extension-bundled toolchains (bounded scan) — last resort for cpp/python
+    if let Some(prof) = &profile {
+        let (gpp, py) = vscode_extension_toolchains(prof);
+        for p in gpp {
+            push_fixed(&mut out, "cpp", "C++", pf(p), &["--version"]);
+            if have(&out, "cpp") {
+                break;
+            }
+        }
+        for p in py {
+            push_fixed(&mut out, "python", "Python", pf(p), &["--version"]);
+            if have(&out, "python") {
+                break;
+            }
+        }
     }
     out
 }

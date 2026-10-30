@@ -143,6 +143,7 @@ export const zhCN: Dict = {
   "contests.unrated": "不计入 Rating",
   "contests.unratedTip": "不计入 Rating 的比赛",
   "contests.rateCapTip": "Rating 上限：低于 {n}",
+  "contests.staleOpen": "该比赛已不再对你开放 —— 列表已过期。正在刷新。",
   "update.dismiss": "不再显示",
   "cph.casePick": "测试点",
   "problem.options": "选项",

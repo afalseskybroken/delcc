@@ -137,6 +137,7 @@ export const viVN: Dict = {
   "contests.unrated": "Không tính rating",
   "contests.unratedTip": "Cuộc thi không tính rating",
   "contests.rateCapTip": "Giới hạn rating: dưới {n}",
+  "contests.staleOpen": "Cuộc thi này không còn mở với bạn — danh sách đã cũ. Đang làm mới.",
   "contests.startsIn": "Bắt đầu sau {t}",
   "contests.locked": "Chưa thể tham gia",
   "contests.joined": "Đang tham gia",
