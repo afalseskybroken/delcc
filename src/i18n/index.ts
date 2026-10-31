@@ -135,6 +135,13 @@ export interface Dict {
   "tools.byteDetail": string;
   "tools.graphEdges": string;
   "tools.graphDirected": string;
+  "tools.maximize": string;
+  "tools.restore": string;
+  "tools.minimize": string;
+  "tools.close": string;
+  "tools.treeLayout": string;
+  "tools.lockPositions": string;
+  "tools.dragNeighbours": string;
   "tools.graphDraw": string;
   "tools.graphStart": string;
   "tools.graphEnd": string;
