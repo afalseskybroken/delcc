@@ -1,16 +1,24 @@
-// Local browser regression checks; no API credentials or external requests.
-// Run: node scripts/test-tmath-statement.mjs
+// Browser regression checks for the statement renderer; no API credentials or
+// external requests. Run: node scripts/test-tmath-statement.mjs
 // Set PLAYWRIGHT_MODULE to an installed Playwright directory when not in node_modules.
+// pass #102: the fixture route installs through configureServer so it sits BEFORE
+// Vite's history fallback — the old post-hoc server.middlewares.use() stopped
+// intercepting when Vite began serving the app's own index.html (the "Cannot read
+// properties of null (reading 'classList')" the wave-3 audit hit).
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { createServer } from "vite";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
-const server = await createServer({ server: { host: "127.0.0.1", port: 0 }, logLevel: "error" });
-server.middlewares.use("/__tmath_statement_test__", (_request, response) => {
-  response.setHeader("Content-Type", "text/html");
-  response.end('<!doctype html><html><head><meta charset="utf-8"></head><body><main id="host"></main></body></html>');
+const server = await createServer({
+  server: { host: "127.0.0.1", port: 0 }, logLevel: "error",
+  plugins: [{ name: "statement-test-fixture", configureServer(s) {
+    s.middlewares.use("/__tmath_statement_test__", (_request, response) => {
+      response.setHeader("Content-Type", "text/html");
+      response.end('<!doctype html><html><head><meta charset="utf-8"></head><body><main id="host"></main></body></html>');
+    });
+  } }],
 });
 await server.listen();
 let browser;
@@ -41,7 +49,7 @@ try {
   assert.equal(await page.locator("pre .katex").count(), 0, "code is never typeset");
   await page.locator(".tm-code-copy-button").click();
   assert.match(await page.evaluate(() => window.copiedText), /\$x\$/);
-  assert.equal(await page.locator(".tm-code-copy-button").textContent(), "Copied!");
+  assert.equal(await page.locator(".tm-code-copy-button").textContent(), "Copied");
 
   const row = (index, input, output) => `<div class="tmath-sample" data-sample-index="${index}"><div class="tmath-sample-input"><pre><code>${input}</code></pre></div><div class="tmath-sample-output"><pre><code>${output}</code></pre></div></div>`;
   const samples = `<div class="tmath-samples" data-tmath-component="samples" data-tmath-version="1">${row(0, "2 3\n", "5\n")}${row(1, " 7 8\n", "15\n")}</div>`;
@@ -61,7 +69,12 @@ try {
   assert.deepEqual(await render(samples.replace('data-sample-index="1"', 'data-sample-index="7"')), []);
 
   await render('<script>window.attacked=true</script><img src="https://invalid.example/x" onerror="window.attacked=true"><a href="javascript:alert(1)">link</a><div onclick="alert(1)" style="display:none" class="rogue">Text</div> $\\href{javascript:alert(1)}{x}$');
-  assert.equal(await page.locator("#host script, #host img, #host a, #host [onclick], #host [style], #host .rogue").count(), 0);
+  // pass #102: [style] dropped from the vector list — KaTeX legitimately renders
+  // strut spacing and its red trust:false error text with inline styles (probed:
+  // the \href here becomes a styled error span, NOT an anchor). The execution
+  // vectors are script/img/anchor/handlers/rogue-class; the attacked flag below
+  // is the real tripwire.
+  assert.equal(await page.locator("#host script, #host img, #host a, #host [onclick], #host .rogue").count(), 0);
   assert.equal(await page.evaluate(() => !!window.attacked), false);
 
   await render("\\(a_i < b_i\\) and $$x^2$$", { rawMath: true });

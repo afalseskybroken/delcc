@@ -36,6 +36,25 @@ jobs:
       - name: dependency audit (production, high+)
         run: npm audit --omit=dev --audit-level=high
 
+  # pass #102 (wave-3 P2): the statement renderer's browser suite joins CI. The test
+  # spins up its own Vite fixture and route-aborts every non-localhost request (no
+  # credentials, no network); `channel: "chrome"` uses the runner's preinstalled
+  # Google Chrome, so no `playwright install` download is needed. The solve-view
+  # browser test was DROPPED in this pass — a fossil frozen at the 0.2.1a UI (it
+  # waited on a `data-run="mock"` button removed long ago); re-authoring against the
+  # current view is queued in the ledger.
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: statement renderer (browser, offline fixture, system Chrome)
+        run: node scripts/test-tmath-statement.mjs
+
   rust:
     runs-on: windows-latest
     steps:
