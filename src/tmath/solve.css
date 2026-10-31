@@ -108,3 +108,12 @@ body[data-persona="tmath"] .tm-lang-option { display: flex; align-items: center;
 body[data-persona="tmath"] .tm-lang-option:hover { background: var(--tmath-accent); }
 body[data-persona="tmath"] .tm-lang-option[aria-selected="true"] { color: var(--tmath-primary); font-weight: 600; }
 body[data-persona="tmath"] .tm-lang-option svg { display: block; flex-shrink: 0; }
+
+/* pass #106: the step-by-step (Shift+Run) panel */
+body[data-persona="tmath"] .tm-debug { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--tmath-border); border-radius: 10px; background: var(--tmath-card); display: flex; flex-direction: column; gap: 8px; }
+body[data-persona="tmath"] .tm-debug-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+body[data-persona="tmath"] .tm-debug-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+@media (max-width: 900px) { body[data-persona="tmath"] .tm-debug-grid { grid-template-columns: minmax(0, 1fr); } }
+body[data-persona="tmath"] .tm-debug-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.65; margin-bottom: 4px; }
+body[data-persona="tmath"] .tm-debug .tm-output-box { min-height: 84px; max-height: 220px; margin: 0; }
+body[data-persona="tmath"] .tm-debug-line { background: color-mix(in srgb, var(--tmath-accent) 24%, transparent); }

@@ -9,8 +9,9 @@ use std::sync::OnceLock;
 
 mod fonts;
 mod cph;
+mod debug;
 mod secure;
-use cph::{cph_compile, cph_detect, cph_run, cph_set_override, cph_stop, CphState};
+use cph::{cph_compile, cph_detect, cph_run, cph_set_override, cph_stop, debug_start, debug_step, debug_stop, CphState};
 use secure::{secure_del, secure_get, secure_put};
 
 // pass #65: ONE shared client per process. Per-call builds paid a fresh TLS
@@ -249,10 +250,56 @@ fn window_title() -> &'static str {
     if DELCC_LAYOUT == "tmath" { "TMATH Code Client" } else { "delcc \u{2014} custom frontend" }
 }
 
+// pass #106 (He): user-customizable window identity — a custom title and/or window icon
+// (window + taskbar on Windows) applied live and re-applied on launch from the prefs.
+// The .exe file icon is fixed at build time; the Settings copy says so honestly.
+// The icon arrives as base64 RGBA the WEBVIEW decoded on a canvas: no image crate, no new
+// deps, and any browser-decodable format works. Bounds: title ≤ 120 chars, control chars
+// stripped; RGBA exactly w*h*4, ≤ 512×512 (the frontend canvas downscales to ≤ 256).
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdentityIcon {
+    width: u32,
+    height: u32,
+    rgba: String, // base64
+}
+
+#[tauri::command]
+fn identity_apply(window: tauri::WebviewWindow, title: Option<String>, icon: Option<IdentityIcon>, reset_icon: Option<bool>) -> Result<(), String> {
+    if let Some(t) = title {
+        let cleaned: String = t.chars().filter(|c| !c.is_control()).take(120).collect();
+        let t = if cleaned.trim().is_empty() { window_title().to_string() } else { cleaned };
+        window.set_title(&t).map_err(|e| format!("title: {e}"))?;
+    }
+    if reset_icon.unwrap_or(false) {
+        // restore the bundle icon — default_window_icon is the one tauri.conf ships
+        use tauri::Manager;
+        let img = window.app_handle().default_window_icon().cloned();
+        if let Some(img) = img {
+            window.set_icon(img).map_err(|e| format!("icon: {e}"))?;
+        }
+    } else if let Some(ic) = icon {
+        if ic.width == 0 || ic.height == 0 || ic.width > 512 || ic.height > 512 {
+            return Err("icon: dimensions must be 1..=512 px".into());
+        }
+        use base64::Engine;
+        let rgba = base64::engine::general_purpose::STANDARD
+            .decode(&ic.rgba)
+            .map_err(|e| format!("icon: bad base64: {e}"))?;
+        let expected = ic.width as usize * ic.height as usize * 4;
+        if rgba.len() != expected {
+            return Err(format!("icon: RGBA payload {} bytes, expected {expected}", rgba.len()));
+        }
+        let img = tauri::image::Image::new_owned(rgba, ic.width, ic.height);
+        window.set_icon(img).map_err(|e| format!("icon: {e}"))?;
+    }
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(CphState::default())
-        .invoke_handler(tauri::generate_handler![api_fetch, site_fetch, asset_fetch, get_layout, open_url, fonts_list, cph_detect, cph_set_override, cph_run, cph_compile, cph_stop, secure_put, secure_get, secure_del])
+        .invoke_handler(tauri::generate_handler![api_fetch, site_fetch, asset_fetch, get_layout, open_url, fonts_list, cph_detect, cph_set_override, cph_run, cph_compile, cph_stop, debug_start, debug_step, debug_stop, identity_apply, secure_put, secure_get, secure_del])
         .setup(move |app| {
             {
                 use tauri::Manager;

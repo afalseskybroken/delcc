@@ -343,6 +343,10 @@ function wireGraph(root: HTMLElement): void {
   const edges = root.querySelector<HTMLTextAreaElement>("[data-graph-edges]")!;
   const canvas = root.querySelector<HTMLCanvasElement>("[data-graph-canvas]")!;
   const stats = root.querySelector<HTMLElement>("[data-graph-stats]")!;
+  // pass #106: vertex positions persist between redraws so they can be DRAGGED — the
+  // circular layout is just the starting arrangement; edits to weights/edges keep your
+  // layout, and a vertex beyond the canvas (smaller canvas, etc.) re-circles.
+  let pos = new Map<number, { x: number; y: number }>();
   const draw = (): void => {
     const directed = root.querySelector<HTMLInputElement>("[data-graph-directed]")!.checked;
     const start = root.querySelector<HTMLInputElement>("[data-graph-start]")!.value.trim();
@@ -362,13 +366,19 @@ function wireGraph(root: HTMLElement): void {
     const ctx = canvas.getContext("2d")!;
     const W = canvas.width, H = canvas.height;
     ctx.clearRect(0, 0, W, H);
-    if (!maxId) return;
+    if (!maxId) { pos = new Map(); return; }
     const cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 40;
-    const pos = new Map<number, { x: number; y: number }>();
+    const fresh = new Map<number, { x: number; y: number }>();
     for (let v = 1; v <= maxId; v++) {
+      const kept = pos.get(v);
+      if (kept && kept.x >= 0 && kept.x <= W && kept.y >= 0 && kept.y <= H) {
+        fresh.set(v, kept); // dragged positions survive redraws
+        continue;
+      }
       const a = (v - 1) / maxId * Math.PI * 2 - Math.PI / 2;
-      pos.set(v, { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) });
+      fresh.set(v, { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) });
     }
+    pos = fresh;
     const fg = getComputedStyle(canvas).color || "#ccc";
     const accent = getComputedStyle(canvas).getPropertyValue("--tmath-primary")?.trim() || "#4ea1ff";
     const bad = "#f87171";
@@ -406,6 +416,47 @@ function wireGraph(root: HTMLElement): void {
       ctx.fillText(String(v), p.x, p.y);
     }
   };
+  // ---------- vertex dragging (pass #106, He's tools round 2) ----------
+  // Canvas attr size vs CSS size can differ — pointer coords map through the rect.
+  const hitVertex = (e: PointerEvent): number | null => {
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * canvas.width / rect.width;
+    const y = (e.clientY - rect.top) * canvas.height / rect.height;
+    for (const [v, p] of pos) {
+      if ((x - p.x) ** 2 + (y - p.y) ** 2 <= 18 ** 2) return v;
+    }
+    return null;
+  };
+  let drag: number | null = null;
+  canvas.style.touchAction = "none";
+  canvas.onpointerdown = (e) => {
+    const v = hitVertex(e);
+    if (v === null) return;
+    drag = v;
+    canvas.setPointerCapture(e.pointerId);
+    canvas.style.cursor = "grabbing";
+    e.preventDefault();
+  };
+  canvas.onpointermove = (e) => {
+    if (drag === null) {
+      canvas.style.cursor = hitVertex(e) !== null ? "grab" : "";
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.min(canvas.width - 20, Math.max(20, (e.clientX - rect.left) * canvas.width / rect.width));
+    const y = Math.min(canvas.height - 20, Math.max(20, (e.clientY - rect.top) * canvas.height / rect.height));
+    const p = pos.get(drag);
+    if (p) { p.x = x; p.y = y; }
+    draw();
+  };
+  const release = (e: PointerEvent): void => {
+    if (drag === null) return;
+    drag = null;
+    canvas.style.cursor = "";
+    try { canvas.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+  };
+  canvas.onpointerup = release;
+  canvas.onpointercancel = release;
   root.querySelector<HTMLButtonElement>("[data-graph-draw]")!.onclick = draw;
   edges.onchange = draw;
   draw();

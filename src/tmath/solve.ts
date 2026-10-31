@@ -46,6 +46,10 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   let disposed = false, language = "", statement: StatementResult | null = null;
   let editor: Editor | null = null, fallback: HTMLTextAreaElement | null = null;
   let submitting = false, running = false;
+  // pass #106: the step-by-step session (Shift+Run). debugging = a gdb session is live;
+  // debugBusy = a start/step call is in flight. Both block runs and submits — the Job
+  // slot is held Rust-side too, so the two layers agree.
+  let debugging = false, debugBusy = false, debugExited = false;
   let editorLoading = false, switchingLanguage = false, dirty = false, revision = 0;
   let switchingSource: string | null = null;
   let stopping = false, submittedHere = 0;
@@ -164,20 +168,24 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   function controls(): void {
     if (disposed || !fallback) return;
     const canSubmit = !("can_submit" in problem) || problem.can_submit !== false;
-    $("[data-submit]").toggleAttribute("disabled", submitting || !language || !canSubmit || ("statement_hidden" in problem && !!problem.statement_hidden));
+    $("[data-submit]").toggleAttribute("disabled", submitting || debugging || debugBusy || !language || !canSubmit || ("statement_hidden" in problem && !!problem.statement_hidden));
     paintDrafts(); // pass #103: the drafts bar follows the busy states
     // pass #58: the language pill can't take the disabled attribute — a lock class drives
     // the styling and switchLanguage() re-checks the same conditions
     const langMenu = $("[data-language-menu]");
     if (langMenu) langMenu.classList.toggle("tm-locked", submitting || !language);
     const available = !!language && cph.cphSupported(cph.cphLangKey(language)) && !!cph.toolchainFor(cph.cphLangKey(language));
-    host.querySelectorAll<HTMLButtonElement>("[data-run]").forEach(b => b.disabled = running || !available);
+    host.querySelectorAll<HTMLButtonElement>("[data-run]").forEach(b => b.disabled = running || debugging || debugBusy || !available);
     const compileBtn = host.querySelector<HTMLButtonElement>('[data-action="compile"]');
-    if (compileBtn) compileBtn.disabled = running || !available;
+    if (compileBtn) compileBtn.disabled = running || debugging || debugBusy || !available;
     const compileLabel = host.querySelector<HTMLElement>("[data-compile-label]");
     if (compileLabel) compileLabel.textContent = t(language === "PY3" ? "cph.syntaxCheck" : "cph.compile"); // official: PY3 has no compile step
     const stopBtn = host.querySelector<HTMLButtonElement>('[data-action="stop"]');
-    if (stopBtn) stopBtn.disabled = !running || stopping; // official: Dừng is live only while a job runs
+    if (stopBtn) stopBtn.disabled = debugging ? debugBusy : (!running || stopping); // official: Dừng is live only while a job runs
+    // pass #106: the debug panel's own buttons follow the session state
+    host.querySelectorAll<HTMLButtonElement>("[data-debug-step]").forEach(b => b.disabled = !debugging || debugBusy || debugExited);
+    const debugStopBtn = host.querySelector<HTMLButtonElement>('[data-action="debug-stop"]');
+    if (debugStopBtn) debugStopBtn.disabled = !debugging || debugBusy;
     paintSubmissionsLeft();
     const editorPresent = !!editor && !$("[data-monaco]").hidden;
     (["editor-undo","editor-redo","editor-find"] as const).forEach(a => { const b = host.querySelector<HTMLButtonElement>(`[data-action="${a}"]`); if (b) b.disabled = !editorPresent; });
@@ -328,6 +336,90 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     try { await cph.stopRun(); } catch { /* the running job's own promise settles the UI */ }
   }
 
+  // ---------- pass #106: step-by-step (Shift+Run) ----------
+  // The session debugs the COMPILED COPY of the draft at Shift+Run time; edits apply on
+  // the next Shift+Run (the panel says so). Locals come from gdb --all-values with
+  // print elements capped Rust-side; output is whatever the program has flushed.
+  function paintDebug(snap: cph.DebugSnapshot): void {
+    const status = $("[data-debug-status]");
+    const locals = $<HTMLPreElement>("[data-debug-locals]");
+    const output = $<HTMLPreElement>("[data-debug-output]");
+    if (!status || !locals || !output) return;
+    if (snap.exited) {
+      debugExited = true;
+      editor?.debugLine(null);
+      status.textContent = t("debug.exited", { n: snap.exit_code ?? 0 });
+    } else {
+      status.textContent = `${t("debug.line", { n: snap.line ?? 0 })}${snap.function ? ` · ${snap.function}` : ""}`;
+      editor?.debugLine(snap.line);
+    }
+    const rows = snap.locals.map(l => `${l.name}: ${l.kind} = ${l.value}`);
+    if (snap.locals_truncated) rows.push("…");
+    locals.textContent = rows.length ? rows.join("\n") : t("debug.noLocals");
+    let out = snap.output;
+    if (snap.output_truncated) out += "\n…";
+    output.textContent = out.length ? out : t("debug.noOutput");
+    controls();
+  }
+
+  async function startDebug(): Promise<void> {
+    if (running || debugging || debugBusy || submitting || disposed || switchingLanguage) return;
+    const lang = cph.cphLangKey(language);
+    if (lang !== "cpp") { note(t("debug.cppOnly"), "error"); return; }
+    if (!cph.cphSupported(lang) || !cph.toolchainFor(lang)) { note(t("problem.runUnavailable"), "error"); return; }
+    const src = source();
+    if (!src.trim()) { note(t("problem.emptySource"), "error"); return; }
+    debugBusy = true; debugExited = false; controls();
+    const panel = host.querySelector<HTMLElement>("[data-debug-panel]");
+    if (panel) panel.hidden = false;
+    const status = host.querySelector<HTMLElement>("[data-debug-status]");
+    if (status) status.textContent = t("common.loading");
+    try {
+      const snap = await cph.debugStart(lang, src, $<HTMLTextAreaElement>("[data-manual-stdin]")?.value ?? "", stdFor(language));
+      if (disposed) return;
+      debugging = true;
+      paintDebug(snap);
+    } catch (e) {
+      if (!disposed) {
+        debugging = false;
+        const m = e instanceof Error ? e.message : String(e);
+        logError(`debug start: ${m}`);
+        note(`${t("cph.failed")} · ${m}`, "error");
+        $("[data-compile]").textContent = m; // compile failures ride the compile log, like runs
+        if (panel) panel.hidden = true;
+      }
+    } finally {
+      debugBusy = false;
+      if (!disposed) controls();
+    }
+  }
+
+  async function debugStep(kind: "over" | "into" | "out" | "continue"): Promise<void> {
+    if (!debugging || debugBusy || disposed) return;
+    debugBusy = true; controls();
+    try {
+      const snap = await cph.debugStep(kind);
+      if (disposed) return;
+      paintDebug(snap);
+    } catch (e) {
+      if (!disposed) note(e instanceof Error ? e.message : String(e), "error");
+    } finally {
+      debugBusy = false;
+      if (!disposed) controls();
+    }
+  }
+
+  async function stopDebug(): Promise<void> {
+    if (!debugging || debugBusy || disposed) return;
+    debugBusy = true; controls();
+    try { await cph.debugStop(); } catch { /* the session is torn down either way */ }
+    debugging = false; debugExited = false;
+    editor?.debugLine(null);
+    const panel = host.querySelector<HTMLElement>("[data-debug-panel]");
+    if (panel) panel.hidden = true;
+    debugBusy = false; controls();
+  }
+
   // official iE: submit goes through a confirm dialog (Radix Dialog; Esc / outside click = back)
   function confirmSubmit(): void {
     if (submitting || disposed || switchingLanguage || !language) return;
@@ -355,7 +447,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   }
 
   async function run(mode: "all" | "case" | "stdin"): Promise<void> {
-    if (running || disposed || switchingLanguage) return;
+    if (running || debugging || debugBusy || disposed || switchingLanguage) return;
     // The existing native runner returns RAN (unscored) for blank expected output.
     const manual = mode === "stdin";
     const active = cases.find(c => c.id === activeCaseId);
@@ -607,7 +699,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       const titleBlock = args.contestKey
         ? `<div class="tm-problem-heading"><h2 title="${esc(args.code)}">${esc(problem.name ?? args.code)}</h2></div>`
         : `<div class="tm-page-title"><div><div class="tm-eyebrow">${text("problem.solveEyebrow")}</div><h1>${esc(problem.name ?? args.code)}</h1><p class="tm-muted">${esc(args.code.toUpperCase())} · ${esc(typeof problem.points === "number" ? String(problem.points) : "—")} ${text("problem.pointsSuffix")}</p></div><div class="tm-page-title-actions"><button type="button" class="tm-button" data-action="problems-list">${text("problems.backToList")}</button><button type="button" class="tm-button" data-action="my-subs">${text("problems.mySubs")}</button></div></div>`;
-      host.innerHTML = `<section class="tm-solve-view">${titleBlock}<div class="tm-solve" data-split><section class="tm-pane"><header class="tm-pane-header"><span>${text("problem.statement")}</span><details class="tm-menu"><summary aria-label="${text("problem.options")}">${text("problem.options")}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><div class="tm-menu-body"><button class="tm-button ghost" type="button" data-math aria-pressed="${!rawMath}">${text(rawMath ? "problem.mathRaw" : "problem.mathRendered")}</button>${button("problem.copy","copy-statement")}${button("problem.saveStatement","save-statement")}${button("subs.title","submissions")}</div></details></header><div class="tm-pane-body"><dl class="tm-problem-limits" aria-label="${text("problem.limitsIo")}"><div class="tm-limit-cell"><dt>${text("problem.timeLimit")}</dt><dd>${limitCell(problem.time_limit, text("problem.seconds"))}</dd></div><div class="tm-limit-cell"><dt>${text("problem.memoryLimit")}</dt><dd>${limitCell(problem.memory_limit, "KB")}</dd></div><div class="tm-limit-cell"><dt>${text("problem.ioInput")}</dt><dd>${ioCell("input")}</dd></div><div class="tm-limit-cell"><dt>${text("problem.ioOutput")}</dt><dd>${ioCell("output")}</dd></div></dl><div class="tm-statement" data-statement></div></div></section><div class="tm-splitter" data-splitter role="separator" tabindex="0" aria-label="${text("problem.resize")}" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-controls="tm-solve-editor"></div><section class="tm-pane" id="tm-solve-editor"><div class="tm-drafts-bar"><select class="tm-drafts-select" data-drafts-select aria-label="${text("drafts.title")}"></select><span class="tm-muted" data-drafts-count></span><button type="button" class="tm-button ghost" data-action="draft-save-as">${text("drafts.saveAs")}</button><button type="button" class="tm-button ghost" data-action="draft-rename">${text("drafts.rename")}</button><button type="button" class="tm-button ghost" data-action="draft-delete">${text("drafts.delete")}</button><span data-draft class="tm-muted" role="status" aria-live="polite"></span></div><header class="tm-pane-header tm-editor-header"><div class="tm-editor-title"><span class="tm-editor-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg></span><span class="tm-editor-filename" data-filename>${esc(fileName(language))}</span>${langMenu}</div><div class="tm-editor-actions"><button type="button" class="tm-button" data-action="open-tools">${text("tools.open")}</button><button type="button" class="tm-icon-button" data-action="editor-undo" aria-label="${text("problem.undo")}" title="${text("problem.undo")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-redo" aria-label="${text("problem.redo")}" title="${text("problem.redo")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-find" aria-label="${text("problem.findReplace")}" title="${text("problem.findReplace")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-save" aria-label="${text("problem.saveSource")}" title="${text("problem.saveSource")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg></button></div></header><div class="tm-editor-container"><div class="tm-editor" data-monaco aria-label="${text("problem.source")}" hidden></div><textarea class="tm-source-fallback" data-source aria-label="${text("problem.source")}" spellcheck="false"></textarea></div><div class="tm-mono-grip" data-mono-grip role="separator" aria-orientation="horizontal" tabindex="0" aria-label="${text("problem.resize")}" aria-valuemin="140" aria-valuemax="900"></div><div data-editor-message></div><div class="tm-mode-strip"><span class="tm-tag tm-mode-label">${modeLabel}</span><span data-draft class="tm-muted" role="status" aria-live="polite"></span><button type="button" class="tm-button ghost" data-action="save-now">${text("problem.saveNow")}</button></div><section class="tm-io-first"><div class="tm-io-head"><div class="tm-case-tabs tm-io-tabs" role="tablist" aria-label="${text("cph.stdinLabel")}"><button type="button" role="tab" aria-selected="true" data-io-tab="input">Input</button><button type="button" role="tab" aria-selected="false" data-io-tab="output">Output</button></div><button type="button" class="tm-button" data-action="toggle-cph-options" aria-expanded="false" aria-controls="tm-cph-options">${text("problem.options")}</button></div>${fileMethodHint}<div data-io-pane="input"><textarea data-manual-stdin spellcheck="false" maxlength="65536" aria-label="${text("cph.stdinLabel")}" placeholder="${text("cph.stdinPlaceholder")}"></textarea></div><div data-io-pane="output" hidden><pre data-manual-stdout class="tm-output-box" role="log" tabindex="0">${text("cph.notRun")}</pre></div><div class="tm-io-strip"><button type="button" class="tm-button" data-action="compile"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg> <span data-compile-label>${text("cph.compile")}</span></button><button type="button" class="tm-button primary" data-run="stdin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runStdin")}</button><button type="button" class="tm-button" data-action="stop" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/></svg> ${text("cph.stop")}</button><button type="button" class="tm-button primary" data-submit>${text("problem.submit")}</button></div><p class="tm-muted" data-run-hint role="status" hidden></p><p class="tm-muted" data-solve-status role="status" aria-live="polite" hidden></p><p class="tm-muted" data-submissions-left role="status" hidden></p></section><details class="tm-runner" id="tm-cph-options"><summary><b>${text("cph.title")}</b></summary><div class="tm-toolbar"><button type="button" class="tm-button" data-run="case"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runCase")}</button><button type="button" class="tm-button primary" data-run="all"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runAll")}</button></div><div class="tm-toolbar"><button type="button" class="tm-button" data-import-samples>${text("cph.importSamples")}</button><button type="button" class="tm-button" data-add-case>${text("problem.addTest")}</button><button type="button" class="tm-button" data-remove-case>${text("problem.removeTest")}</button><button type="button" class="tm-button" data-action="export-cases">${text("cph.exportCases")}</button><button type="button" class="tm-button" data-action="import-cases">${text("cph.importCases")}</button><input type="file" accept=".json,application/json" hidden data-pool-file aria-hidden="true" tabindex="-1"></div><div data-cases></div><details class="tm-compile"><summary>${text("cph.compileLog")}</summary><pre data-compile></pre></details></details></section></div></section>`;
+      host.innerHTML = `<section class="tm-solve-view">${titleBlock}<div class="tm-solve" data-split><section class="tm-pane"><header class="tm-pane-header"><span>${text("problem.statement")}</span><details class="tm-menu"><summary aria-label="${text("problem.options")}">${text("problem.options")}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><div class="tm-menu-body"><button class="tm-button ghost" type="button" data-math aria-pressed="${!rawMath}">${text(rawMath ? "problem.mathRaw" : "problem.mathRendered")}</button>${button("problem.copy","copy-statement")}${button("problem.saveStatement","save-statement")}${button("subs.title","submissions")}</div></details></header><div class="tm-pane-body"><dl class="tm-problem-limits" aria-label="${text("problem.limitsIo")}"><div class="tm-limit-cell"><dt>${text("problem.timeLimit")}</dt><dd>${limitCell(problem.time_limit, text("problem.seconds"))}</dd></div><div class="tm-limit-cell"><dt>${text("problem.memoryLimit")}</dt><dd>${limitCell(problem.memory_limit, "KB")}</dd></div><div class="tm-limit-cell"><dt>${text("problem.ioInput")}</dt><dd>${ioCell("input")}</dd></div><div class="tm-limit-cell"><dt>${text("problem.ioOutput")}</dt><dd>${ioCell("output")}</dd></div></dl><div class="tm-statement" data-statement></div></div></section><div class="tm-splitter" data-splitter role="separator" tabindex="0" aria-label="${text("problem.resize")}" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-controls="tm-solve-editor"></div><section class="tm-pane" id="tm-solve-editor"><div class="tm-drafts-bar"><select class="tm-drafts-select" data-drafts-select aria-label="${text("drafts.title")}"></select><span class="tm-muted" data-drafts-count></span><button type="button" class="tm-button ghost" data-action="draft-save-as">${text("drafts.saveAs")}</button><button type="button" class="tm-button ghost" data-action="draft-rename">${text("drafts.rename")}</button><button type="button" class="tm-button ghost" data-action="draft-delete">${text("drafts.delete")}</button><span data-draft class="tm-muted" role="status" aria-live="polite"></span></div><header class="tm-pane-header tm-editor-header"><div class="tm-editor-title"><span class="tm-editor-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg></span><span class="tm-editor-filename" data-filename>${esc(fileName(language))}</span>${langMenu}</div><div class="tm-editor-actions"><button type="button" class="tm-button" data-action="open-tools">${text("tools.open")}</button><button type="button" class="tm-icon-button" data-action="editor-undo" aria-label="${text("problem.undo")}" title="${text("problem.undo")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-redo" aria-label="${text("problem.redo")}" title="${text("problem.redo")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-find" aria-label="${text("problem.findReplace")}" title="${text("problem.findReplace")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-save" aria-label="${text("problem.saveSource")}" title="${text("problem.saveSource")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg></button></div></header><div class="tm-editor-container"><div class="tm-editor" data-monaco aria-label="${text("problem.source")}" hidden></div><textarea class="tm-source-fallback" data-source aria-label="${text("problem.source")}" spellcheck="false"></textarea></div><div class="tm-mono-grip" data-mono-grip role="separator" aria-orientation="horizontal" tabindex="0" aria-label="${text("problem.resize")}" aria-valuemin="140" aria-valuemax="900"></div><div data-editor-message></div><div class="tm-mode-strip"><span class="tm-tag tm-mode-label">${modeLabel}</span><span data-draft class="tm-muted" role="status" aria-live="polite"></span><button type="button" class="tm-button ghost" data-action="save-now">${text("problem.saveNow")}</button></div><section class="tm-io-first"><div class="tm-io-head"><div class="tm-case-tabs tm-io-tabs" role="tablist" aria-label="${text("cph.stdinLabel")}"><button type="button" role="tab" aria-selected="true" data-io-tab="input">Input</button><button type="button" role="tab" aria-selected="false" data-io-tab="output">Output</button></div><button type="button" class="tm-button" data-action="toggle-cph-options" aria-expanded="false" aria-controls="tm-cph-options">${text("problem.options")}</button></div>${fileMethodHint}<div data-io-pane="input"><textarea data-manual-stdin spellcheck="false" maxlength="65536" aria-label="${text("cph.stdinLabel")}" placeholder="${text("cph.stdinPlaceholder")}"></textarea></div><div data-io-pane="output" hidden><pre data-manual-stdout class="tm-output-box" role="log" tabindex="0">${text("cph.notRun")}</pre></div><div class="tm-io-strip"><button type="button" class="tm-button" data-action="compile"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg> <span data-compile-label>${text("cph.compile")}</span></button><button type="button" class="tm-button primary" data-run="stdin" title="${text("debug.hintRun")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runStdin")}</button><button type="button" class="tm-button" data-action="stop" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/></svg> ${text("cph.stop")}</button><button type="button" class="tm-button primary" data-submit>${text("problem.submit")}</button></div><div class="tm-debug" data-debug-panel hidden><div class="tm-debug-head"><span class="tm-tag">${text("debug.title")}</span><span class="tm-muted" data-debug-status role="status" aria-live="polite"></span></div><div class="tm-io-strip"><button type="button" class="tm-button" data-debug-step="over">${text("debug.stepOver")}</button><button type="button" class="tm-button" data-debug-step="into">${text("debug.stepInto")}</button><button type="button" class="tm-button" data-debug-step="out">${text("debug.stepOut")}</button><button type="button" class="tm-button primary" data-debug-step="continue">${text("debug.continue")}</button><button type="button" class="tm-button" data-action="debug-stop">${text("cph.stop")}</button></div><div class="tm-debug-grid"><div><div class="tm-debug-label">${text("debug.locals")}</div><pre data-debug-locals class="tm-output-box" role="log" tabindex="0"></pre></div><div><div class="tm-debug-label">${text("debug.output")}</div><pre data-debug-output class="tm-output-box" role="log" tabindex="0"></pre></div></div><p class="tm-muted">${text("debug.sessionNote")}</p></div><p class="tm-muted" data-run-hint role="status" hidden></p><p class="tm-muted" data-solve-status role="status" aria-live="polite" hidden></p><p class="tm-muted" data-submissions-left role="status" hidden></p></section><details class="tm-runner" id="tm-cph-options"><summary><b>${text("cph.title")}</b></summary><div class="tm-toolbar"><button type="button" class="tm-button" data-run="case"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runCase")}</button><button type="button" class="tm-button primary" data-run="all"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runAll")}</button></div><div class="tm-toolbar"><button type="button" class="tm-button" data-import-samples>${text("cph.importSamples")}</button><button type="button" class="tm-button" data-add-case>${text("problem.addTest")}</button><button type="button" class="tm-button" data-remove-case>${text("problem.removeTest")}</button><button type="button" class="tm-button" data-action="export-cases">${text("cph.exportCases")}</button><button type="button" class="tm-button" data-action="import-cases">${text("cph.importCases")}</button><input type="file" accept=".json,application/json" hidden data-pool-file aria-hidden="true" tabindex="-1"></div><div data-cases></div><details class="tm-compile"><summary>${text("cph.compileLog")}</summary><pre data-compile></pre></details></details></section></div></section>`;
       fallback = $<HTMLTextAreaElement>("[data-source]"); fallback.value = activeDraft().source; fallback.oninput = changed;
       // pass #58: the initial submit-denied / no-languages message lives on the status line
       note(!allowed.length ? text("problem.noLanguages") : !canSubmit ? text("problem.submitDenied") : "", !allowed.length || !canSubmit ? "error" : "muted");
@@ -642,7 +734,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       if (mySubsBtn) mySubsBtn.onclick = () => { saved(); args.onSubmissions(); };
       $<HTMLButtonElement>("[data-submit]").onclick = () => confirmSubmit();
       const compileBtn0 = host.querySelector<HTMLButtonElement>('[data-action="compile"]'); if (compileBtn0) compileBtn0.onclick = () => void compileSource();
-      const stopBtn0 = host.querySelector<HTMLButtonElement>('[data-action="stop"]'); if (stopBtn0) stopBtn0.onclick = () => void stopLocal();
+      const stopBtn0 = host.querySelector<HTMLButtonElement>('[data-action="stop"]'); if (stopBtn0) stopBtn0.onclick = () => { if (debugging) void stopDebug(); else void stopLocal(); };
       // pass #58: the Official-style pill menu — one switch routine shared by every option
       const paintLangMenu = (): void => {
         const label = $("[data-language-label]"); if (label) label.textContent = langLabel(language);
@@ -832,7 +924,14 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       wire('[data-action="editor-save"]', () => saved());
       wire('[data-action="save-now"]', () => saved());
       wire('[data-action="open-tools"]', () => openToolsPanel()); // pass #104: the offline tools panel
-      host.querySelectorAll<HTMLButtonElement>("[data-run]").forEach(b=>b.onclick=()=>{ void run(b.dataset.run as "all" | "case" | "stdin"); });
+      host.querySelectorAll<HTMLButtonElement>("[data-run]").forEach(b=>b.onclick=(e)=>{
+        // pass #106: Shift+Run is the step-by-step entry (the stdin Run carries the tooltip)
+        if (e.shiftKey && b.dataset.run === "stdin") { void startDebug(); return; }
+        void run(b.dataset.run as "all" | "case" | "stdin");
+      });
+      host.querySelectorAll<HTMLButtonElement>("[data-debug-step]").forEach(b => b.onclick = () => void debugStep(b.dataset.debugStep as "over" | "into" | "out" | "continue"));
+      const debugStopBtn = host.querySelector<HTMLButtonElement>('[data-action="debug-stop"]');
+      if (debugStopBtn) debugStopBtn.onclick = () => void stopDebug();
       splitter(); monoGrip(); void mountEditor();
       void cph.detectOnce().catch(()=>[]).then(()=>{ if (!disposed) { detectDone = true; controls(); } });
     } catch(e) {
@@ -846,6 +945,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   return () => {
     if (disposed) return;
     disposed = true; saved(); listeners.abort(); statement?.dispose(); editor?.dispose();
+    if (debugging) void cph.debugStop(); // a live gdb session must not outlive its pane
     // Existing HTTP and bounded native CPH bridges have no cancellation command.
     // Late continuations must not touch a replacement view.
   };

@@ -3,7 +3,7 @@
 // anywhere — there's no server endpoint to source real judge data from). The actual
 // compile/run call lives in lib/transport.ts (cph_detect/cph_run invoke wrappers);
 // this is the bit main.ts drives the panel with.
-import { cphDetect, cphSetOverride, cphRun, cphCompile, cphStop, type CphToolchain, type CphCase, type CphCaseResult, type CphRunResponse, type CphCompileResponse } from "./transport";
+import { cphDetect, cphSetOverride, cphRun, cphCompile, cphStop, debugStart as transportDebugStart, type CphToolchain, type CphCase, type CphCaseResult, type CphRunResponse, type CphCompileResponse, type DebugSnapshot, type DebugLocal } from "./transport";
 import { monacoLang } from "./langmap";
 import { logInfo } from "./applog";
 
@@ -174,3 +174,15 @@ export async function compileOnly(langKey: string, source: string, std?: string)
   return cphCompile(langKey, tc.binary, source, std);
 }
 export const stopRun = (): Promise<boolean> => cphStop();
+
+// ---------- pass #106: step-by-step (Shift+Run, C/C++ via gdb) ----------
+// Same contract: toolchain resolution + the #78 override mirror happen HERE, so callers
+// pass only the judge-facing pieces. debugStep/debugStop need no toolchain.
+export type { DebugSnapshot, DebugLocal };
+export async function debugStart(langKey: string, source: string, stdinText: string, std?: string): Promise<DebugSnapshot> {
+  const tc = toolchainFor(langKey);
+  if (!tc) throw new Error(`no ${langKey} toolchain detected`);
+  await mirrorOverride(langKey);
+  return transportDebugStart(langKey, tc.binary, source, stdinText, std);
+}
+export { debugStep, debugStop } from "./transport";

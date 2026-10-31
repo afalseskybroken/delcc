@@ -23,14 +23,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 #[cfg(windows)]
-fn new_cmd(bin: &str) -> Command {
+pub(crate) fn new_cmd(bin: &str) -> Command {
     use std::os::windows::process::CommandExt;
     let mut c = Command::new(bin);
     c.creation_flags(0x08000000); // CREATE_NO_WINDOW — else every run flashes a console
     c
 }
 #[cfg(not(windows))]
-fn new_cmd(bin: &str) -> Command {
+pub(crate) fn new_cmd(bin: &str) -> Command {
     Command::new(bin)
 }
 
@@ -39,7 +39,7 @@ fn new_cmd(bin: &str) -> Command {
 /// or a Stop press and keep the stdout pipe open (which also wedges the reader threads).
 /// Windows: `taskkill /T /F` (argv only, no shell). Elsewhere: the child was started as its own
 /// process group leader (see `capture`), so a negative pid addresses the whole group.
-fn kill_tree(pid: u32) {
+pub(crate) fn kill_tree(pid: u32) {
     #[cfg(windows)]
     {
         let mut c = new_cmd("taskkill");
@@ -64,7 +64,7 @@ fn kill_tree(pid: u32) {
 // closes the long-standing "child survives kill()" gap (a `go run` or shelled-out compiler
 // spawning a grandchild previously could outlive `child.kill()`).
 #[cfg(all(windows, feature = "job-mem-cap"))]
-mod job {
+pub(crate) mod job {
     use std::ffi::c_void;
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
@@ -75,19 +75,31 @@ mod job {
     };
 
     pub struct Job(HANDLE);
+    // An exclusively-owned HANDLE is safe to move between threads; the debug session
+    // (static Mutex) requires Send.
+    unsafe impl Send for Job {}
 
     impl Job {
         // Best-effort only: any failure here just means no cap this run — same as before this lane.
         pub fn attach(child: &std::process::Child, memory_limit_mb: u64) -> Option<Job> {
+            Self::attach_with(child, Some(memory_limit_mb))
+        }
+        // pass #106: KILL_ON_JOB_CLOSE only — the debugger's gdb+inferior tree must die with
+        // delcc, but a debug run must NOT inherit the run memory cap (a heap-hungry program
+        // is exactly when you step through it).
+        pub fn track(child: &std::process::Child) -> Option<Job> {
+            Self::attach_with(child, None)
+        }
+        fn attach_with(child: &std::process::Child, memory_limit_mb: Option<u64>) -> Option<Job> {
             unsafe {
                 let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
                 if job.is_null() { // windows-sys ≥0.52: HANDLE is a *mut c_void, not an isize — no == 0
                     return None;
                 }
                 let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-                info.BasicLimitInformation.LimitFlags =
-                    JOB_OBJECT_LIMIT_JOB_MEMORY | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-                info.JobMemoryLimit = (memory_limit_mb as usize).saturating_mul(1024 * 1024);
+                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                    | memory_limit_mb.map(|_| JOB_OBJECT_LIMIT_JOB_MEMORY).unwrap_or(0);
+                info.JobMemoryLimit = memory_limit_mb.map(|mb| (mb as usize).saturating_mul(1024 * 1024)).unwrap_or(0);
                 let ok = SetInformationJobObject(
                     job,
                     JobObjectExtendedLimitInformation,
@@ -166,7 +178,7 @@ struct Build {
 }
 
 #[derive(Default)]
-struct Inner {
+pub(crate) struct Inner {
     active: Mutex<Option<Arc<ActiveJob>>>,
     cache: Mutex<Option<Build>>,
     allowed: Mutex<AllowedBinaries>, // pass #78: the exec allowlist, see validate_binary
@@ -191,13 +203,13 @@ pub struct CphState(Arc<Inner>);
 
 static JOB_SEQ: AtomicU64 = AtomicU64::new(1);
 
-struct JobGuard {
+pub(crate) struct JobGuard {
     inner: Arc<Inner>,
     job: Arc<ActiveJob>,
 }
 
 impl JobGuard {
-    fn begin(inner: &Arc<Inner>) -> Result<JobGuard, String> {
+    pub(crate) fn begin(inner: &Arc<Inner>) -> Result<JobGuard, String> {
         let mut slot = lock(&inner.active);
         if slot.is_some() {
             return Err("a local run is already in progress".into());
@@ -1174,7 +1186,10 @@ fn ok_prep() -> Prep {
 // Writes the source and builds it. `check_scripts`: python/node have no build step; the explicit
 // Compile button runs a syntax check for them (official client: "Kiểm tra cú pháp" on PY3),
 // while Run skips it and lets the interpreter report any error per case, exactly as before.
-fn prepare(lang_key: &str, binary: &str, source: &str, tmp: &Path, check_scripts: bool, job: &ActiveJob, std: Option<&str>) -> Result<Prep, String> {
+// `debug`: pass #106 — the -g -O0 build for the step-by-step debugger (same allowlisted
+// compiler, same tmp layout; only the optimization flags differ).
+#[allow(clippy::too_many_arguments)] // the flags are orthogonal; a struct would just move the noise
+fn prepare(lang_key: &str, binary: &str, source: &str, tmp: &Path, check_scripts: bool, job: &ActiveJob, std: Option<&str>, debug: bool) -> Result<Prep, String> {
     let name = source_name(lang_key).ok_or_else(|| format!("CPH: unsupported language '{lang_key}'"))?;
     let src = tmp.join(name);
     fs::write(&src, source).map_err(|e| format!("write source: {e}"))?;
@@ -1184,7 +1199,8 @@ fn prepare(lang_key: &str, binary: &str, source: &str, tmp: &Path, check_scripts
             // pass #52: -std rides the selected judge language (c++03..c++20); None leaves the
             // toolchain's own default — the old hardcoded -std=c++17 restricted every compile.
             let mut c = new_cmd(binary);
-            c.current_dir(tmp).arg("-O2");
+            c.current_dir(tmp);
+            if debug { c.arg("-g").arg("-O0"); } else { c.arg("-O2"); }
             if let Some(s) = std { c.arg(format!("-std={s}")); }
             c.arg("-o").arg(&bin).arg(&src);
             compile_step(c, binary, false, None, job)
@@ -1244,7 +1260,7 @@ fn compile_blocking(inner: Arc<Inner>, req: CphCompileRequest) -> Result<CphComp
     let t0 = Instant::now();
     let std = sanitize_std(&req.std);
     let tmp = new_tmp_dir(guard.job.id)?;
-    let prep = match prepare(&req.lang_key, &req.binary, &req.source, &tmp, true, &guard.job, std.as_deref()) {
+    let prep = match prepare(&req.lang_key, &req.binary, &req.source, &tmp, true, &guard.job, std.as_deref(), false) {
         Ok(p) => p,
         Err(e) => { let _ = fs::remove_dir_all(&tmp); return Err(e); }
     };
@@ -1280,7 +1296,7 @@ fn run_blocking(inner: Arc<Inner>, req: CphRunRequest) -> Result<CphRunResponse,
         Some(h) => h,
         None => {
             let tmp = new_tmp_dir(job.id)?;
-            let prep = match prepare(&req.lang_key, &req.binary, &req.source, &tmp, false, job, std.as_deref()) {
+            let prep = match prepare(&req.lang_key, &req.binary, &req.source, &tmp, false, job, std.as_deref(), false) {
                 Ok(p) => p,
                 Err(e) => { let _ = fs::remove_dir_all(&tmp); return Err(e); }
             };
@@ -1352,6 +1368,67 @@ pub async fn cph_run(state: tauri::State<'_, CphState>, req: CphRunRequest) -> R
 #[tauri::command]
 pub async fn cph_stop(state: tauri::State<'_, CphState>) -> Result<bool, String> {
     Ok(state.stop())
+}
+
+// ---------- pass #106: step-by-step (Shift+Run) ----------
+// The debugger executes ONLY a binary this module just compiled through the #78 allowlist
+// (gdb is chosen Rust-side: sibling of the compiler, then PATH, gated at >= 8 — 7.6.1
+// probed broken on file redirection). The session holds the Job slot for its lifetime, so
+// runs are refused while you debug; an abandoned session self-heals on the next start.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugStartRequest {
+    lang_key: String,
+    binary: String,
+    source: String,
+    #[serde(default)]
+    stdin_text: String,
+    #[serde(default)]
+    std: Option<String>,
+}
+
+fn debug_start_blocking(inner: Arc<Inner>, req: DebugStartRequest) -> Result<crate::debug::DebugSnapshot, String> {
+    if req.lang_key != "cpp" {
+        return Err("step-by-step is C/C++ only for now (gdb)".into());
+    }
+    validate_binary(&inner, &req.lang_key, &req.binary)?;
+    let guard = JobGuard::begin(&inner)?;
+    let std = sanitize_std(&req.std);
+    let tmp = new_tmp_dir(guard.job.id)?;
+    let prep = match prepare(&req.lang_key, &req.binary, &req.source, &tmp, false, &guard.job, std.as_deref(), true) {
+        Ok(p) => p,
+        Err(e) => { let _ = fs::remove_dir_all(&tmp); return Err(e); }
+    };
+    if !prep.ok {
+        let _ = fs::remove_dir_all(&tmp);
+        return Err(format!("compile failed:\n{}", prep.log));
+    }
+    let params = crate::debug::StartParams {
+        exe: exe_path(&tmp),
+        dir: tmp,
+        stdin_text: req.stdin_text,
+        compiler_binary: req.binary,
+        guard,
+        #[cfg(windows)]
+        job: None,
+    };
+    crate::debug::start(params)
+}
+
+#[tauri::command]
+pub async fn debug_start(state: tauri::State<'_, CphState>, req: DebugStartRequest) -> Result<crate::debug::DebugSnapshot, String> {
+    let inner = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || debug_start_blocking(inner, req)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn debug_step(kind: String) -> Result<crate::debug::DebugSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::debug::step(&kind)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn debug_stop() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || Ok(crate::debug::stop_session())).await.map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

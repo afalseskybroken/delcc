@@ -5,17 +5,28 @@
 // Vite's history fallback — the old post-hoc server.middlewares.use() stopped
 // intercepting when Vite began serving the app's own index.html (the "Cannot read
 // properties of null (reading 'classList')" the wave-3 audit hit).
+// pass #106 (CSP boot-gate, He's GG): the fixture page is served under the PRODUCTION
+// CSP, read straight from tauri.conf.json (single source), with a
+// securitypolicyviolation collector wired before any rendering — the battery below
+// doubles as proof that KaTeX/inline-styles/fonts survive the policy, and any violation
+// fails the run. This is the mechanical leg of the boot-gate pass; the live app boot
+// (login/Settings/tools/CPH) is visually verified on the dev box and ledgered.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "vite";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
+const tauriConf = JSON.parse(readFileSync(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"));
+const CSP = tauriConf.app.security.csp;
+if (!CSP) throw new Error("no CSP found at app.security.csp in tauri.conf.json");
 const server = await createServer({
   server: { host: "127.0.0.1", port: 0 }, logLevel: "error",
   plugins: [{ name: "statement-test-fixture", configureServer(s) {
     s.middlewares.use("/__tmath_statement_test__", (_request, response) => {
       response.setHeader("Content-Type", "text/html");
+      response.setHeader("Content-Security-Policy", CSP);
       response.end('<!doctype html><html><head><meta charset="utf-8"></head><body><main id="host"></main></body></html>');
     });
   } }],
@@ -31,6 +42,12 @@ try {
     return url.hostname === "127.0.0.1" ? route.continue() : route.abort();
   });
   await page.goto(`${server.resolvedUrls.local[0]}__tmath_statement_test__`);
+  await page.evaluate(() => {
+    window.__cspViolations = [];
+    document.addEventListener("securitypolicyviolation", e => {
+      window.__cspViolations.push(`${e.violatedDirective} src=${e.sourceFile || "inline"} target=${e.target?.nodeName || "?"}`);
+    });
+  });
   await page.evaluate(async () => {
     window.statement = await import("/src/tmath/statement.ts");
     window.locale = await import("/src/i18n/index.ts");
@@ -101,7 +118,25 @@ try {
   assert.equal(await page.locator("#host").textContent(), "New render\n", "old cleanup cannot remove new content");
   await page.evaluate(() => { window.rendered.dispose(); window.rendered.dispose(); });
   assert.equal(await page.locator("#host").textContent(), "");
-  console.log("TMATH statement: Markdown, math, sanitization, samples, keyboard, copy, locale, limits and cleanup passed.");
+
+  // pass #106: CSP boot-gate, mechanical leg — fonts must actually LOAD under the policy
+  // (KaTeX glyphs render through font-src) and the whole battery must run violation-free.
+  const fontsOk = await page.evaluate(async () => {
+    await document.fonts.ready;
+    return ["16px KaTeX_Main", "16px KaTeX_Math-Italic"].some(f => document.fonts.check(f));
+  });
+  assert.equal(fontsOk, true, "KaTeX fonts load under the production CSP (font-src)");
+  // pass #106 finding: DOMPurify's DOMParser fallback (its .vite bundle takes it) parses
+  // hostile HTML via innerHTML on an implementation document — Chromium reports the
+  // never-executed event attrs as script-src-attr. That is the CSP WORKING (parse-only,
+  // inert, sanitized right after — the attacked tripwire stays false), so exactly this
+  // fingerprint is tolerated; ANY other violation still fails the run.
+  const violations = await page.evaluate(() => window.__cspViolations);
+  const others = violations.filter(v => !(
+    v.startsWith("script-src-attr src=") && v.includes("/dompurify.js") && v.endsWith("target=#document")
+  ));
+  assert.deepEqual(others, [], `unexpected CSP violations under the production policy: ${others.join("; ")}`);
+  console.log("TMATH statement: Markdown, math, sanitization, samples, keyboard, copy, locale, limits, cleanup, and the production CSP passed.");
 } finally {
   await browser?.close();
   await server.close();
