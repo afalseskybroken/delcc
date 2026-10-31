@@ -1,7 +1,7 @@
 {
   "name": "delcc-app",
   "private": true,
-  "version": "0.3.13-alpha",
+  "version": "0.3.14-alpha",
   "type": "module",
   "license": "PolyForm-Noncommercial-1.0.0",
   "scripts": {
@@ -13,6 +13,8 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
     "@types/katex": "^0.16.8",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
     "playwright": "^1.64.1",
     "typescript": "^5.9.3",
     "vite": "^6.0.0"
@@ -21,6 +23,8 @@
     "@tauri-apps/api": "^2.12.4",
     "dompurify": "^3.1.0",
     "katex": "^0.16.47",
-    "monaco-editor": "0.47.0"
+    "monaco-editor": "0.47.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   }
 }

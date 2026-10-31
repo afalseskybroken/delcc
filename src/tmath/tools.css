@@ -49,11 +49,11 @@
 .tm-tools-graph { width: 100%; height: 420px; min-height: 320px; border: 1px solid var(--tmath-border); border-radius: 8px; background: var(--tmath-background, #10141d); color: var(--tmath-muted-foreground); overflow: hidden; }
 /* pass #109 (He's live notes): left-edge resize grip + maximize uses the viewport height */
 .tm-tools-resize { position: absolute; left: 0; top: 0; bottom: 0; width: 7px; cursor: ew-resize; z-index: 5; }
-.tm-tools-panel.maximized .tm-tools-age { height: calc(100vh - 250px); }
+.tm-tools-panel.maximized .tm-age-host { height: calc(100vh - 250px); }
 /* pass #110 (He: "we need vertical" + "color scheme fit us"): top-left corner resizes both
    axes; with a user-set height the bodies flex-fill and the AGE iframe grows with them. */
 .tm-tools-resize-corner { position: absolute; left: 0; top: 0; width: 16px; height: 16px; cursor: nwse-resize; z-index: 6; }
 .tm-tools-panel[data-user-height] .tm-tools-body { max-height: none; flex: 1 1 0; min-height: 0; }
 .tm-tools-panel[data-user-height] .tm-tools-body[data-pane="graph"] { display: flex; flex-direction: column; gap: 10px; }
-.tm-tools-panel[data-user-height] .tm-tools-age { flex: 1 1 0; height: auto; min-height: 240px; }
-.tm-tools-panel[data-user-height].maximized .tm-tools-age { height: auto; }
+.tm-tools-panel[data-user-height] .tm-age-host { flex: 1 1 0; height: auto; min-height: 240px; }
+.tm-tools-panel[data-user-height].maximized .tm-age-host { height: auto; }
