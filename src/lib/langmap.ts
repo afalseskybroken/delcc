@@ -16,3 +16,13 @@ export function monacoLang(key: string): string {
   if (/^(CS|MONO|DOTNET)/.test(k)) return "csharp";
   return "plaintext";
 }
+
+// pass #103: the OJ language key -> display name map, stated ONCE here so Settings'
+// default-language selector and the solve view's language pill agree verbatim (the
+// carve's official c_ display-name mapping — the menu shows "C++20", the value stays
+// the key).
+export const LANG_DISPLAY: Record<string, string> = {
+  C: "C", C11: "C11", CPP03: "C++03", CPP11: "C++11", CPP14: "C++14", CPP17: "C++17",
+  CPP20: "C++20", JAVA8: "Java 8", MONOCS: "C#", PAS: "Pascal", PY2: "Python 2",
+  PY3: "Python 3", PYPY3: "PyPy 3", TEXT: "Text",
+};
