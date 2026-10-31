@@ -145,6 +145,10 @@ nothing is fetched at runtime. Licenses and the vendoring recipe are recorded in
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). The pass #108 cytoscape adaptation was
 retired by this swap once the actual upstream was identified.
 
+Sketch tab (#112): Excalidraw 0.18.1 (MIT) renders as a lazy React component in the
+tools panel; its fonts and locales are bundled (no CDN, no runtime fetches), and the
+scene persists locally in the delcc-sketch-scene localStorage key.
+
 ## Reporting
 
 Report at **https://github.com/afalseskybroken/delcc/issues** — for anything

@@ -48,7 +48,7 @@ Frontend-only mode covers login and lists; the desktop shell adds custom
 headers, submissions, and the local CPH runner. Per-platform details,
 prerequisites, and caveats: [BUILDING.md](docs/BUILDING.md).
 
-## What works (v0.3.14a-alpha)
+## What works (v0.3.15a-alpha)
 
 Login (+ Google flow) → contests → workspace → problem → submit → verdict
 poll; rankings, submissions filters, account, settings; local CPH
@@ -79,6 +79,7 @@ Unthemed on purpose. `src/app.css` is the guest-themer lane
   [docs/THIRD-PARTY-NOTICES.md](docs/THIRD-PARTY-NOTICES.md). The pass #108 cytoscape
   wrapper was retired by this swap (its chunk went unused glue once the real source
   was identified).
+- **Sketch credit (pass #112).** The sketch tab mounts **[Excalidraw](https://github.com/excalidraw/excalidraw)** (MIT) — the library the official client’s Vẽ nháp loads — as a lazy React component inside the tools panel; the scene persists locally. Credited in [docs/THIRD-PARTY-NOTICES.md](docs/THIRD-PARTY-NOTICES.md).
 - **Not TMATH's work.** delcc is an independent community client; "TMATH" and
   the official client belong to their respective owners. delcc ships no official
   code or assets (the API it calls is documented and public).

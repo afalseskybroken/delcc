@@ -157,6 +157,7 @@ export const viVN: Dict = {
   "tools.tabCalc": "Máy tính",
   "tools.tabBytes": "Byte & mã hóa",
   "tools.tabGraph": "Đồ thị",
+  "tools.tabSketch": "Vẽ nháp",
   "tools.graphEdges": "Danh sách cạnh (mỗi dòng: u v [trọng số])",
   "tools.graphDirected": "Có hướng",
   "tools.graphStart": "Đỉnh gốc",

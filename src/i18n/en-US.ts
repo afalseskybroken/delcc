@@ -158,6 +158,7 @@ export const enUS: Dict = {
   "tools.tabCalc": "Calculator",
   "tools.tabBytes": "Bytes & encodings",
   "tools.tabGraph": "Graph",
+  "tools.tabSketch": "Sketch",
   "tools.graphEdges": "Edge list (one per line: u v [weight])",
   "tools.graphDirected": "Directed",
   "tools.graphStart": "Start",

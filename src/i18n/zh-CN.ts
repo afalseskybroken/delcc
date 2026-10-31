@@ -157,6 +157,7 @@ export const zhCN: Dict = {
   "tools.tabCalc": "计算器",
   "tools.tabBytes": "字节与编码",
   "tools.tabGraph": "图",
+  "tools.tabSketch": "草图",
   "tools.graphEdges": "边列表（每行：u v [权重]）",
   "tools.graphDirected": "有向",
   "tools.graphStart": "起点",

@@ -10,7 +10,7 @@ import { t } from "../i18n";
 import { esc } from "./ui";
 import "./tools.css";
 
-type Tab = "calc" | "bytes" | "graph";
+type Tab = "calc" | "bytes" | "graph" | "sketch";
 
 let panel: HTMLElement | null = null;
 let active: Tab = "calc";
@@ -152,6 +152,7 @@ import "../vendor/age/age.css";
 
 // ---------- the panel ----------
 let pushAge: (() => void) | null = null; // pass #111: the AGE bridge push, set when the panes wire
+let pushSketch: (() => void) | null = null; // pass #112: the Excalidraw sketch mount/update
 export function openToolsPanel(): void {
   // pass #109 (He, live note "make the theme"): AGE reads darkMode from localStorage at its
   // own mount — same origin, so we set it from delcc's current scheme before the iframe loads.
@@ -160,11 +161,11 @@ export function openToolsPanel(): void {
   // values mapped to delcc’s tokens), correct by construction; this key only drives the
   // canvas colors.
   try { localStorage.setItem("darkMode", String(document.documentElement.classList.contains("dark"))); } catch { /* no storage — AGE keeps its default */ }
-  if (panel) { panel.classList.remove("minimized"); (panel as HTMLElement).style.display = ""; if (active === "graph") pushAge?.(); return; }
+  if (panel) { panel.classList.remove("minimized"); (panel as HTMLElement).style.display = ""; if (active === "graph") pushAge?.(); if (active === "sketch") pushSketch?.(); return; }
   panel = document.createElement("div");
   panel.className = "tm-tools-panel";
   panel.innerHTML = `<span class="tm-tools-resize" data-tools-resize aria-label="${esc(t("tools.resize"))}" title="${esc(t("tools.resize"))}"></span><span class="tm-tools-resize-corner" data-tools-resize-corner aria-label="${esc(t("tools.resize"))}" title="${esc(t("tools.resize"))}"></span><div class="tm-tools-head"><span class="tm-tools-grip" data-tools-drag>${esc(t("tools.title"))}</span><button type="button" class="tm-icon-button" data-tools-max aria-label="${esc(t("tools.maximize"))}" title="${esc(t("tools.maximize"))}">⤢</button><button type="button" class="tm-icon-button" data-tools-min aria-label="${esc(t("tools.minimize"))}" title="${esc(t("tools.minimize"))}">—</button><button type="button" class="tm-icon-button" data-tools-close aria-label="${esc(t("tools.close"))}" title="${esc(t("tools.close"))}">×</button></div>
-<div class="tm-tools-tabs"><button type="button" class="tm-button" data-tab="calc">${esc(t("tools.tabCalc"))}</button><button type="button" class="tm-button" data-tab="bytes">${esc(t("tools.tabBytes"))}</button><button type="button" class="tm-button" data-tab="graph">${esc(t("tools.tabGraph"))}</button></div>
+<div class="tm-tools-tabs"><button type="button" class="tm-button" data-tab="calc">${esc(t("tools.tabCalc"))}</button><button type="button" class="tm-button" data-tab="bytes">${esc(t("tools.tabBytes"))}</button><button type="button" class="tm-button" data-tab="graph">${esc(t("tools.tabGraph"))}</button><button type="button" class="tm-button" data-tab="sketch">${esc(t("tools.tabSketch"))}</button></div>
 <div class="tm-tools-body" data-pane="calc">
   <div class="tm-tools-row"><input class="tm-tools-input" data-calc-expr spellcheck="false" placeholder="sin(pi/4) + 0xff &amp; 0b1010 | 3 &lt;&lt; 2"><select class="tm-drafts-select" data-calc-base><option value="dec">DEC</option><option value="hex">HEX</option><option value="oct">OCT</option><option value="bin">BIN</option></select><button type="button" class="tm-button" data-calc-angle>RAD</button></div>
   <div class="tm-tools-result" data-calc-out>—</div>
@@ -183,6 +184,14 @@ export function openToolsPanel(): void {
 2 3 2
 3 1 5</textarea><label class="tm-tools-inline"><input type="checkbox" data-graph-directed> ${esc(t("tools.graphDirected"))}</label><div class="tm-tools-checks"><label class="tm-tools-inline"><input type="checkbox" data-graph-tree> ${esc(t("tools.treeLayout"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-lock> ${esc(t("tools.lockPositions"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-neigh> ${esc(t("tools.dragNeighbours"))}</label></div><button type="button" class="tm-button primary" data-graph-draw>${esc(t("tools.graphDraw"))}</button><div class="tm-tools-result" data-graph-stats></div></div><div class="tm-tools-col"><div class="tm-age-host" data-graph-host></div></div></div>
 </div></div>`;
+  // pass #112: the sketch pane is appended in JS as a DIRECT child of the panel — the
+  // template nesting bit us twice (a pane inside the graph pane body vanishes with it).
+  const sketchPane = document.createElement("div");
+  sketchPane.className = "tm-tools-body";
+  sketchPane.dataset.pane = "sketch";
+  sketchPane.hidden = true;
+  sketchPane.innerHTML = `<div class="tm-sketch-host" data-sketch-host></div>`;
+  panel.appendChild(sketchPane);
   document.body.appendChild(panel);
   // drag by the header — disabled while maximized (the panel is viewport-pinned then)
   const head = panel.querySelector<HTMLElement>("[data-tools-drag]")!;
@@ -251,12 +260,24 @@ export function openToolsPanel(): void {
     panel!.querySelectorAll<HTMLElement>(".tm-tools-tabs [data-tab]").forEach(x => x.classList.toggle("active", x === b));
     panel!.querySelectorAll<HTMLElement>(".tm-tools-body").forEach(p => { p.hidden = p.dataset.pane !== active; });
     if (active === "graph") pushAge?.(); // mount/update on first show
+    if (active === "sketch") pushSketch?.();
   });
   panel!.querySelector<HTMLElement>(`.tm-tools-tabs [data-tab="${active}"]`)!.classList.add("active");
   panel!.querySelectorAll<HTMLElement>(".tm-tools-body").forEach(p => { p.hidden = p.dataset.pane !== active; });
   wireCalc(panel!);
   wireBytes(panel!);
   pushAge = wireGraph(panel!);
+  let sketchMounted = false;
+  pushSketch = (): void => {
+    void import("./sketch").then((m) => {
+      const dark = document.documentElement.classList.contains("dark");
+      if (!sketchMounted) { void m.mountSketch(panel!.querySelector<HTMLElement>("[data-sketch-host]")!, dark); sketchMounted = true; }
+      else { void m.updateSketchTheme(dark); }
+    }).catch((e) => {
+      const h = panel!.querySelector<HTMLElement>("[data-sketch-host]");
+      if (h) h.textContent = "sketch mount failed: " + String(e);
+    });
+  };
 }
 
 // ---------- calculator wiring ----------
