@@ -11,7 +11,13 @@
 .tm-tools-panel.minimized .tm-tools-body, .tm-tools-panel.minimized .tm-tools-tabs { display: none; }
 .tm-tools-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--tmath-border); background: color-mix(in srgb, var(--tmath-muted) 55%, transparent); user-select: none; }
 .tm-tools-grip { flex: 1; cursor: move; font-size: 13px; font-weight: 600; }
-.tm-tools-head .tm-icon-button { min-height: 0; padding: 2px 8px; font-size: 12px; }
+/* pass #107 (He, vs Official's GraphTool): the head buttons are ONE uniform square size,
+   and a maximize toggle joins them (Official order: ⤢ — ×). Maximize pins the panel to
+   the viewport; drag is skipped while pinned. */
+.tm-tools-head .tm-icon-button { width: 26px; height: 26px; min-height: 0; min-width: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; line-height: 1; }
+.tm-tools-panel.maximized { right: 20px; left: 20px; bottom: 20px; top: 20px; width: auto; }
+.tm-tools-panel.maximized .tm-tools-grip { cursor: default; }
+.tm-tools-checks { display: flex; flex-direction: column; gap: 4px; margin: 2px 0; }
 .tm-tools-tabs { display: flex; gap: 8px; padding: 8px 10px 0; }
 .tm-tools-tabs .tm-button.active { background: var(--tmath-primary); color: var(--tmath-primary-foreground); }
 .tm-tools-body { display: flex; flex-direction: column; gap: 10px; padding: 12px; max-height: min(640px, calc(100vh - 220px)); overflow: auto; }

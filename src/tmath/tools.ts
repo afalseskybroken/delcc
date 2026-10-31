@@ -152,7 +152,7 @@ export function openToolsPanel(): void {
   if (panel) { panel.classList.remove("minimized"); (panel as HTMLElement).style.display = ""; return; }
   panel = document.createElement("div");
   panel.className = "tm-tools-panel";
-  panel.innerHTML = `<div class="tm-tools-head"><span class="tm-tools-grip" data-tools-drag>${esc(t("tools.title"))}</span><button type="button" class="tm-icon-button" data-tools-min aria-label="—">—</button><button type="button" class="tm-icon-button" data-tools-close aria-label="×">×</button></div>
+  panel.innerHTML = `<div class="tm-tools-head"><span class="tm-tools-grip" data-tools-drag>${esc(t("tools.title"))}</span><button type="button" class="tm-icon-button" data-tools-max aria-label="${esc(t("tools.maximize"))}" title="${esc(t("tools.maximize"))}">⤢</button><button type="button" class="tm-icon-button" data-tools-min aria-label="${esc(t("tools.minimize"))}" title="${esc(t("tools.minimize"))}">—</button><button type="button" class="tm-icon-button" data-tools-close aria-label="${esc(t("tools.close"))}" title="${esc(t("tools.close"))}">×</button></div>
 <div class="tm-tools-tabs"><button type="button" class="tm-button" data-tab="calc">${esc(t("tools.tabCalc"))}</button><button type="button" class="tm-button" data-tab="bytes">${esc(t("tools.tabBytes"))}</button><button type="button" class="tm-button" data-tab="graph">${esc(t("tools.tabGraph"))}</button></div>
 <div class="tm-tools-body" data-pane="calc">
   <div class="tm-tools-row"><input class="tm-tools-input" data-calc-expr spellcheck="false" placeholder="sin(pi/4) + 0xff &amp; 0b1010 | 3 &lt;&lt; 2"><select class="tm-drafts-select" data-calc-base><option value="dec">DEC</option><option value="hex">HEX</option><option value="oct">OCT</option><option value="bin">BIN</option></select><button type="button" class="tm-button" data-calc-angle>RAD</button></div>
@@ -170,12 +170,13 @@ export function openToolsPanel(): void {
 <div class="tm-tools-body" data-pane="graph" hidden>
   <div class="tm-tools-cols"><div class="tm-tools-col narrow"><b>${esc(t("tools.graphEdges"))}</b><textarea class="tm-tools-area mono" data-graph-edges spellcheck="false" placeholder="1 2 4&#10;2 3 2&#10;3 1 5">1 2 4
 2 3 2
-3 1 5</textarea><label class="tm-tools-inline"><input type="checkbox" data-graph-directed> ${esc(t("tools.graphDirected"))}</label><div class="tm-tools-row"><label class="tm-tools-inline">${esc(t("tools.graphStart"))} <input class="tm-tools-mini" data-graph-start value="1"></label><label class="tm-tools-inline">${esc(t("tools.graphEnd"))} <input class="tm-tools-mini" data-graph-end value="3"></label></div><button type="button" class="tm-button primary" data-graph-draw>${esc(t("tools.graphDraw"))}</button><div class="tm-tools-result" data-graph-stats></div></div><div class="tm-tools-col"><canvas class="tm-tools-canvas" data-graph-canvas width="560" height="420"></canvas></div></div>
+3 1 5</textarea><label class="tm-tools-inline"><input type="checkbox" data-graph-directed> ${esc(t("tools.graphDirected"))}</label><div class="tm-tools-checks"><label class="tm-tools-inline"><input type="checkbox" data-graph-tree> ${esc(t("tools.treeLayout"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-lock> ${esc(t("tools.lockPositions"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-neigh> ${esc(t("tools.dragNeighbours"))}</label></div><div class="tm-tools-row"><label class="tm-tools-inline">${esc(t("tools.graphStart"))} <input class="tm-tools-mini" data-graph-start value="1"></label><label class="tm-tools-inline">${esc(t("tools.graphEnd"))} <input class="tm-tools-mini" data-graph-end value="3"></label></div><button type="button" class="tm-button primary" data-graph-draw>${esc(t("tools.graphDraw"))}</button><div class="tm-tools-result" data-graph-stats></div></div><div class="tm-tools-col"><canvas class="tm-tools-canvas" data-graph-canvas width="560" height="420"></canvas></div></div>
 </div>`;
   document.body.appendChild(panel);
-  // drag by the header
+  // drag by the header — disabled while maximized (the panel is viewport-pinned then)
   const head = panel.querySelector<HTMLElement>("[data-tools-drag]")!;
   head.onpointerdown = e => {
+    if (panel!.classList.contains("maximized")) return;
     const r = panel!.getBoundingClientRect();
     const dx = e.clientX - r.left, dy = e.clientY - r.top;
     head.setPointerCapture(e.pointerId);
@@ -189,6 +190,16 @@ export function openToolsPanel(): void {
   };
   panel.querySelector<HTMLElement>("[data-tools-close]")!.onclick = () => { panel?.remove(); panel = null; };
   panel.querySelector<HTMLElement>("[data-tools-min]")!.onclick = () => panel!.classList.toggle("minimized");
+  // pass #107 (Official parity): maximize pins the panel to the viewport; the glyph flips
+  const maxBtn = panel.querySelector<HTMLButtonElement>("[data-tools-max]")!;
+  maxBtn.onclick = () => {
+    const p = panel!;
+    const maximized = p.classList.toggle("maximized");
+    if (maximized) { p.style.left = ""; p.style.top = ""; p.style.right = ""; p.style.bottom = ""; } // a dragged position must not fight the pinned inset
+    maxBtn.textContent = maximized ? "⤡" : "⤢";
+    maxBtn.title = maximized ? t("tools.restore") : t("tools.maximize");
+    maxBtn.setAttribute("aria-label", maxBtn.title);
+  };
   panel.querySelectorAll<HTMLButtonElement>(".tm-tools-tabs [data-tab]").forEach(b => b.onclick = () => {
     active = b.dataset.tab as Tab;
     panel!.querySelectorAll<HTMLElement>(".tm-tools-tabs [data-tab]").forEach(x => x.classList.toggle("active", x === b));
@@ -343,14 +354,17 @@ function wireGraph(root: HTMLElement): void {
   const edges = root.querySelector<HTMLTextAreaElement>("[data-graph-edges]")!;
   const canvas = root.querySelector<HTMLCanvasElement>("[data-graph-canvas]")!;
   const stats = root.querySelector<HTMLElement>("[data-graph-stats]")!;
+  const directedBox = root.querySelector<HTMLInputElement>("[data-graph-directed]")!;
+  const treeBox = root.querySelector<HTMLInputElement>("[data-graph-tree]")!;
+  const lockBox = root.querySelector<HTMLInputElement>("[data-graph-lock]")!;
+  const neighBox = root.querySelector<HTMLInputElement>("[data-graph-neigh]")!;
   // pass #106: vertex positions persist between redraws so they can be DRAGGED — the
   // circular layout is just the starting arrangement; edits to weights/edges keep your
   // layout, and a vertex beyond the canvas (smaller canvas, etc.) re-circles.
   let pos = new Map<number, { x: number; y: number }>();
-  const draw = (): void => {
-    const directed = root.querySelector<HTMLInputElement>("[data-graph-directed]")!.checked;
-    const start = root.querySelector<HTMLInputElement>("[data-graph-start]")!.value.trim();
-    const end = root.querySelector<HTMLInputElement>("[data-graph-end]")!.value.trim();
+  // pass #107: adjacency for the neighbour-pull drag + the automatic tree layout
+  let adj = new Map<number, number[]>();
+  const parse = (): { list: { u: number; v: number; w: number | null }[]; maxId: number } => {
     const list: { u: number; v: number; w: number | null }[] = [];
     let maxId = 0;
     for (const line of edges.value.split(/\n+/)) {
@@ -362,23 +376,80 @@ function wireGraph(root: HTMLElement): void {
       list.push({ u, v, w });
       maxId = Math.max(maxId, u, v);
     }
+    const a = new Map<number, number[]>();
+    for (let v = 1; v <= maxId; v++) a.set(v, []);
+    for (const { u, v } of list) {
+      a.get(u)?.push(v);
+      if (u !== v) a.get(v)?.push(u); // self-loops pull themselves — skip in adjacency
+    }
+    adj = a;
+    return { list, maxId };
+  };
+  // Official's "Bố trí cây": layered BFS from the lowest-numbered vertex, one tree per
+  // component, components stacked vertically (bounded horizontally by layer clamping).
+  const treePositions = (maxId: number, W: number, H: number): Map<number, { x: number; y: number }> => {
+    const out = new Map<number, { x: number; y: number }>();
+    const seen = new Set<number>();
+    const layerGap = Math.min(84, Math.max(56, (H - 80) / 6));
+    let top = 44;
+    for (let root = 1; root <= maxId; root++) {
+      if (seen.has(root)) continue;
+      const depth = new Map<number, number>([[root, 0]]);
+      const order: number[] = [root];
+      seen.add(root);
+      for (let i = 0; i < order.length; i++) {
+        const v = order[i]!;
+        for (const u of adj.get(v) ?? []) {
+          if (!seen.has(u)) { seen.add(u); depth.set(u, (depth.get(v) ?? 0) + 1); order.push(u); }
+        }
+      }
+      const layers = new Map<number, number[]>();
+      for (const v of order) {
+        const d = depth.get(v)!;
+        if (!layers.has(d)) layers.set(d, []);
+        layers.get(d)!.push(v);
+      }
+      const widest = Math.max(...[...layers.values()].map(a => a.length), 1);
+      const step = Math.min(84, Math.max(44, (W - 80) / widest));
+      const width = (widest - 1) * step;
+      const cx = Math.min(W - 60 - width / 2, Math.max(60 + width / 2, W / 2));
+      for (const [d, verts] of layers) {
+        verts.forEach((v, i) => {
+          const x = cx - width / 2 + i * step;
+          out.set(v, { x, y: Math.min(H - 30, top + d * layerGap) });
+        });
+      }
+      top += ((Math.max(...layers.keys()) + 1) * layerGap) + 48; // next component below
+    }
+    return out;
+  };
+  const draw = (): void => {
+    const directed = directedBox.checked;
+    const start = root.querySelector<HTMLInputElement>("[data-graph-start]")!.value.trim();
+    const end = root.querySelector<HTMLInputElement>("[data-graph-end]")!.value.trim();
+    const { list, maxId } = parse();
     stats.textContent = t("tools.graphStats", { n: String(maxId), m: String(list.length) });
     const ctx = canvas.getContext("2d")!;
     const W = canvas.width, H = canvas.height;
     ctx.clearRect(0, 0, W, H);
     if (!maxId) { pos = new Map(); return; }
     const cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 40;
-    const fresh = new Map<number, { x: number; y: number }>();
-    for (let v = 1; v <= maxId; v++) {
-      const kept = pos.get(v);
-      if (kept && kept.x >= 0 && kept.x <= W && kept.y >= 0 && kept.y <= H) {
-        fresh.set(v, kept); // dragged positions survive redraws
-        continue;
+    if (treeBox.checked && drag === null) {
+      // automatic layout recomputes whenever the graph isn't being dragged
+      pos = treePositions(maxId, W, H);
+    } else {
+      const fresh = new Map<number, { x: number; y: number }>();
+      for (let v = 1; v <= maxId; v++) {
+        const kept = pos.get(v);
+        if (kept && kept.x >= 0 && kept.x <= W && kept.y >= 0 && kept.y <= H) {
+          fresh.set(v, kept); // dragged positions survive redraws
+          continue;
+        }
+        const a = (v - 1) / maxId * Math.PI * 2 - Math.PI / 2;
+        fresh.set(v, { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) });
       }
-      const a = (v - 1) / maxId * Math.PI * 2 - Math.PI / 2;
-      fresh.set(v, { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) });
+      pos = fresh;
     }
-    pos = fresh;
     const fg = getComputedStyle(canvas).color || "#ccc";
     const accent = getComputedStyle(canvas).getPropertyValue("--tmath-primary")?.trim() || "#4ea1ff";
     const bad = "#f87171";
@@ -430,6 +501,7 @@ function wireGraph(root: HTMLElement): void {
   let drag: number | null = null;
   canvas.style.touchAction = "none";
   canvas.onpointerdown = (e) => {
+    if (lockBox.checked) return; // "Cố định vị trí": the graph is a picture until unlocked
     const v = hitVertex(e);
     if (v === null) return;
     drag = v;
@@ -439,14 +511,27 @@ function wireGraph(root: HTMLElement): void {
   };
   canvas.onpointermove = (e) => {
     if (drag === null) {
-      canvas.style.cursor = hitVertex(e) !== null ? "grab" : "";
+      canvas.style.cursor = lockBox.checked ? "" : hitVertex(e) !== null ? "grab" : "";
       return;
     }
     const rect = canvas.getBoundingClientRect();
     const x = Math.min(canvas.width - 20, Math.max(20, (e.clientX - rect.left) * canvas.width / rect.width));
     const y = Math.min(canvas.height - 20, Math.max(20, (e.clientY - rect.top) * canvas.height / rect.height));
     const p = pos.get(drag);
-    if (p) { p.x = x; p.y = y; }
+    if (p) {
+      const dx = x - p.x, dy = y - p.y;
+      p.x = x; p.y = y;
+      if (neighBox.checked) {
+        // Official-style: a drag can drag its neighbours along (a fraction of the step),
+        // toggleable — untangles star/tree shapes fast without a physics loop.
+        for (const u of adj.get(drag) ?? []) {
+          const q = pos.get(u);
+          if (!q) continue;
+          q.x = Math.min(canvas.width - 20, Math.max(20, q.x + dx * 0.35));
+          q.y = Math.min(canvas.height - 20, Math.max(20, q.y + dy * 0.35));
+        }
+      }
+    }
     draw();
   };
   const release = (e: PointerEvent): void => {
