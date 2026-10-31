@@ -1,6 +1,7 @@
 import { api, type ProblemDetail, type ContestProblemDetail } from "../lib/api";
 import * as auth from "../lib/auth";
 import * as cph from "../lib/cph";
+import DOMPurify from "dompurify";
 import { t } from "../i18n";
 import type { Preferences } from "./preferences";
 import { read, write } from "./preferences";
@@ -556,8 +557,19 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       $<HTMLButtonElement>('[data-action="save-statement"]').onclick = () => {
         // pass #98: MIME/extension follow what the judge actually ships (HTML today),
         // not the old hardcoded text/markdown the "(Markdown)" label implied.
+        // pass #101 (wave-3 N7, audit-confirmed): the judge's HTML is hostile-input —
+        // a planted <script> in a statement ran the moment the saved file was opened
+        // in a browser, OUTSIDE delcc's CSP and DOMPurify. The export now runs the
+        // SAME content boundary as the in-app renderer (statement.ts's allowlist), so
+        // the file shows exactly what delcc showed — nothing more.
         const isHtml = /<\/?[a-z][^>]*>/i.test(statementSource);
-        const url = URL.createObjectURL(new Blob([transferSource],{type:`${isHtml ? "text/html" : "text/markdown"};charset=utf-8`}));
+        const exportSource = isHtml ? DOMPurify.sanitize(transferSource, {
+          ALLOWED_TAGS: ["p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "b", "i", "s", "del", "hr", "ul", "ol", "li", "pre", "code", "table", "thead", "tbody", "tr", "td", "th", "blockquote", "sub", "sup", "span", "div"],
+          ALLOWED_ATTR: ["class", "data-tmath-component", "data-tmath-version", "data-sample-index"],
+          ALLOW_DATA_ATTR: false,
+          ALLOW_ARIA_ATTR: false,
+        }) : transferSource;
+        const url = URL.createObjectURL(new Blob([exportSource],{type:`${isHtml ? "text/html" : "text/markdown"};charset=utf-8`}));
         const a = document.createElement("a"); a.href = url; a.download = `${args.code.replace(/[^a-zA-Z0-9_-]/g,"_")}.${isHtml ? "html" : "md"}`; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
       };
       $<HTMLButtonElement>('[data-action="submissions"]').onclick = () => { saved(); args.onSubmissions(); };
