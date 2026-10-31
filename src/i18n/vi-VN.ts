@@ -84,6 +84,7 @@ export const viVN: Dict = {
   "problem.description": "Mô tả bài toán",
   "app.home": "Trang chủ",
   "app.settings": "Cài đặt",
+  "app.releasesTap": "Mở trang Releases (bản nhị phân mới được đăng tại đây)",
   "app.github": "Kho GitHub",
   "app.independent": "Ứng dụng TMATH độc lập",
   "app.clientVersion": "Phiên bản ứng dụng",

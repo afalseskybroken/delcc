@@ -183,6 +183,7 @@ export interface Dict {
   "problem.description": string;
   "app.home": string;
   "app.settings": string;
+  "app.releasesTap": string;
   "app.github": string;
   "app.independent": string;
   "app.clientVersion": string;

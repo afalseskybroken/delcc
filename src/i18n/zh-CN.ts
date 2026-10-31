@@ -84,6 +84,7 @@ export const zhCN: Dict = {
   "problem.description": "题目描述",
   "app.home": "首页",
   "app.settings": "设置",
+  "app.releasesTap": "打开 Releases 页面（新二进制在此发布）",
   "app.github": "GitHub 仓库",
   "app.independent": "独立 TMATH 客户端",
   "app.clientVersion": "客户端版本",
