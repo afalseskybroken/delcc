@@ -33,12 +33,14 @@ body[data-persona="tmath"] #app .tm-statement p { margin: .8em 0; }
    p-3 region (official has NO sub-card), action strip = border-t p-3 full-bleed */
 body[data-persona="tmath"] .tm-mode-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 4px 12px; border-top: 1px solid var(--tmath-border); border-bottom: 1px solid var(--tmath-border); background: color-mix(in srgb, var(--tmath-muted) 40%, transparent); }
 body[data-persona="tmath"] .tm-mode-strip [data-draft] { font-size: 12px; color: var(--tmath-muted-foreground); }
-body[data-persona="tmath"] .tm-mode-strip .tm-button { margin-left: 0; min-height: 0; padding: 3px 8px; border-radius: 8px; font-size: 12px; }
-/* pass #103: the multi-draft bar rides the mode strip — only Save now keeps the
-   right-hand auto margin; the drafts selector blends with the strip's density */
-body[data-persona="tmath"] .tm-mode-strip [data-action="save-now"] { margin-left: auto; }
+body[data-persona="tmath"] .tm-mode-strip .tm-button { margin-left: auto; min-height: 0; padding: 3px 8px; border-radius: 8px; font-size: 12px; }
+/* pass #104 (carve position): the multi-draft bar sits ON TOP of the Monaco pane — its
+   own row above the editor header, exactly where Official 1.1.0 places it */
+body[data-persona="tmath"] .tm-drafts-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 5px 12px; border-bottom: 1px solid var(--tmath-border); background: color-mix(in srgb, var(--tmath-muted) 40%, transparent); }
+body[data-persona="tmath"] .tm-drafts-bar [data-draft] { font-size: 12px; color: var(--tmath-muted-foreground); margin-left: auto; }
+body[data-persona="tmath"] .tm-drafts-bar .tm-button { min-height: 0; padding: 3px 8px; border-radius: 8px; font-size: 12px; }
 body[data-persona="tmath"] .tm-drafts-select { max-width: 180px; min-height: 0; padding: 2px 6px; border: 1px solid var(--tmath-border); border-radius: 8px; background: var(--tmath-card); color: var(--tmath-foreground); font-size: 12px; }
-body[data-persona="tmath"] .tm-mode-strip [data-drafts-count] { font-size: 12px; color: var(--tmath-muted-foreground); white-space: nowrap; }
+body[data-persona="tmath"] .tm-drafts-bar [data-drafts-count] { font-size: 12px; color: var(--tmath-muted-foreground); white-space: nowrap; }
 body[data-persona="tmath"] .tm-io-first { min-width: 0; padding: 12px 16px 0; display: flex; flex-direction: column; gap: 10px; }
 body[data-persona="tmath"] .tm-io-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 body[data-persona="tmath"] .tm-io-grid { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

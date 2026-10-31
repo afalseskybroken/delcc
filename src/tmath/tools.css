@@ -1,0 +1,34 @@
+/* src/tmath/tools.css — pass #104: the offline tools panel (floating, draggable,
+   tabbed). Everything here is local-only styling; the panel itself performs no
+   network operations whatsoever. */
+.tm-tools-panel { position: fixed; right: 48px; bottom: 64px; z-index: 90; width: min(920px, calc(100vw - 48px)); border: 1px solid var(--tmath-border); border-radius: 12px; background: var(--tmath-card); color: var(--tmath-foreground); box-shadow: 0 18px 48px rgb(0 0 0 / 45%); overflow: hidden; }
+.tm-tools-panel.minimized .tm-tools-body, .tm-tools-panel.minimized .tm-tools-tabs { display: none; }
+.tm-tools-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--tmath-border); background: color-mix(in srgb, var(--tmath-muted) 55%, transparent); user-select: none; }
+.tm-tools-grip { flex: 1; cursor: move; font-size: 13px; font-weight: 600; }
+.tm-tools-head .tm-icon-button { min-height: 0; padding: 2px 8px; font-size: 12px; }
+.tm-tools-tabs { display: flex; gap: 8px; padding: 8px 10px 0; }
+.tm-tools-tabs .tm-button.active { background: var(--tmath-primary); color: var(--tmath-primary-foreground); }
+.tm-tools-body { display: flex; flex-direction: column; gap: 10px; padding: 12px; max-height: min(640px, calc(100vh - 220px)); overflow: auto; }
+.tm-tools-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tm-tools-row.wrap { row-gap: 6px; }
+.tm-tools-input { flex: 1; min-width: 220px; padding: 6px 10px; border: 1px solid var(--tmath-border); border-radius: 8px; background: var(--tmath-background, var(--tmath-card)); color: inherit; font: 13px var(--tmath-font-mono, monospace); }
+.tm-tools-mini { width: 74px; padding: 3px 6px; border: 1px solid var(--tmath-border); border-radius: 6px; background: transparent; color: inherit; font-size: 12px; }
+.tm-tools-inline { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--tmath-muted-foreground); }
+.tm-tools-result { padding: 8px 10px; border: 1px solid var(--tmath-border); border-radius: 8px; background: color-mix(in srgb, var(--tmath-muted) 40%, transparent); font: 14px var(--tmath-font-mono, monospace); overflow-wrap: anywhere; }
+.tm-tools-result.tm-error { color: #f87171; border-color: #f87171; }
+.tm-tools-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
+.tm-tools-canvas { width: 100%; border: 1px solid var(--tmath-border); border-radius: 8px; background: var(--tmath-background, #10141d); color: var(--tmath-muted-foreground); }
+.tm-tools-history { display: flex; flex-wrap: wrap; gap: 6px; }
+.tm-tools-hist { padding: 3px 8px; border: 1px solid var(--tmath-border); border-radius: 999px; background: transparent; color: var(--tmath-muted-foreground); font: 12px var(--tmath-font-mono, monospace); cursor: pointer; }
+.tm-tools-hist:hover { color: var(--tmath-foreground); border-color: var(--tmath-primary); }
+.tm-tools-cols { display: flex; gap: 12px; align-items: stretch; }
+.tm-tools-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.tm-tools-col.narrow { flex: 0 0 220px; }
+.tm-tools-area { height: 150px; padding: 8px; border: 1px solid var(--tmath-border); border-radius: 8px; background: var(--tmath-background, var(--tmath-card)); color: inherit; font: 12px var(--tmath-font-mono, monospace); resize: vertical; }
+.tm-tools-area.mono { font-family: var(--tmath-font-mono, monospace); }
+.tm-tools-dump { margin: 0; max-height: 180px; overflow: auto; padding: 8px 10px; border: 1px solid var(--tmath-border); border-radius: 8px; background: var(--tmath-background, var(--tmath-card)); font: 12px/1.7 var(--tmath-font-mono, monospace); }
+.tm-tools-dump .row { white-space: pre; }
+.tm-tools-dump .off { color: var(--tmath-muted-foreground); margin-right: 10px; }
+.tm-tools-dump .byte { display: inline-block; width: 2.4em; cursor: pointer; }
+.tm-tools-dump .byte:hover { color: var(--tmath-primary); }
+.tm-tools-dump .asc { margin-left: 10px; color: var(--tmath-muted-foreground); }

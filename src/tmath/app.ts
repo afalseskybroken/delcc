@@ -909,7 +909,11 @@ export class TmathApp {
   // #76 rule (numeric labels used to fall back to letters); idxLetters is retired.
   private probLabel(p: any, i: number): string {
     const raw = p?.label == null ? "" : String(p.label).trim();
-    return raw !== "" ? raw : `${text("contests.tabWord")} ${i + 1}`;
+    // pass #104 (He: "Official still have the 'Problem' moniker"): a NUMERIC server
+    // label gets the moniker prefix ("Bài 1") — Official shows it that way; only
+    // non-numeric labels (A/B/C, names) render verbatim. Fallback: 1-based position.
+    if (raw !== "") return /^\d+$/.test(raw) ? `${text("contests.tabWord")} ${raw}` : raw;
+    return `${text("contests.tabWord")} ${i + 1}`;
   }
   private async workspace(host: HTMLElement, params: URLSearchParams, alive: () => boolean): Promise<void> {
     const key = params.get("contest") ?? this.contest?.key;
