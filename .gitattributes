@@ -1,0 +1,2 @@
+# vendored third-party artifacts must keep upstream-exact bytes (no EOL normalization)
+public/age/** -text
