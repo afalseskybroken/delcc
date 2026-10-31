@@ -1,7 +1,7 @@
 {
   "name": "delcc-app",
   "private": true,
-  "version": "0.3.10-alpha",
+  "version": "0.3.11-alpha",
   "type": "module",
   "license": "PolyForm-Noncommercial-1.0.0",
   "scripts": {
@@ -12,6 +12,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
+    "@types/cytoscape-dagre": "^2.3.4",
     "@types/katex": "^0.16.8",
     "playwright": "^1.64.1",
     "typescript": "^5.9.3",
@@ -19,6 +20,9 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
+    "cytoscape": "^3.30.0",
+    "cytoscape-cose-bilkent": "^4.1.0",
+    "cytoscape-dagre": "^2.5.0",
     "dompurify": "^3.1.0",
     "katex": "^0.16.47",
     "monaco-editor": "0.47.0"
