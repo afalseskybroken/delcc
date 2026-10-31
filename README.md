@@ -48,7 +48,7 @@ Frontend-only mode covers login and lists; the desktop shell adds custom
 headers, submissions, and the local CPH runner. Per-platform details,
 prerequisites, and caveats: [BUILDING.md](docs/BUILDING.md).
 
-## What works (v0.3.10a-alpha)
+## What works (v0.3.11a-alpha)
 
 Login (+ Google flow) → contests → workspace → problem → submit → verdict
 poll; rankings, submissions filters, account, settings; local CPH
@@ -72,6 +72,11 @@ Unthemed on purpose. `src/app.css` is the guest-themer lane
 
 ## Notices
 
+- **Graph stack credit (pass #108).** The offline tools panel’s graph tab renders on
+  **[cytoscape.js](https://github.com/cytoscape/cytoscape.js)** + **cytoscape-dagre** +
+  **cytoscape-cose-bilkent** (all MIT; the same libraries the official client’s GraphTool
+  bundles). Adapted, bundled locally, credited in
+  [docs/THIRD-PARTY-NOTICES.md](docs/THIRD-PARTY-NOTICES.md) — no CDN, no network use.
 - **Not TMATH's work.** delcc is an independent community client; "TMATH" and
   the official client belong to their respective owners. delcc ships no official
   code or assets (the API it calls is documented and public).

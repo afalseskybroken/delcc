@@ -135,6 +135,12 @@ BLOCKS those never-executed attributes (parse-only; sanitization completes
 and the execute-vectors stay dead). The statement browser test tolerates
 exactly that fingerprint and fails on anything else.
 
+Third-party graph stack (#108): the tools panel’s graph tab renders on
+cytoscape.js + cytoscape-dagre + cytoscape-cose-bilkent — all MIT, all
+compiled INTO the app bundle from npm (no CDN, no runtime fetches; the
+panel’s zero-network contract holds). Licenses and versions are recorded in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
 ## Reporting
 
 Report at **https://github.com/afalseskybroken/delcc/issues** — for anything

@@ -170,7 +170,7 @@ export function openToolsPanel(): void {
 <div class="tm-tools-body" data-pane="graph" hidden>
   <div class="tm-tools-cols"><div class="tm-tools-col narrow"><b>${esc(t("tools.graphEdges"))}</b><textarea class="tm-tools-area mono" data-graph-edges spellcheck="false" placeholder="1 2 4&#10;2 3 2&#10;3 1 5">1 2 4
 2 3 2
-3 1 5</textarea><label class="tm-tools-inline"><input type="checkbox" data-graph-directed> ${esc(t("tools.graphDirected"))}</label><div class="tm-tools-checks"><label class="tm-tools-inline"><input type="checkbox" data-graph-tree> ${esc(t("tools.treeLayout"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-lock> ${esc(t("tools.lockPositions"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-neigh> ${esc(t("tools.dragNeighbours"))}</label></div><div class="tm-tools-row"><label class="tm-tools-inline">${esc(t("tools.graphStart"))} <input class="tm-tools-mini" data-graph-start value="1"></label><label class="tm-tools-inline">${esc(t("tools.graphEnd"))} <input class="tm-tools-mini" data-graph-end value="3"></label></div><button type="button" class="tm-button primary" data-graph-draw>${esc(t("tools.graphDraw"))}</button><div class="tm-tools-result" data-graph-stats></div></div><div class="tm-tools-col"><canvas class="tm-tools-canvas" data-graph-canvas width="560" height="420"></canvas></div></div>
+3 1 5</textarea><label class="tm-tools-inline"><input type="checkbox" data-graph-directed> ${esc(t("tools.graphDirected"))}</label><div class="tm-tools-checks"><label class="tm-tools-inline"><input type="checkbox" data-graph-tree> ${esc(t("tools.treeLayout"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-lock> ${esc(t("tools.lockPositions"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-neigh> ${esc(t("tools.dragNeighbours"))}</label></div><div class="tm-tools-row"><label class="tm-tools-inline">${esc(t("tools.graphStart"))} <input class="tm-tools-mini" data-graph-start value="1"></label><label class="tm-tools-inline">${esc(t("tools.graphEnd"))} <input class="tm-tools-mini" data-graph-end value="3"></label></div><button type="button" class="tm-button primary" data-graph-draw>${esc(t("tools.graphDraw"))}</button><div class="tm-tools-result" data-graph-stats></div></div><div class="tm-tools-col"><div class="tm-tools-graph" data-graph-canvas></div></div></div>
 </div>`;
   document.body.appendChild(panel);
   // drag by the header — disabled while maximized (the panel is viewport-pinned then)
@@ -349,21 +349,35 @@ function wireBytes(root: HTMLElement): void {
   });
 }
 
-// ---------- graph wiring ----------
+// ---------- graph wiring (pass #108: cytoscape, Official's own stack, adapted offline) ----------
+// Official's GraphTool renders on cytoscape.esm + cytoscape-dagre + cytoscape-cose-bilkent
+// (carved 1.1.0 chunks); all three are MIT, so delcc adapts the same stack — bundled from
+// npm into the app bundle, NO CDN, the panel stays genuinely offline. Credits:
+// docs/THIRD-PARTY-NOTICES.md. What this buys over the #106 hand-rolled canvas: parallel
+// edges (multigraph), the dagre layered tree, real physics on drag (cose-bilkent,
+// toggleable), pan/zoom, and honest hit-testing at any DPI.
+let cyRegistered = false;
+async function ensureCytoscape(): Promise<typeof import("cytoscape")> {
+  const Cytoscape = (await import("cytoscape")).default as typeof import("cytoscape");
+  if (!cyRegistered) {
+    Cytoscape.use((await import("cytoscape-dagre")).default);
+    Cytoscape.use((await import("cytoscape-cose-bilkent")).default);
+    cyRegistered = true;
+  }
+  return Cytoscape as unknown as typeof import("cytoscape");
+}
+
 function wireGraph(root: HTMLElement): void {
   const edges = root.querySelector<HTMLTextAreaElement>("[data-graph-edges]")!;
-  const canvas = root.querySelector<HTMLCanvasElement>("[data-graph-canvas]")!;
+  const container = root.querySelector<HTMLElement>("[data-graph-canvas]")!;
   const stats = root.querySelector<HTMLElement>("[data-graph-stats]")!;
   const directedBox = root.querySelector<HTMLInputElement>("[data-graph-directed]")!;
   const treeBox = root.querySelector<HTMLInputElement>("[data-graph-tree]")!;
   const lockBox = root.querySelector<HTMLInputElement>("[data-graph-lock]")!;
   const neighBox = root.querySelector<HTMLInputElement>("[data-graph-neigh]")!;
-  // pass #106: vertex positions persist between redraws so they can be DRAGGED — the
-  // circular layout is just the starting arrangement; edits to weights/edges keep your
-  // layout, and a vertex beyond the canvas (smaller canvas, etc.) re-circles.
-  let pos = new Map<number, { x: number; y: number }>();
-  // pass #107: adjacency for the neighbour-pull drag + the automatic tree layout
-  let adj = new Map<number, number[]>();
+  let cy: import("cytoscape").Core | null = null;
+  let edgeSeq = 0;
+
   const parse = (): { list: { u: number; v: number; w: number | null }[]; maxId: number } => {
     const list: { u: number; v: number; w: number | null }[] = [];
     let maxId = 0;
@@ -376,173 +390,104 @@ function wireGraph(root: HTMLElement): void {
       list.push({ u, v, w });
       maxId = Math.max(maxId, u, v);
     }
-    const a = new Map<number, number[]>();
-    for (let v = 1; v <= maxId; v++) a.set(v, []);
-    for (const { u, v } of list) {
-      a.get(u)?.push(v);
-      if (u !== v) a.get(v)?.push(u); // self-loops pull themselves — skip in adjacency
-    }
-    adj = a;
     return { list, maxId };
   };
-  // Official's "Bố trí cây": layered BFS from the lowest-numbered vertex, one tree per
-  // component, components stacked vertically (bounded horizontally by layer clamping).
-  const treePositions = (maxId: number, W: number, H: number): Map<number, { x: number; y: number }> => {
-    const out = new Map<number, { x: number; y: number }>();
-    const seen = new Set<number>();
-    const layerGap = Math.min(84, Math.max(56, (H - 80) / 6));
-    let top = 44;
-    for (let root = 1; root <= maxId; root++) {
-      if (seen.has(root)) continue;
-      const depth = new Map<number, number>([[root, 0]]);
-      const order: number[] = [root];
-      seen.add(root);
-      for (let i = 0; i < order.length; i++) {
-        const v = order[i]!;
-        for (const u of adj.get(v) ?? []) {
-          if (!seen.has(u)) { seen.add(u); depth.set(u, (depth.get(v) ?? 0) + 1); order.push(u); }
-        }
-      }
-      const layers = new Map<number, number[]>();
-      for (const v of order) {
-        const d = depth.get(v)!;
-        if (!layers.has(d)) layers.set(d, []);
-        layers.get(d)!.push(v);
-      }
-      const widest = Math.max(...[...layers.values()].map(a => a.length), 1);
-      const step = Math.min(84, Math.max(44, (W - 80) / widest));
-      const width = (widest - 1) * step;
-      const cx = Math.min(W - 60 - width / 2, Math.max(60 + width / 2, W / 2));
-      for (const [d, verts] of layers) {
-        verts.forEach((v, i) => {
-          const x = cx - width / 2 + i * step;
-          out.set(v, { x, y: Math.min(H - 30, top + d * layerGap) });
-        });
-      }
-      top += ((Math.max(...layers.keys()) + 1) * layerGap) + 48; // next component below
-    }
-    return out;
+
+  const theme = (): Record<string, string> => {
+    const cs = getComputedStyle(container);
+    return {
+      fg: cs.color || "#ccc",
+      bg: cs.backgroundColor || "#10141d",
+      accent: cs.getPropertyValue("--tmath-primary")?.trim() || "#4ea1ff",
+    };
   };
-  const draw = (): void => {
-    const directed = directedBox.checked;
+
+  const restyle = (): void => {
+    if (!cy) return;
     const start = root.querySelector<HTMLInputElement>("[data-graph-start]")!.value.trim();
     const end = root.querySelector<HTMLInputElement>("[data-graph-end]")!.value.trim();
+    cy.nodes().forEach(n => {
+      const id = n.id();
+      n.classes(id === start ? "tm-start" : id === end ? "tm-end" : "");
+    });
+    cy.edges().style({
+      "target-arrow-shape": directedBox.checked ? "triangle" : "none",
+    });
+    cy.style().update(); // re-evaluate the classes above
+  };
+
+  const applyLayout = (): void => {
+    if (!cy) return;
+    if (treeBox.checked) {
+      cy.layout({ name: "dagre", rankDir: "TB", nodeSep: 42, rankSep: 64, animate: false } as import("cytoscape").LayoutOptions).run();
+    } else if (neighBox.checked) {
+      // COSE physics: the settle animates, and while it is the current arrangement a
+      // drag re-settles the whole graph on release (see the dragfree hook below).
+      cy.layout({ name: "cose-bilkent", animate: true, idealEdgeLength: 90, nodeRepulsion: 8000, randomize: false } as import("cytoscape").LayoutOptions).run();
+    } else {
+      cy.layout({ name: "circle", animate: false } as import("cytoscape").LayoutOptions).run();
+    }
+    cy.fit(undefined, 30);
+  };
+
+  const applyLock = (): void => {
+    if (cy) cy.autoungrabify(lockBox.checked); // "Cố định vị trí": the graph is a picture
+  };
+
+  const rebuild = async (): Promise<void> => {
     const { list, maxId } = parse();
     stats.textContent = t("tools.graphStats", { n: String(maxId), m: String(list.length) });
-    const ctx = canvas.getContext("2d")!;
-    const W = canvas.width, H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
-    if (!maxId) { pos = new Map(); return; }
-    const cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 40;
-    if (treeBox.checked && drag === null) {
-      // automatic layout recomputes whenever the graph isn't being dragged
-      pos = treePositions(maxId, W, H);
+    if (!maxId) { cy?.destroy(); cy = null; return; }
+    const Cytoscape = await ensureCytoscape();
+    const { fg, bg, accent } = theme();
+    const start = root.querySelector<HTMLInputElement>("[data-graph-start]")!.value.trim();
+    const end = root.querySelector<HTMLInputElement>("[data-graph-end]")!.value.trim();
+    const elements: import("cytoscape").ElementDefinition[] = [];
+    for (let v = 1; v <= maxId; v++) {
+      elements.push({ data: { id: String(v), label: String(v) }, classes: String(v) === start ? "tm-start" : String(v) === end ? "tm-end" : "", grabbable: !lockBox.checked });
+    }
+    list.forEach(({ u, v, w }) => {
+      elements.push({ data: { id: `e${edgeSeq++}`, source: String(u), target: String(v), label: w == null ? "" : String(w) } });
+    });
+    const graphStyle = [
+      { selector: "node", style: {
+        "background-color": bg, "border-width": 1.8, "border-color": fg,
+        label: "data(label)", color: fg, "font-size": 12, "text-valign": "center", "text-halign": "center",
+        width: 28, height: 28,
+      } },
+      { selector: "node.tm-start", style: { "background-color": "#166534", "border-color": accent } },
+      { selector: "node.tm-end", style: { "background-color": "#f87171", "border-color": accent } },
+      { selector: "edge", style: {
+        width: 1.6, "line-color": fg, "line-opacity": 0.8, "curve-style": "bezier",
+        label: "data(label)", "font-size": 11, color: accent,
+        "text-background-color": bg, "text-background-opacity": 0.75, "text-background-padding": 2,
+        "target-arrow-color": fg, "arrow-scale": 1.1,
+      } },
+    ] as unknown as import("cytoscape").StylesheetStyle[]; // @types is stricter per-prop than the runtime CSS parser
+    // multigraph isn't in CytoscapeOptions types but is real runtime API (parallel edges curve apart)
+    const opts = { container, multigraph: true, wheelSensitivity: 0.2, elements, style: graphStyle } as unknown as import("cytoscape").CytoscapeOptions;
+    if (!cy) {
+      cy = Cytoscape(opts);
+      cy.on("dragfree", "node", () => {
+        if (neighBox.checked && !treeBox.checked) applyLayout(); // physics re-settles the others — toggleable
+      });
     } else {
-      const fresh = new Map<number, { x: number; y: number }>();
-      for (let v = 1; v <= maxId; v++) {
-        const kept = pos.get(v);
-        if (kept && kept.x >= 0 && kept.x <= W && kept.y >= 0 && kept.y <= H) {
-          fresh.set(v, kept); // dragged positions survive redraws
-          continue;
-        }
-        const a = (v - 1) / maxId * Math.PI * 2 - Math.PI / 2;
-        fresh.set(v, { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) });
-      }
-      pos = fresh;
+      cy.elements().remove();
+      cy.add(elements);
     }
-    const fg = getComputedStyle(canvas).color || "#ccc";
-    const accent = getComputedStyle(canvas).getPropertyValue("--tmath-primary")?.trim() || "#4ea1ff";
-    const bad = "#f87171";
-    ctx.lineWidth = 1.6;
-    for (const { u, v, w } of list) {
-      const p = pos.get(u)!, q = pos.get(v)!;
-      if (!p || !q) continue;
-      const isPath = (String(u) === start && String(v) === end) || (!directed && String(v) === start && String(u) === end);
-      ctx.strokeStyle = isPath ? bad : fg;
-      ctx.globalAlpha = 0.8;
-      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
-      if (directed) {
-        const a = Math.atan2(q.y - p.y, q.x - p.x);
-        const hx = q.x - Math.cos(a) * 14, hy = q.y - Math.sin(a) * 14;
-        ctx.beginPath();
-        ctx.moveTo(q.x, q.y);
-        ctx.lineTo(hx + Math.cos(a + Math.PI / 2.6) * 8, hy + Math.sin(a + Math.PI / 2.6) * 8);
-        ctx.lineTo(hx + Math.cos(a - Math.PI / 2.6) * 8, hy + Math.sin(a - Math.PI / 2.6) * 8);
-        ctx.closePath(); ctx.fillStyle = ctx.strokeStyle as string; ctx.fill();
-      }
-      if (w != null) {
-        ctx.fillStyle = accent; ctx.font = "12px sans-serif";
-        ctx.fillText(String(w), (p.x + q.x) / 2 + 6, (p.y + q.y) / 2 - 6);
-      }
-      ctx.globalAlpha = 1;
-    }
-    ctx.font = "12px sans-serif";
-    for (const [v, p] of pos) {
-      const isStart = String(v) === start, isEnd = String(v) === end;
-      ctx.beginPath(); ctx.arc(p.x, p.y, 14, 0, Math.PI * 2);
-      ctx.fillStyle = isStart ? "#166534" : isEnd ? bad : getComputedStyle(canvas).backgroundColor || "#111";
-      ctx.fill();
-      ctx.strokeStyle = isStart || isEnd ? accent : fg; ctx.lineWidth = 1.8; ctx.stroke();
-      ctx.fillStyle = fg; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(String(v), p.x, p.y);
-    }
+    applyLock();
+    restyle();
+    applyLayout();
   };
-  // ---------- vertex dragging (pass #106, He's tools round 2) ----------
-  // Canvas attr size vs CSS size can differ — pointer coords map through the rect.
-  const hitVertex = (e: PointerEvent): number | null => {
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * canvas.width / rect.width;
-    const y = (e.clientY - rect.top) * canvas.height / rect.height;
-    for (const [v, p] of pos) {
-      if ((x - p.x) ** 2 + (y - p.y) ** 2 <= 18 ** 2) return v;
-    }
-    return null;
-  };
-  let drag: number | null = null;
-  canvas.style.touchAction = "none";
-  canvas.onpointerdown = (e) => {
-    if (lockBox.checked) return; // "Cố định vị trí": the graph is a picture until unlocked
-    const v = hitVertex(e);
-    if (v === null) return;
-    drag = v;
-    canvas.setPointerCapture(e.pointerId);
-    canvas.style.cursor = "grabbing";
-    e.preventDefault();
-  };
-  canvas.onpointermove = (e) => {
-    if (drag === null) {
-      canvas.style.cursor = lockBox.checked ? "" : hitVertex(e) !== null ? "grab" : "";
-      return;
-    }
-    const rect = canvas.getBoundingClientRect();
-    const x = Math.min(canvas.width - 20, Math.max(20, (e.clientX - rect.left) * canvas.width / rect.width));
-    const y = Math.min(canvas.height - 20, Math.max(20, (e.clientY - rect.top) * canvas.height / rect.height));
-    const p = pos.get(drag);
-    if (p) {
-      const dx = x - p.x, dy = y - p.y;
-      p.x = x; p.y = y;
-      if (neighBox.checked) {
-        // Official-style: a drag can drag its neighbours along (a fraction of the step),
-        // toggleable — untangles star/tree shapes fast without a physics loop.
-        for (const u of adj.get(drag) ?? []) {
-          const q = pos.get(u);
-          if (!q) continue;
-          q.x = Math.min(canvas.width - 20, Math.max(20, q.x + dx * 0.35));
-          q.y = Math.min(canvas.height - 20, Math.max(20, q.y + dy * 0.35));
-        }
-      }
-    }
-    draw();
-  };
-  const release = (e: PointerEvent): void => {
-    if (drag === null) return;
-    drag = null;
-    canvas.style.cursor = "";
-    try { canvas.releasePointerCapture(e.pointerId); } catch { /* already released */ }
-  };
-  canvas.onpointerup = release;
-  canvas.onpointercancel = release;
-  root.querySelector<HTMLButtonElement>("[data-graph-draw]")!.onclick = draw;
-  edges.onchange = draw;
-  draw();
+
+  root.querySelector<HTMLButtonElement>("[data-graph-draw]")!.onclick = () => void rebuild();
+  edges.onchange = () => void rebuild();
+  treeBox.onchange = applyLayout;
+  neighBox.onchange = applyLayout;
+  lockBox.onchange = applyLock;
+  directedBox.onchange = restyle;
+  for (const mini of ["[data-graph-start]", "[data-graph-end]"]) {
+    root.querySelector<HTMLInputElement>(mini)!.onchange = restyle;
+  }
+  void rebuild();
 }

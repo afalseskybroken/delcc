@@ -53,7 +53,7 @@ npm run tauri build  # bundle phát hành (MSI/NSIS trên Windows)
 Chế độ chỉ-frontend đủ cho đăng nhập và danh sách; shell desktop mới có custom
 headers, phần nộp bài, và trình chạy CPH cục bộ.
 
-## Tính năng hiện có (v0.3.10a-alpha)
+## Tính năng hiện có (v0.3.11a-alpha)
 
 Đăng nhập (+ luồng Google) → thi → workspace → bài tập → nộp bài → poll kết
 quả; bảng xếp hạng, bộ lọc bài nộp, tài khoản, cài đặt; CPH biên dịch/chạy cục
@@ -77,6 +77,11 @@ Cố ý chưa theme. `src/app.css` là lane cho guest-themer
 
 ## thông báo
 
+- **Ghi công đồ thị (pass #108).** Tab đồ thị của bảng công cụ offline dựng trên
+  **[cytoscape.js](https://github.com/cytoscape/cytoscape.js)** + **cytoscape-dagre** +
+  **cytoscape-cose-bilkent** (toàn bộ MIT; chính các thư viện mà GraphTool của client
+  chính thức đóng gói). Tiếp biến thích nghi, đóng gói cục bộ, ghi chú tại
+  [docs/THIRD-PARTY-NOTICES.md](docs/THIRD-PARTY-NOTICES.md) — không CDN, không dùng mạng.
 - **Không phải sản phẩm của TMATH.** delcc là client cộng đồng độc lập;
   "TMATH" và client chính thức thuộc về chủ sở hữu tương ứng. delcc không
   ship bất kỳ code/asset chính thức nào (API nó gọi là API công khai, đã tài liệu hoá).
