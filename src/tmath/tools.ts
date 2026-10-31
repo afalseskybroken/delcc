@@ -151,11 +151,15 @@ const fmtNum = (v: number, base: string): string => {
 export function openToolsPanel(): void {
   // pass #109 (He, live note "make the theme"): AGE reads darkMode from localStorage at its
   // own mount — same origin, so we set it from delcc's current scheme before the iframe loads.
+  // pass #110 (He: "make the color scheme actually fit us?"): the CHROME palette is changed
+  // AT THE SOURCE of the vendored AGE (patches/age-c11b36ad.patch — tailwindcss-themer
+  // values mapped to delcc’s tokens), correct by construction; this key only drives the
+  // canvas colors.
   try { localStorage.setItem("darkMode", String(document.documentElement.classList.contains("dark"))); } catch { /* no storage — AGE keeps its default */ }
   if (panel) { panel.classList.remove("minimized"); (panel as HTMLElement).style.display = ""; return; }
   panel = document.createElement("div");
   panel.className = "tm-tools-panel";
-  panel.innerHTML = `<span class="tm-tools-resize" data-tools-resize aria-label="${esc(t("tools.resize"))}" title="${esc(t("tools.resize"))}"></span><div class="tm-tools-head"><span class="tm-tools-grip" data-tools-drag>${esc(t("tools.title"))}</span><button type="button" class="tm-icon-button" data-tools-max aria-label="${esc(t("tools.maximize"))}" title="${esc(t("tools.maximize"))}">⤢</button><button type="button" class="tm-icon-button" data-tools-min aria-label="${esc(t("tools.minimize"))}" title="${esc(t("tools.minimize"))}">—</button><button type="button" class="tm-icon-button" data-tools-close aria-label="${esc(t("tools.close"))}" title="${esc(t("tools.close"))}">×</button></div>
+  panel.innerHTML = `<span class="tm-tools-resize" data-tools-resize aria-label="${esc(t("tools.resize"))}" title="${esc(t("tools.resize"))}"></span><span class="tm-tools-resize-corner" data-tools-resize-corner aria-label="${esc(t("tools.resize"))}" title="${esc(t("tools.resize"))}"></span><div class="tm-tools-head"><span class="tm-tools-grip" data-tools-drag>${esc(t("tools.title"))}</span><button type="button" class="tm-icon-button" data-tools-max aria-label="${esc(t("tools.maximize"))}" title="${esc(t("tools.maximize"))}">⤢</button><button type="button" class="tm-icon-button" data-tools-min aria-label="${esc(t("tools.minimize"))}" title="${esc(t("tools.minimize"))}">—</button><button type="button" class="tm-icon-button" data-tools-close aria-label="${esc(t("tools.close"))}" title="${esc(t("tools.close"))}">×</button></div>
 <div class="tm-tools-tabs"><button type="button" class="tm-button" data-tab="calc">${esc(t("tools.tabCalc"))}</button><button type="button" class="tm-button" data-tab="bytes">${esc(t("tools.tabBytes"))}</button><button type="button" class="tm-button" data-tab="graph">${esc(t("tools.tabGraph"))}</button></div>
 <div class="tm-tools-body" data-pane="calc">
   <div class="tm-tools-row"><input class="tm-tools-input" data-calc-expr spellcheck="false" placeholder="sin(pi/4) + 0xff &amp; 0b1010 | 3 &lt;&lt; 2"><select class="tm-drafts-select" data-calc-base><option value="dec">DEC</option><option value="hex">HEX</option><option value="oct">OCT</option><option value="bin">BIN</option></select><button type="button" class="tm-button" data-calc-angle>RAD</button></div>
@@ -193,6 +197,26 @@ export function openToolsPanel(): void {
   // pass #109 (He, live note "tool pane resizing?"): left-edge grip resizes the panel;
   // the AGE canvas re-measures on the window resize event we dispatch into the iframe.
   const rz = panel.querySelector<HTMLElement>("[data-tools-resize]")!;
+  // pass #110 (He: "we need vertical"): the top-left corner resizes BOTH axes — the panel
+  // is bottom-anchored, so dragging up grows it upward; bodies flex-fill (see CSS).
+  const rzCorner = panel.querySelector<HTMLElement>("[data-tools-resize-corner]")!;
+  rzCorner.onpointerdown = e => {
+    if (panel!.classList.contains("maximized")) return;
+    e.preventDefault();
+    const startX = e.clientX, startY = e.clientY;
+    const r = panel!.getBoundingClientRect();
+    const startW = r.width, startH = r.height;
+    rzCorner.setPointerCapture(e.pointerId);
+    const frame = panel!.querySelector<HTMLIFrameElement>("[data-graph-frame]");
+    const move = (ev: PointerEvent): void => {
+      panel!.style.width = `${Math.min(window.innerWidth - 40, Math.max(560, startW + (startX - ev.clientX)))}px`;
+      panel!.style.height = `${Math.min(window.innerHeight - 88, Math.max(340, startH + (startY - ev.clientY)))}px`;
+      panel!.setAttribute("data-user-height", "");
+      try { frame?.contentWindow?.dispatchEvent(new Event("resize")); } catch { /* cross-origin guard */ }
+    };
+    rzCorner.onpointermove = move;
+    rzCorner.onpointerup = () => { rzCorner.onpointermove = null; rzCorner.onpointerup = null; };
+  };
   rz.onpointerdown = e => {
     if (panel!.classList.contains("maximized")) return;
     const startX = e.clientX, startW = panel!.getBoundingClientRect().width;

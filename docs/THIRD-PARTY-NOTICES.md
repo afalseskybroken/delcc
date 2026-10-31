@@ -8,10 +8,18 @@ open-source libraries, credited here with their licenses.
 - **[Another Graph Editor](https://github.com/anAcc22/another_graph_editor)**
   (MIT) — the graph tab. Vendored as a built artifact under `public/age/`
   from upstream commit `c11b36ad704b71831a70ccea43af5f52ff9a62f5` (2026-05-27),
-  with two build-time adjustments: the Vite `base` is `./` (so it loads from
-  delcc's own origin) and the PWA service-worker registration is disabled
-  (the SW file is not shipped; Tauri's custom protocol is not a SW host).
-  The same app the official client's graph tool embeds — the offline
+  **with a source patch we maintain** — [`patches/age-c11b36ad.patch`](../patches/age-c11b36ad.patch)
+  remaps both AGE themes (tailwindcss-themer values, per-key: the neutral
+  surfaces only) to delcc's own tokens from `src/lib/scheme.ts`, so the
+  embedded editor's chrome matches delcc in light and dark by construction —
+  He's pass-#110 ruling: we hold the source, so we change the palette there
+  instead of shimming at runtime. The vendoring recipe: clone upstream,
+  `git checkout c11b36ad`, apply the patch, set the Vite `base` to `./`,
+  `npm install && npm run build`, copy `dist/` → `public/age/`, delete the
+  generated `sw.js`/`manifest.webmanifest`, and neuter the generated
+  service-worker registration in the built JS (`if("serviceWorker"...)` →
+  `if(false)`) — the SW file is not shipped; Tauri's custom protocol is not a
+  SW host. The same app the official client's graph tool embeds — the offline
   contract holds: everything runs inside the panel, nothing is fetched.
 - The official client's graph tool loads this same editor by name
   ("Đang mở Another Graph Editor…"); its sketch tab loads Excalidraw
