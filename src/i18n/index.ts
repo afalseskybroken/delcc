@@ -128,6 +128,7 @@ export interface Dict {
   "tools.tabCalc": string;
   "tools.tabBytes": string;
   "tools.tabGraph": string;
+  "tools.tabSketch": string;
   "tools.graphEdges": string;
   "tools.graphDirected": string;
   "tools.graphStart": string;

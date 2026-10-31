@@ -21,6 +21,11 @@ open-source libraries, credited here with their licenses.
   `if(false)`) — the SW file is not shipped; Tauri's custom protocol is not a
   SW host. The same app the official client's graph tool embeds — the offline
   contract holds: everything runs inside the panel, nothing is fetched.
+- **[Excalidraw](https://github.com/excalidraw/excalidraw)** (MIT, 0.18.1) — the
+  sketch tab (Vẽ nháp), the same library the official client’s sketch tool loads.
+  Rendered as a React component inside the tools panel (lazy chunk), fonts served
+  from the bundle — no CDN. The scene persists locally in delcc-sketch-scene
+  (localStorage, elements only, debounced).
 - The official client's graph tool loads this same editor by name
   ("Đang mở Another Graph Editor…"); its sketch tab loads Excalidraw
   (also MIT) — delcc's sketch tab is planned on that same basis.
