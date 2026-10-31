@@ -147,7 +147,11 @@ const fmtNum = (v: number, base: string): string => {
   return String(rounded);
 };
 
+// pass #111: the scoped AGE stylesheet (utilities + theme vars, preflight contained)
+import "../vendor/age/age.css";
+
 // ---------- the panel ----------
+let pushAge: (() => void) | null = null; // pass #111: the AGE bridge push, set when the panes wire
 export function openToolsPanel(): void {
   // pass #109 (He, live note "make the theme"): AGE reads darkMode from localStorage at its
   // own mount — same origin, so we set it from delcc's current scheme before the iframe loads.
@@ -156,7 +160,7 @@ export function openToolsPanel(): void {
   // values mapped to delcc’s tokens), correct by construction; this key only drives the
   // canvas colors.
   try { localStorage.setItem("darkMode", String(document.documentElement.classList.contains("dark"))); } catch { /* no storage — AGE keeps its default */ }
-  if (panel) { panel.classList.remove("minimized"); (panel as HTMLElement).style.display = ""; return; }
+  if (panel) { panel.classList.remove("minimized"); (panel as HTMLElement).style.display = ""; if (active === "graph") pushAge?.(); return; }
   panel = document.createElement("div");
   panel.className = "tm-tools-panel";
   panel.innerHTML = `<span class="tm-tools-resize" data-tools-resize aria-label="${esc(t("tools.resize"))}" title="${esc(t("tools.resize"))}"></span><span class="tm-tools-resize-corner" data-tools-resize-corner aria-label="${esc(t("tools.resize"))}" title="${esc(t("tools.resize"))}"></span><div class="tm-tools-head"><span class="tm-tools-grip" data-tools-drag>${esc(t("tools.title"))}</span><button type="button" class="tm-icon-button" data-tools-max aria-label="${esc(t("tools.maximize"))}" title="${esc(t("tools.maximize"))}">⤢</button><button type="button" class="tm-icon-button" data-tools-min aria-label="${esc(t("tools.minimize"))}" title="${esc(t("tools.minimize"))}">—</button><button type="button" class="tm-icon-button" data-tools-close aria-label="${esc(t("tools.close"))}" title="${esc(t("tools.close"))}">×</button></div>
@@ -175,8 +179,9 @@ export function openToolsPanel(): void {
   <div class="tm-tools-result" data-bytes-detail>${esc(t("tools.clickByte"))}</div>
 </div>
 <div class="tm-tools-body" data-pane="graph" hidden>
-  <p class="tm-muted">${esc(t("tools.graphEmbed"))}</p>
-  <iframe class="tm-tools-age" data-graph-frame src="age/index.html" title="Another Graph Editor" loading="lazy"></iframe>
+  <div class="tm-tools-cols"><div class="tm-tools-col narrow"><b>${esc(t("tools.graphEdges"))}</b><textarea class="tm-tools-area mono" data-graph-edges spellcheck="false" placeholder="1 2 4&#10;2 3 2&#10;3 1 5">1 2 4
+2 3 2
+3 1 5</textarea><label class="tm-tools-inline"><input type="checkbox" data-graph-directed> ${esc(t("tools.graphDirected"))}</label><div class="tm-tools-checks"><label class="tm-tools-inline"><input type="checkbox" data-graph-tree> ${esc(t("tools.treeLayout"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-lock> ${esc(t("tools.lockPositions"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-neigh> ${esc(t("tools.dragNeighbours"))}</label></div><button type="button" class="tm-button primary" data-graph-draw>${esc(t("tools.graphDraw"))}</button><div class="tm-tools-result" data-graph-stats></div></div><div class="tm-tools-col"><div class="tm-age-host" data-graph-host></div></div></div>
 </div></div>`;
   document.body.appendChild(panel);
   // drag by the header — disabled while maximized (the panel is viewport-pinned then)
@@ -245,11 +250,13 @@ export function openToolsPanel(): void {
     active = b.dataset.tab as Tab;
     panel!.querySelectorAll<HTMLElement>(".tm-tools-tabs [data-tab]").forEach(x => x.classList.toggle("active", x === b));
     panel!.querySelectorAll<HTMLElement>(".tm-tools-body").forEach(p => { p.hidden = p.dataset.pane !== active; });
+    if (active === "graph") pushAge?.(); // mount/update on first show
   });
   panel!.querySelector<HTMLElement>(`.tm-tools-tabs [data-tab="${active}"]`)!.classList.add("active");
   panel!.querySelectorAll<HTMLElement>(".tm-tools-body").forEach(p => { p.hidden = p.dataset.pane !== active; });
   wireCalc(panel!);
   wireBytes(panel!);
+  pushAge = wireGraph(panel!);
 }
 
 // ---------- calculator wiring ----------
@@ -389,9 +396,48 @@ function wireBytes(root: HTMLElement): void {
   });
 }
 
-// ---------- graph tab: the pane is an offline embed of Another Graph Editor (MIT,
-// pinned c11b36ad704b71831a70ccea43af5f52ff9a62f5, vendored under public/age/ with the
-// PWA service-worker registration disabled) — see docs/THIRD-PARTY-NOTICES.md. It manages
-// its own canvas, layouts (force/tree/bipartite/grid), lock mode, multi-edges, directed
-// arrows, weights, and [[u,v],..] input — the #106-#108 hand-rolled/cytoscape wrappers
-// were retired by He's pointer to the actual source Official ripped from.
+// ---------- graph wiring (pass #111): Official-style integration — OUR compact column
+// drives the vendored AGE React canvas (GraphCanvas + engine, MIT, c11b36ad, delcc
+// palette + font-path patches, scoped stylesheet). React mounts lazily on first show.
+function wireGraph(root: HTMLElement): () => void {
+  const edges = root.querySelector<HTMLTextAreaElement>("[data-graph-edges]")!;
+  const stats = root.querySelector<HTMLElement>("[data-graph-stats]")!;
+  const ageData = (): import("../vendor/age").AgeData => ({
+    edgesText: edges.value,
+    directed: root.querySelector<HTMLInputElement>("[data-graph-directed]")?.checked ?? false,
+    tree: root.querySelector<HTMLInputElement>("[data-graph-tree]")?.checked ?? false,
+    lock: root.querySelector<HTMLInputElement>("[data-graph-lock]")?.checked ?? false,
+    physics: root.querySelector<HTMLInputElement>("[data-graph-neigh]")?.checked ?? false,
+    dark: document.documentElement.classList.contains("dark"),
+  });
+  const updateStats = (): void => {
+    let maxId = 0, m = 0;
+    for (const line of edges.value.split(/\n+/)) {
+      const parts = line.trim().split(/\s+/).filter(Boolean);
+      if (!parts.length) continue;
+      const u = parseInt(parts[0] ?? "", 10), v = parseInt(parts[1] ?? "", 10);
+      if (!Number.isFinite(u) || !Number.isFinite(v)) continue;
+      m++;
+      maxId = Math.max(maxId, u, v);
+    }
+    stats.textContent = t("tools.graphStats", { n: String(maxId), m: String(m) });
+  };
+  let mounted = false;
+  const push = (): void => {
+    void import("../vendor/age").then((age) => {
+      if (!mounted) {
+        age.mountAge(root.querySelector<HTMLElement>("[data-graph-host]")!, ageData());
+        mounted = true;
+      } else {
+        age.updateAge(ageData());
+      }
+    });
+  };
+  root.querySelector<HTMLButtonElement>("[data-graph-draw]")!.onclick = () => { updateStats(); push(); };
+  edges.onchange = () => { updateStats(); push(); };
+  for (const box of ["[data-graph-directed]", "[data-graph-tree]", "[data-graph-lock]", "[data-graph-neigh]"]) {
+    root.querySelector<HTMLInputElement>(box)!.onchange = push;
+  }
+  updateStats();
+  return push; // the tab switch and the reopen path call this on first show
+}
