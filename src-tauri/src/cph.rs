@@ -722,11 +722,16 @@ fn confirm_rc_is_yes(rc: i32) -> bool {
     rc == 6 // windows_sys IDYES; 1=IDOK, 2=IDCANCEL, 7=IDNO all refuse
 }
 
+// pass #102 (wave-3 P2): the button set is stated ONCE, as raw values usable on every
+// platform, so the pairing test can pin the rc mapping to the actual dialog — N1b's
+// root cause was precisely a flag/mapping mismatch (OK/Cancel buttons paired with an
+// IDYES check). Values: MB_YESNO=0x4, MB_ICONQUESTION=0x20, MB_SETFOREGROUND=0x10000,
+// MB_TOPMOST=0x40000 (windows_sys constants).
+const OVERRIDE_DIALOG_FLAGS: u32 = 0x4 | 0x20 | 0x10000 | 0x40000;
+
 #[cfg(all(windows, not(test)))]
 fn confirm_override(lang_key: &str, bin: &str) -> bool {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        MessageBoxW, MB_ICONQUESTION, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO,
-    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::MessageBoxW;
     let text: Vec<u16> = format!(
         "Allow \u{201c}{bin}\u{201d} to be used as the {lang_key} toolchain?\r\n\r\nOnly confirm a path you chose yourself in delcc Settings. Refuse anything else."
     )
@@ -741,7 +746,7 @@ fn confirm_override(lang_key: &str, bin: &str) -> bool {
             std::ptr::null_mut(),
             text.as_ptr(),
             title.as_ptr(),
-            MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST,
+            OVERRIDE_DIALOG_FLAGS,
         ))
     }
 }
@@ -1363,6 +1368,28 @@ mod tests {
         assert!(!confirm_rc_is_yes(2)); // IDCANCEL
         assert!(!confirm_rc_is_yes(7)); // IDNO
         assert!(!confirm_rc_is_yes(0));
+    }
+
+    #[test]
+    fn override_dialog_flags_are_a_yesno_box() {
+        // pass #102 (wave-3 P2): pin the dialog's button set to the rc mapping. N1b's
+        // root cause was exactly this pairing drifting apart — OK/Cancel buttons
+        // (IDOK=1) checked against IDYES=6. The MessageBox button-set field is the low
+        // nibble: 0x0=OK, 0x1=OKCANCEL, 0x3=YESNOCANCEL, 0x4=YESNO. The whole field
+        // must be exactly MB_YESNO — no other button set may ride along.
+        assert_eq!(OVERRIDE_DIALOG_FLAGS & 0xF, 0x4, "the button-set field must be exactly MB_YESNO so IDYES (6) is the accept code");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn override_dialog_flags_match_windows_sys_constants() {
+        // The raw-value const must stay identical to the real windows_sys constants —
+        // this runs on every Windows machine (dev box AND the windows-latest CI job).
+        use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONQUESTION, MB_OKCANCEL, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO};
+        assert_eq!(OVERRIDE_DIALOG_FLAGS, MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST);
+        assert_eq!(OVERRIDE_DIALOG_FLAGS & MB_OKCANCEL, 0);
+        assert_eq!(MB_YESNO, 0x4);
+        assert_eq!(windows_sys::Win32::UI::WindowsAndMessaging::IDYES, 6);
     }
 
     #[test]
