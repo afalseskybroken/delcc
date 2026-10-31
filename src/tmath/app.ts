@@ -6,7 +6,7 @@ import { googleLogin, GoogleAbort } from "../lib/google";
 import { openExternal, fetchAsset } from "../lib/transport";
 import DOMPurify from "dompurify";
 import { getLocale, t, type DictKey } from "../i18n";
-import { applyPreferences, hour12Opt, loadPreferences, savePreferences, read, write, type Preferences } from "./preferences";
+import { applyPreferences, hour12Opt, loadPreferences, savePreferences, read, write, applyIdentity, type Preferences } from "./preferences";
 import { button, date, empty, errorBox, errorText, esc, list, loading, text, textBr } from "./ui";
 import { mdInline as mdInlineRender } from "./md";
 import { cachedAvatar, hydrateAvatars } from "./avatars";
@@ -267,6 +267,7 @@ export class TmathApp {
     document.getElementById("sig")!.hidden = true;
     document.getElementById("updateBanner")!.hidden = true;
     applyPreferences(this.prefs);
+    void applyIdentity(); // pass #106: the customized window title/icon ride every launch
     this.media.addEventListener("change", this.themeChange);
     window.addEventListener("hashchange", this.hashChange);
     // pass #78: idempotent — main.ts boot already ran these before bootTmath; kept here

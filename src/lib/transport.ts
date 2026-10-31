@@ -173,6 +173,48 @@ export async function cphStop(): Promise<boolean> {
   try { return (await inv("cph_stop", {})) as unknown as boolean; } catch { return false; }
 }
 
+// pass #106: step-by-step (Shift+Run). Snapshot fields are snake_case on purpose — same
+// convention as the other cph output structs (solve.ts reads them directly).
+export interface DebugLocal { name: string; kind: string; value: string }
+export interface DebugSnapshot {
+  line: number | null;
+  function: string | null;
+  locals: DebugLocal[];
+  locals_truncated: boolean;
+  output: string;
+  output_truncated: boolean;
+  exited: boolean;
+  exit_code: number | null;
+}
+
+export async function debugStart(langKey: string, binary: string, source: string, stdinText: string, std?: string): Promise<DebugSnapshot> {
+  const inv = await invoke();
+  if (!inv) throw new Error("Step-by-step needs the desktop shell — no local process access in a plain browser.");
+  return (await inv("debug_start", {
+    req: { langKey, binary, source, stdinText, std: std || null },
+  })) as unknown as DebugSnapshot;
+}
+
+export async function debugStep(kind: "over" | "into" | "out" | "continue"): Promise<DebugSnapshot> {
+  const inv = await invoke();
+  if (!inv) throw new Error("Step-by-step needs the desktop shell — no local process access in a plain browser.");
+  return (await inv("debug_step", { kind })) as unknown as DebugSnapshot;
+}
+
+export async function debugStop(): Promise<boolean> {
+  const inv = await invoke();
+  if (!inv) return false;
+  try { return (await inv("debug_stop", {})) as unknown as boolean; } catch { return false; }
+}
+
+// pass #106: window identity (custom title + taskbar/window icon), applied live and on
+// launch. reset_icon restores the bundle icon. Plain-browser dev: nothing to retitle.
+export async function applyIdentity(title: string | null, icon: { width: number; height: number; rgba: string } | null, resetIcon = false): Promise<void> {
+  const inv = await invoke();
+  if (!inv) return;
+  await inv("identity_apply", { title, icon, resetIcon });
+}
+
 // pass #10: installed font families for the Statement font picker ("System font"
 // option + Refresh font). Registry harvest lives in src-tauri/src/fonts.rs; a
 // plain-browser dev returns [] and the curated list stays, honest-client style.

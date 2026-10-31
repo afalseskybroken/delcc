@@ -23,6 +23,7 @@ export function createEditor(host: HTMLElement, value: string, language: string,
   let listener: monaco.IDisposable | undefined;
   let observer: MutationObserver | undefined;
   let disposed = false;
+  let debugDecor: string[] = []; // pass #106: the debugger's current-line decoration ids
   try {
     editor = monaco.editor.create(host, {
     model, automaticLayout: true, theme: document.documentElement.classList.contains("dark") ? "vs-dark" : "vs",
@@ -56,6 +57,16 @@ export function createEditor(host: HTMLElement, value: string, language: string,
       if (disposed) return;
       disposed = true; observer?.disconnect(); listener?.dispose();
       try { editor?.dispose(); } finally { if (!model.isDisposed()) model.dispose(); }
+    },
+    // pass #106: the debugger's current-line highlight. No-op without Monaco (the fallback
+    // textarea path): the panel itself carries the line number, so nothing is lost.
+    debugLine: (line: number | null) => {
+      if (disposed || !editor) return;
+      const max = model.getLineCount();
+      debugDecor = editor.deltaDecorations(debugDecor, line !== null && line >= 1 && line <= max ? [{
+        range: new monaco.Range(line, 1, line, 1),
+        options: { isWholeLine: true, className: "tm-debug-line" },
+      }] : []);
     },
   };
 }

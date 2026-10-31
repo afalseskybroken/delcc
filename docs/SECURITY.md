@@ -103,6 +103,37 @@ stored session (secure-store blob and localStorage keys).
   `%APPDATA%\vn.delcc.app\secure\*.bin` (see above)
 - CPH build dirs: per-run temp dirs (`delcc-cph-*`), removed on every path;
   cache dir removed on app exit via `cleanup()`
+- window identity (pass #106): the custom title and icon data URL live in
+  `delcc-window-title` / `delcc-window-icon` in localStorage; the icon never
+  leaves the device (canvas → RGBA → the window manager, no network)
+
+## Local process surface (as of 0.3.8-alpha)
+
+Everything that executes a program stays behind the pass-#78 binary allowlist
+(`validate_binary`): detector candidates ∪ live-detected toolchains ∪
+Settings-registered overrides, per language. Pass #106 adds one new face on
+that same posture — the **step-by-step debugger** (`debug_start`/`debug_step`/
+`debug_stop`, Shift+Run):
+
+- it compiles your draft with the SAME allowlisted compiler, only with
+  `-g -O0`, into a per-session temp dir that dies with the session;
+- the debugger binary (gdb) is chosen Rust-side — the compiler's sibling
+  directory, then PATH — and gated at gdb ≥ 8 (7.6.1 probed broken on file
+  redirection); the webview cannot nominate a debugger path;
+- gdb executes only the binary delcc just compiled (same blast radius as a
+  normal run); the whole gdb+inferior tree runs under a KILL_ON_JOB_CLOSE Job
+  Object and `taskkill /T /F` on stop;
+- a debug session holds the single Job slot, so no second compile/run can
+  start under it; session stdin/stdout are files in the session temp dir;
+- the version-tap and window-identity features open only the GitHub Releases
+  page through `open_url` (github.com was already on the allowlist).
+
+CSP note discovered by the boot-gate pass (#106): DOMPurify's DOMParser
+fallback parses hostile HTML via `innerHTML` on an inert implementation
+document, which Chromium reports as `script-src-attr` violations — the CSP
+BLOCKS those never-executed attributes (parse-only; sanitization completes
+and the execute-vectors stay dead). The statement browser test tolerates
+exactly that fingerprint and fails on anything else.
 
 ## Reporting
 

@@ -1,7 +1,13 @@
 /* src/tmath/tools.css — pass #104: the offline tools panel (floating, draggable,
    tabbed). Everything here is local-only styling; the panel itself performs no
    network operations whatsoever. */
-.tm-tools-panel { position: fixed; right: 48px; bottom: 64px; z-index: 90; width: min(920px, calc(100vw - 48px)); border: 1px solid var(--tmath-border); border-radius: 12px; background: var(--tmath-card); color: var(--tmath-foreground); box-shadow: 0 18px 48px rgb(0 0 0 / 45%); overflow: hidden; }
+.tm-tools-panel { position: fixed; right: 48px; bottom: 64px; z-index: 90; width: min(920px, calc(100vw - 48px)); max-height: calc(100vh - 88px); display: flex; flex-direction: column; border: 1px solid var(--tmath-border); border-radius: 12px; background: var(--tmath-card); color: var(--tmath-foreground); box-shadow: 0 18px 48px rgb(0 0 0 / 45%); overflow: hidden; }
+/* pass #106 fix (He, live bug report via the editor: "the tool have its title overflowed ...
+   turn the tool off is impossible"): the display:flex below OVERRODE the [hidden] UA rule,
+   so every tab rendered at once and the panel grew past the viewport — the head (drag +
+   close) became unreachable. Explicit [hidden] rule restores real tabs, and the panel
+   itself now caps its height with the head pinned (the active body scrolls inside). */
+.tm-tools-panel > .tm-tools-head, .tm-tools-panel > .tm-tools-tabs { flex-shrink: 0; }
 .tm-tools-panel.minimized .tm-tools-body, .tm-tools-panel.minimized .tm-tools-tabs { display: none; }
 .tm-tools-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--tmath-border); background: color-mix(in srgb, var(--tmath-muted) 55%, transparent); user-select: none; }
 .tm-tools-grip { flex: 1; cursor: move; font-size: 13px; font-weight: 600; }
@@ -9,6 +15,7 @@
 .tm-tools-tabs { display: flex; gap: 8px; padding: 8px 10px 0; }
 .tm-tools-tabs .tm-button.active { background: var(--tmath-primary); color: var(--tmath-primary-foreground); }
 .tm-tools-body { display: flex; flex-direction: column; gap: 10px; padding: 12px; max-height: min(640px, calc(100vh - 220px)); overflow: auto; }
+.tm-tools-body[hidden] { display: none; }
 .tm-tools-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .tm-tools-row.wrap { row-gap: 6px; }
 .tm-tools-input { flex: 1; min-width: 220px; padding: 6px 10px; border: 1px solid var(--tmath-border); border-radius: 8px; background: var(--tmath-background, var(--tmath-card)); color: inherit; font: 13px var(--tmath-font-mono, monospace); }
