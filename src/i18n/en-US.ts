@@ -85,6 +85,7 @@ export const enUS: Dict = {
   "problem.description": "Problem description",
   "app.home": "Home",
   "app.settings": "Settings",
+  "app.releasesTap": "Open the Releases page (new binaries ship here)",
   "app.github": "GitHub repository",
   "app.independent": "Independent TMATH client",
   "app.clientVersion": "Client version",
