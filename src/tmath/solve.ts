@@ -1,6 +1,7 @@
 import { api, type ProblemDetail, type ContestProblemDetail } from "../lib/api";
 import * as auth from "../lib/auth";
 import * as cph from "../lib/cph";
+import { LANG_DISPLAY } from "../lib/langmap";
 import DOMPurify from "dompurify";
 import { t } from "../i18n";
 import type { Preferences } from "./preferences";
@@ -85,21 +86,69 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   // during those callbacks must save the outgoing draft, never a half-switched model.
   const source = () => switchingSource ?? editor?.getValue() ?? fallback?.value ?? "";
   const draftKey = (key: string) => `${storagePrefix}${encodeURIComponent(key)}`;
-  const loadDraft = (key: string) => drafts.get(key) ?? unsavedDrafts.get(draftKey(key)) ?? read(draftKey(key));
+  // pass #103 (He's outdo): multi-drafts with NO cap — Official 1.1.0 ships one main
+  // plus up to four named extras; delcc does not cap. Draft-centric like Official:
+  // each draft holds its own source + language, and the language switch re-keys the
+  // OPEN draft (the source is yours). The store is validated on load (untrusted local
+  // data); the legacy per-language draft migrates into the main draft once and the
+  // old keys keep being mirrored best-effort for downgrade safety.
+  type Draft = { id: string; name: string; language: string; source: string };
+  const draftsStoreKey = `delcc-tmath-drafts:${encodeURIComponent(args.username)}:${encodeURIComponent(args.contestKey ?? "public")}:${encodeURIComponent(args.code)}`;
+  let draftsStore: { active: string; drafts: Draft[] } | null = null;
+  const sanitizeDraft = (d: unknown): Draft | null => {
+    if (!d || typeof d !== "object") return null;
+    const o = d as Record<string, unknown>;
+    if (typeof o.id !== "string" || !o.id || o.id.length > 64) return null;
+    if (typeof o.name !== "string" || !o.name.trim() || o.name.length > 60) return null;
+    if (typeof o.language !== "string" || o.language.length > 16) return null;
+    if (typeof o.source !== "string" || o.source.length > 262_144) return null;
+    return { id: o.id, name: o.name.trim(), language: o.language, source: o.source };
+  };
+  const loadDraftsStore = (): { existed: boolean } => {
+    let raw = "";
+    try { raw = read(draftsStoreKey, ""); } catch { raw = ""; }
+    let parsed: { active?: unknown; drafts?: unknown } | null = null;
+    try { const v: unknown = JSON.parse(raw); if (v && typeof v === "object") parsed = v as { active?: unknown; drafts?: unknown }; } catch { parsed = null; }
+    const seen = new Set<string>();
+    const list = (Array.isArray(parsed?.drafts) ? parsed!.drafts : []).map(sanitizeDraft).filter((d): d is Draft => { if (!d || seen.has(d.id)) return false; seen.add(d.id); return true; });
+    if (list.length) {
+      const active = typeof parsed?.active === "string" && seen.has(parsed.active) ? parsed.active : list[0]!.id;
+      draftsStore = { active, drafts: list };
+      return { existed: true };
+    }
+    // migration: the legacy per-language draft becomes the main draft; old keys stay
+    const legacyLang = read(langKey) || "CPP20";
+    const legacy = read(draftKey(legacyLang));
+    draftsStore = { active: "main", drafts: [{ id: "main", name: t("drafts.main"), language: legacyLang, source: typeof legacy === "string" ? legacy.slice(0, 262_144) : "" }] };
+    return { existed: false };
+  };
+  const activeDraft = (): Draft => draftsStore!.drafts.find(d => d.id === draftsStore!.active) ?? draftsStore!.drafts[0]!;
+  const paintDrafts = (): void => {
+    const sel = $<HTMLSelectElement>("[data-drafts-select]");
+    if (!sel || !draftsStore) return;
+    sel.innerHTML = draftsStore.drafts.map(d => `<option value="${esc(d.id)}"${d.id === draftsStore!.active ? " selected" : ""}>${esc(d.name)}</option>`).join("");
+    const count = $("[data-drafts-count]"); if (count) count.textContent = t("drafts.count", { n: String(draftsStore.drafts.length) });
+    const busy = submitting || running;
+    const sa = $<HTMLButtonElement>('[data-action="draft-save-as"]'); if (sa) sa.disabled = busy;
+    const rn = $<HTMLButtonElement>('[data-action="draft-rename"]'); if (rn) rn.disabled = busy;
+    const del = $<HTMLButtonElement>('[data-action="draft-delete"]'); if (del) del.disabled = busy || draftsStore.drafts.length < 2;
+  };
+  const persistDraftsStore = (): boolean => {
+    if (!draftsStore) return false;
+    let ok = false;
+    try { write(draftsStoreKey, JSON.stringify(draftsStore)); ok = true; } catch { ok = false; }
+    keepUnsaved(draftsStoreKey, ok ? null : JSON.stringify(draftsStore));
+    return ok;
+  };
   const saved = () => {
     if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; }
-    if (!language || !fallback) return;
+    if (!language || !fallback || !draftsStore) return;
     const value = source(); drafts.set(language,value);
-    try {
-      localStorage.setItem(draftKey(language),value); localStorage.setItem(langKey,language);
-      keepUnsaved(draftKey(language),null);
-      dirty = false;
-      if (!disposed) { const status = $("[data-draft]"); if (status) { status.textContent = t("problem.draftSaved"); status.className = "tm-muted"; } const sb = $('[data-action="save-now"]'); if (sb) sb.textContent = t("problem.saveNow"); }
-    } catch {
-      keepUnsaved(draftKey(language),value);
-      dirty = true;
-      if (!disposed) { const status = $("[data-draft]"); if (status) { status.textContent = t("problem.unsaved"); status.className = "tm-error"; } const sb = $('[data-action="save-now"]'); if (sb) sb.textContent = t("problem.retrySave"); }
-    }
+    const d = activeDraft(); d.source = value; d.language = language;
+    const ok = persistDraftsStore();
+    try { localStorage.setItem(draftKey(language),value); localStorage.setItem(langKey,language); } catch { /* the legacy mirror is best-effort */ }
+    dirty = false;
+    if (!disposed) { const status = $("[data-draft]"); if (status) { status.textContent = ok ? t("problem.draftSaved") : t("problem.unsaved"); status.className = ok ? "tm-muted" : "tm-error"; } const sb = $('[data-action="save-now"]'); if (sb) sb.textContent = ok ? t("problem.saveNow") : t("problem.retrySave"); }
   };
   const changed = () => {
     if (disposed || switchingLanguage) return;
@@ -115,6 +164,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     if (disposed || !fallback) return;
     const canSubmit = !("can_submit" in problem) || problem.can_submit !== false;
     $("[data-submit]").toggleAttribute("disabled", submitting || !language || !canSubmit || ("statement_hidden" in problem && !!problem.statement_hidden));
+    paintDrafts(); // pass #103: the drafts bar follows the busy states
     // pass #58: the language pill can't take the disabled attribute — a lock class drives
     // the styling and switchLanguage() re-checks the same conditions
     const langMenu = $("[data-language-menu]");
@@ -492,14 +542,27 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       problem = args.contestKey ? await api.contestProblem(token(),args.contestKey,args.code,true) : await api.problem(token(),args.code,true);
       if (disposed) return;
       const allowed = Array.isArray(problem.allowed_languages) ? problem.allowed_languages.filter((l): l is string=>typeof l === "string" && !!l) : [];
-      const storedLang = read(langKey); language = allowed.includes(storedLang) ? storedLang : allowed[0] ?? "";
-      // pass #92 (He's outdo): with no per-problem choice, default to the USER's own
-      // submission language — remembered from the last accepted submit here, else the
-      // latest public-practice submission the judge holds for this account (fetched
-      // async; a switch already made by the user always wins).
+      const { existed } = loadDraftsStore();
+      const ad0 = activeDraft();
+      // the draft carries its own language — a pre-existing store wins over the legacy
+      // langKey ("no language stored in the draft" is what unlocks the defaults below)
+      const storedLang = existed && allowed.includes(ad0.language) ? ad0.language : read(langKey);
+      language = allowed.includes(storedLang) ? storedLang : allowed[0] ?? "";
+      // pass #103 (Official parity, He's Settings screenshot): the Settings-level
+      // DEFAULT language applies when this problem has no language stored in the draft
+      // and the problem allows it — the explicit user choice outranks the automatic
+      // follow below.
+      const defaultLang = read("delcc-tmath-default-lang");
+      const defaultApplied = !storedLang && allowed.includes(defaultLang);
+      if (defaultApplied) language = defaultLang;
+      // pass #92 (He's outdo): with no per-problem choice AND no Settings default,
+      // default to the USER's own submission language — remembered from the last
+      // accepted submit here, else the latest public-practice submission the judge
+      // holds for this account (fetched async; a switch already made by the user
+      // always wins).
       const lastLocal = read("delcc-tmath-last-lang");
-      if (!storedLang && allowed.includes(lastLocal) && language !== lastLocal) language = lastLocal;
-      if (!storedLang && !allowed.includes(lastLocal) && language && args.username) {
+      if (!storedLang && !defaultApplied && allowed.includes(lastLocal) && language !== lastLocal) language = lastLocal;
+      if (!storedLang && !defaultApplied && !allowed.includes(lastLocal) && language && args.username) {
         const initial = language;
         void api.submissions(auth.accessToken()!, { page: 1, page_size: 1, scope: "public_practice", user: args.username }).then(rows => {
           const latest = Array.isArray(rows) ? String(rows[0]?.language ?? "") : "";
@@ -533,8 +596,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       const fileMethodHint = ioMethod?.method === "file" ? `<p class="tm-muted">${text("cph.fileUnsupported")}</p>` : "";
       const fileName = (key: string): string => { const k = (key || "").toUpperCase(); return /^PY|^PYPY/.test(k) ? "main.py" : /^JAVA/.test(k) ? "Main.java" : /^(PAS|FPC)/.test(k) ? "main.pas" : "main.cpp"; };
       // official c_ display-name map (carve langName): menu shows "C++17", value stays the key.
-      const LANG_NAMES: Record<string, string> = { C: "C", C11: "C11", CPP03: "C++03", CPP11: "C++11", CPP14: "C++14", CPP17: "C++17", CPP20: "C++20", JAVA8: "Java 8", MONOCS: "C#", PAS: "Pascal", PY2: "Python 2", PY3: "Python 3", PYPY3: "PyPy 3", TEXT: "Text" };
-      const langLabel = (l: string) => LANG_NAMES[l] ?? l;
+      const langLabel = (l: string) => LANG_DISPLAY[l] ?? l;
       // pass #58 — Official's custom language pill (He's screenshot): a dropdown beside
       // the filename listing ONLY the problem's allowed languages, check on the active
       // one. The old native <select> forced every known language into the DOM.
@@ -544,8 +606,8 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       const titleBlock = args.contestKey
         ? `<div class="tm-problem-heading"><h2>${esc(problem.name ?? args.code)}</h2><span class="tm-muted">${esc(args.code)}</span></div>`
         : `<div class="tm-page-title"><div><div class="tm-eyebrow">${text("problem.solveEyebrow")}</div><h1>${esc(problem.name ?? args.code)}</h1><p class="tm-muted">${esc(args.code.toUpperCase())} · ${esc(typeof problem.points === "number" ? String(problem.points) : "—")} ${text("problem.pointsSuffix")}</p></div><div class="tm-page-title-actions"><button type="button" class="tm-button" data-action="problems-list">${text("problems.backToList")}</button><button type="button" class="tm-button" data-action="my-subs">${text("problems.mySubs")}</button></div></div>`;
-      host.innerHTML = `<section class="tm-solve-view">${titleBlock}<div class="tm-solve" data-split><section class="tm-pane"><header class="tm-pane-header"><span>${text("problem.statement")}</span><details class="tm-menu"><summary aria-label="${text("problem.options")}">${text("problem.options")}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><div class="tm-menu-body"><button class="tm-button ghost" type="button" data-math aria-pressed="${!rawMath}">${text(rawMath ? "problem.mathRaw" : "problem.mathRendered")}</button>${button("problem.copy","copy-statement")}${button("problem.saveStatement","save-statement")}${button("subs.title","submissions")}</div></details></header><div class="tm-pane-body"><dl class="tm-problem-limits" aria-label="${text("problem.limitsIo")}"><div class="tm-limit-cell"><dt>${text("problem.timeLimit")}</dt><dd>${limitCell(problem.time_limit, text("problem.seconds"))}</dd></div><div class="tm-limit-cell"><dt>${text("problem.memoryLimit")}</dt><dd>${limitCell(problem.memory_limit, "KB")}</dd></div><div class="tm-limit-cell"><dt>${text("problem.ioInput")}</dt><dd>${ioCell("input")}</dd></div><div class="tm-limit-cell"><dt>${text("problem.ioOutput")}</dt><dd>${ioCell("output")}</dd></div></dl><div class="tm-statement" data-statement></div></div></section><div class="tm-splitter" data-splitter role="separator" tabindex="0" aria-label="${text("problem.resize")}" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-controls="tm-solve-editor"></div><section class="tm-pane" id="tm-solve-editor"><header class="tm-pane-header tm-editor-header"><div class="tm-editor-title"><span class="tm-editor-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg></span><span class="tm-editor-filename" data-filename>${esc(fileName(language))}</span>${langMenu}</div><div class="tm-editor-actions"><button type="button" class="tm-icon-button" data-action="editor-undo" aria-label="${text("problem.undo")}" title="${text("problem.undo")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-redo" aria-label="${text("problem.redo")}" title="${text("problem.redo")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-find" aria-label="${text("problem.findReplace")}" title="${text("problem.findReplace")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-save" aria-label="${text("problem.saveSource")}" title="${text("problem.saveSource")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg></button></div></header><div class="tm-editor-container"><div class="tm-editor" data-monaco aria-label="${text("problem.source")}" hidden></div><textarea class="tm-source-fallback" data-source aria-label="${text("problem.source")}" spellcheck="false"></textarea></div><div class="tm-mono-grip" data-mono-grip role="separator" aria-orientation="horizontal" tabindex="0" aria-label="${text("problem.resize")}" aria-valuemin="140" aria-valuemax="900"></div><div data-editor-message></div><div class="tm-mode-strip"><span class="tm-tag tm-mode-label">${modeLabel}</span><span data-draft class="tm-muted" role="status" aria-live="polite"></span><button type="button" class="tm-button ghost" data-action="save-now">${text("problem.saveNow")}</button></div><section class="tm-io-first"><div class="tm-io-head"><div class="tm-case-tabs tm-io-tabs" role="tablist" aria-label="${text("cph.stdinLabel")}"><button type="button" role="tab" aria-selected="true" data-io-tab="input">Input</button><button type="button" role="tab" aria-selected="false" data-io-tab="output">Output</button></div><button type="button" class="tm-button" data-action="toggle-cph-options" aria-expanded="false" aria-controls="tm-cph-options">${text("problem.options")}</button></div>${fileMethodHint}<div data-io-pane="input"><textarea data-manual-stdin spellcheck="false" maxlength="65536" aria-label="${text("cph.stdinLabel")}" placeholder="${text("cph.stdinPlaceholder")}"></textarea></div><div data-io-pane="output" hidden><pre data-manual-stdout class="tm-output-box" role="log" tabindex="0">${text("cph.notRun")}</pre></div><div class="tm-io-strip"><button type="button" class="tm-button" data-action="compile"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg> <span data-compile-label>${text("cph.compile")}</span></button><button type="button" class="tm-button primary" data-run="stdin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runStdin")}</button><button type="button" class="tm-button" data-action="stop" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/></svg> ${text("cph.stop")}</button><button type="button" class="tm-button primary" data-submit>${text("problem.submit")}</button></div><p class="tm-muted" data-run-hint role="status" hidden></p><p class="tm-muted" data-solve-status role="status" aria-live="polite" hidden></p><p class="tm-muted" data-submissions-left role="status" hidden></p></section><details class="tm-runner" id="tm-cph-options"><summary><b>${text("cph.title")}</b></summary><div class="tm-toolbar"><button type="button" class="tm-button" data-run="case"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runCase")}</button><button type="button" class="tm-button primary" data-run="all"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runAll")}</button></div><div class="tm-toolbar"><button type="button" class="tm-button" data-import-samples>${text("cph.importSamples")}</button><button type="button" class="tm-button" data-add-case>${text("problem.addTest")}</button><button type="button" class="tm-button" data-remove-case>${text("problem.removeTest")}</button><button type="button" class="tm-button" data-action="export-cases">${text("cph.exportCases")}</button><button type="button" class="tm-button" data-action="import-cases">${text("cph.importCases")}</button><input type="file" accept=".json,application/json" hidden data-pool-file aria-hidden="true" tabindex="-1"></div><div data-cases></div><details class="tm-compile"><summary>${text("cph.compileLog")}</summary><pre data-compile></pre></details></details></section></div></section>`;
-      fallback = $<HTMLTextAreaElement>("[data-source]"); fallback.value = loadDraft(language); fallback.oninput = changed;
+      host.innerHTML = `<section class="tm-solve-view">${titleBlock}<div class="tm-solve" data-split><section class="tm-pane"><header class="tm-pane-header"><span>${text("problem.statement")}</span><details class="tm-menu"><summary aria-label="${text("problem.options")}">${text("problem.options")}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><div class="tm-menu-body"><button class="tm-button ghost" type="button" data-math aria-pressed="${!rawMath}">${text(rawMath ? "problem.mathRaw" : "problem.mathRendered")}</button>${button("problem.copy","copy-statement")}${button("problem.saveStatement","save-statement")}${button("subs.title","submissions")}</div></details></header><div class="tm-pane-body"><dl class="tm-problem-limits" aria-label="${text("problem.limitsIo")}"><div class="tm-limit-cell"><dt>${text("problem.timeLimit")}</dt><dd>${limitCell(problem.time_limit, text("problem.seconds"))}</dd></div><div class="tm-limit-cell"><dt>${text("problem.memoryLimit")}</dt><dd>${limitCell(problem.memory_limit, "KB")}</dd></div><div class="tm-limit-cell"><dt>${text("problem.ioInput")}</dt><dd>${ioCell("input")}</dd></div><div class="tm-limit-cell"><dt>${text("problem.ioOutput")}</dt><dd>${ioCell("output")}</dd></div></dl><div class="tm-statement" data-statement></div></div></section><div class="tm-splitter" data-splitter role="separator" tabindex="0" aria-label="${text("problem.resize")}" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-controls="tm-solve-editor"></div><section class="tm-pane" id="tm-solve-editor"><header class="tm-pane-header tm-editor-header"><div class="tm-editor-title"><span class="tm-editor-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg></span><span class="tm-editor-filename" data-filename>${esc(fileName(language))}</span>${langMenu}</div><div class="tm-editor-actions"><button type="button" class="tm-icon-button" data-action="editor-undo" aria-label="${text("problem.undo")}" title="${text("problem.undo")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-redo" aria-label="${text("problem.redo")}" title="${text("problem.redo")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-find" aria-label="${text("problem.findReplace")}" title="${text("problem.findReplace")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg></button><button type="button" class="tm-icon-button" data-action="editor-save" aria-label="${text("problem.saveSource")}" title="${text("problem.saveSource")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg></button></div></header><div class="tm-editor-container"><div class="tm-editor" data-monaco aria-label="${text("problem.source")}" hidden></div><textarea class="tm-source-fallback" data-source aria-label="${text("problem.source")}" spellcheck="false"></textarea></div><div class="tm-mono-grip" data-mono-grip role="separator" aria-orientation="horizontal" tabindex="0" aria-label="${text("problem.resize")}" aria-valuemin="140" aria-valuemax="900"></div><div data-editor-message></div><div class="tm-mode-strip"><span class="tm-tag tm-mode-label">${modeLabel}</span><select class="tm-drafts-select" data-drafts-select aria-label="${text("drafts.title")}"></select><span class="tm-muted" data-drafts-count></span><button type="button" class="tm-button ghost" data-action="draft-save-as">${text("drafts.saveAs")}</button><button type="button" class="tm-button ghost" data-action="draft-rename">${text("drafts.rename")}</button><button type="button" class="tm-button ghost" data-action="draft-delete">${text("drafts.delete")}</button><span data-draft class="tm-muted" role="status" aria-live="polite"></span><button type="button" class="tm-button ghost" data-action="save-now">${text("problem.saveNow")}</button></div><section class="tm-io-first"><div class="tm-io-head"><div class="tm-case-tabs tm-io-tabs" role="tablist" aria-label="${text("cph.stdinLabel")}"><button type="button" role="tab" aria-selected="true" data-io-tab="input">Input</button><button type="button" role="tab" aria-selected="false" data-io-tab="output">Output</button></div><button type="button" class="tm-button" data-action="toggle-cph-options" aria-expanded="false" aria-controls="tm-cph-options">${text("problem.options")}</button></div>${fileMethodHint}<div data-io-pane="input"><textarea data-manual-stdin spellcheck="false" maxlength="65536" aria-label="${text("cph.stdinLabel")}" placeholder="${text("cph.stdinPlaceholder")}"></textarea></div><div data-io-pane="output" hidden><pre data-manual-stdout class="tm-output-box" role="log" tabindex="0">${text("cph.notRun")}</pre></div><div class="tm-io-strip"><button type="button" class="tm-button" data-action="compile"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg> <span data-compile-label>${text("cph.compile")}</span></button><button type="button" class="tm-button primary" data-run="stdin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runStdin")}</button><button type="button" class="tm-button" data-action="stop" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/></svg> ${text("cph.stop")}</button><button type="button" class="tm-button primary" data-submit>${text("problem.submit")}</button></div><p class="tm-muted" data-run-hint role="status" hidden></p><p class="tm-muted" data-solve-status role="status" aria-live="polite" hidden></p><p class="tm-muted" data-submissions-left role="status" hidden></p></section><details class="tm-runner" id="tm-cph-options"><summary><b>${text("cph.title")}</b></summary><div class="tm-toolbar"><button type="button" class="tm-button" data-run="case"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runCase")}</button><button type="button" class="tm-button primary" data-run="all"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg> ${text("cph.runAll")}</button></div><div class="tm-toolbar"><button type="button" class="tm-button" data-import-samples>${text("cph.importSamples")}</button><button type="button" class="tm-button" data-add-case>${text("problem.addTest")}</button><button type="button" class="tm-button" data-remove-case>${text("problem.removeTest")}</button><button type="button" class="tm-button" data-action="export-cases">${text("cph.exportCases")}</button><button type="button" class="tm-button" data-action="import-cases">${text("cph.importCases")}</button><input type="file" accept=".json,application/json" hidden data-pool-file aria-hidden="true" tabindex="-1"></div><div data-cases></div><details class="tm-compile"><summary>${text("cph.compileLog")}</summary><pre data-compile></pre></details></details></section></div></section>`;
+      fallback = $<HTMLTextAreaElement>("[data-source]"); fallback.value = activeDraft().source; fallback.oninput = changed;
       // pass #58: the initial submit-denied / no-languages message lives on the status line
       note(!allowed.length ? text("problem.noLanguages") : !canSubmit ? text("problem.submitDenied") : "", !allowed.length || !canSubmit ? "error" : "muted");
       const render = () => { statement?.dispose(); statement = renderStatement($("[data-statement]"), statementSource, {rawMath}); };
@@ -595,12 +657,15 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       const switchLanguage = (next: string): void => {
         if (disposed || switchingLanguage || submitting || !next || next === language) return;
         if (!allowed.includes(next)) return;
-        const previousLanguage = language, previousSource = source(), value = loadDraft(next);
+        // pass #103: draft-centric — the SOURCE STAYS (it is the open draft's one
+        // document); the language switch re-keys the draft, matching the official
+        // 1.1.0 draft model (each draft holds one source + one languageKey).
+        const previousLanguage = language, previousSource = source();
         saved(); switchingSource = previousSource; switchingLanguage = true;
         try {
-          editor?.setLanguage(next,value);
+          editor?.setLanguage(next,previousSource);
           if (disposed) return;
-          language = next; fallback!.value = value;
+          language = next; fallback!.value = previousSource;
         } catch {
           if (disposed) return;
           editor?.dispose(); editor = null;
@@ -622,6 +687,85 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       host.querySelectorAll<HTMLDetailsElement>("[data-language-menu]").forEach(menu => {
         menu.addEventListener("toggle", () => { if (menu.open) paintLangMenu(); });
       });
+      // pass #103: the multi-draft bar — selector + count + save-as / rename / delete.
+      // Switching waits for the outgoing draft's save (official rule), loads the target
+      // into the editor, and the busy states disable the whole bar via controls().
+      const loadDraftIntoEditor = (target: Draft): void => {
+        const next = allowed.includes(target.language) ? target.language : allowed[0] ?? "";
+        const previousSource = source();
+        switchingSource = previousSource; switchingLanguage = true;
+        try {
+          editor?.setLanguage(next, target.source);
+          if (disposed) return;
+          language = next; fallback!.value = target.source;
+        } catch {
+          if (disposed) return;
+          editor?.dispose(); editor = null;
+          fallback!.value = target.source; fallback!.hidden = false;
+          $("[data-monaco]").hidden = true;
+          $("[data-editor-message]").innerHTML = `<p class="tm-muted">${text("problem.editorFallback")}</p>${button("problem.retryEditor","retry-editor")}`;
+          $<HTMLButtonElement>('[data-action="retry-editor"]').onclick = () => void mountEditor();
+        } finally { switchingLanguage = false; switchingSource = null; }
+        if (disposed) return;
+        revision++; saved(); controls(); paintLangMenu();
+      };
+      const switchDraft = (id: string): void => {
+        if (disposed || switchingLanguage || submitting || !draftsStore) return;
+        if (id === draftsStore.active) return;
+        const target = draftsStore.drafts.find(d => d.id === id);
+        if (!target) return;
+        saved(); // official rule: the outgoing draft's save lands BEFORE the switch
+        draftsStore.active = id; persistDraftsStore();
+        loadDraftIntoEditor(target);
+        paintDrafts();
+      };
+      const saveAsDraft = (): void => {
+        if (disposed || !draftsStore) return;
+        saved();
+        const d: Draft = { id: `d${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, name: t("drafts.new", { n: String(draftsStore.drafts.length) }), language, source: source() };
+        draftsStore.drafts.push(d); draftsStore.active = d.id; persistDraftsStore();
+        paintDrafts();
+      };
+      const draftDialog = (body: string): HTMLDialogElement => {
+        const dlg = document.createElement("dialog");
+        dlg.className = "tm-confirm";
+        dlg.innerHTML = body;
+        host.appendChild(dlg);
+        dlg.addEventListener("close", () => dlg.remove());
+        dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });
+        dlg.querySelector<HTMLButtonElement>('[data-d-back]')!.onclick = () => dlg.close();
+        return dlg;
+      };
+      const renameDraftDialog = (): void => {
+        if (disposed || !draftsStore) return;
+        const d = activeDraft();
+        const dlg = draftDialog(`<h2>${text("drafts.rename")}</h2><div class="tm-field"><label for="tm-draft-name">${text("drafts.nameLabel")}</label><input id="tm-draft-name" maxlength="60" value="${esc(d.name)}"></div><div class="tm-confirm-actions"><button type="button" class="tm-button" data-d-back>${text("common.back")}</button><button type="button" class="tm-button primary" data-d-ok>${text("common.save")}</button></div>`);
+        dlg.querySelector<HTMLButtonElement>('[data-d-ok]')!.onclick = () => {
+          const v = dlg.querySelector<HTMLInputElement>("#tm-draft-name")!.value.trim().slice(0, 60);
+          if (v) { d.name = v; persistDraftsStore(); paintDrafts(); }
+          dlg.close();
+        };
+        dlg.showModal();
+      };
+      const deleteDraftDialog = (): void => {
+        if (disposed || !draftsStore || draftsStore.drafts.length < 2) return;
+        const d = activeDraft();
+        const dlg = draftDialog(`<h2>${text("drafts.delete")}</h2><p>${t("drafts.deleteConfirm", { name: d.name })}</p><div class="tm-confirm-actions"><button type="button" class="tm-button" data-d-back>${text("common.back")}</button><button type="button" class="tm-button destructive" data-d-ok>${text("drafts.delete")}</button></div>`);
+        dlg.querySelector<HTMLButtonElement>('[data-d-ok]')!.onclick = () => {
+          draftsStore!.drafts = draftsStore!.drafts.filter(x => x.id !== d.id);
+          draftsStore!.active = draftsStore!.drafts[0]!.id;
+          persistDraftsStore();
+          loadDraftIntoEditor(activeDraft());
+          paintDrafts();
+          dlg.close();
+        };
+        dlg.showModal();
+      };
+      $<HTMLSelectElement>("[data-drafts-select]").onchange = e => switchDraft((e.currentTarget as HTMLSelectElement).value);
+      $<HTMLButtonElement>('[data-action="draft-save-as"]').onclick = saveAsDraft;
+      $<HTMLButtonElement>('[data-action="draft-rename"]').onclick = renameDraftDialog;
+      $<HTMLButtonElement>('[data-action="draft-delete"]').onclick = deleteDraftDialog;
+      paintDrafts();
       // Persisted local data is untrusted. Cap work and normalize IDs before rendering.
       const ids = new Set<string>();
       cases = cph.loadCases(args.code).filter(c => c && typeof c.input === "string" && c.input.length <= MAX_CASE_TEXT && (c.expected == null || (typeof c.expected === "string" && c.expected.length <= MAX_CASE_TEXT))).slice(0,MAX_CASES).map(c => {

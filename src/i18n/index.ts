@@ -108,6 +108,15 @@ export interface Dict {
   "problem.saveLocal": string;
   "problem.saveFailed": string;
   "problem.saveNow": string;
+  "drafts.title": string;
+  "drafts.main": string;
+  "drafts.new": string;
+  "drafts.saveAs": string;
+  "drafts.rename": string;
+  "drafts.delete": string;
+  "drafts.deleteConfirm": string;
+  "drafts.nameLabel": string;
+  "drafts.count": string;
   "problem.retrySave": string;
   "problem.languageDisallowed": string;
   "problem.unsaved": string;
@@ -366,7 +375,10 @@ export interface Dict {
   "settings.detectTools": string;
   "settings.tcOverride": string;
   "settings.tcAuto": string;
-  "settings.tcAutoMode": string;
+  "settings.tcNoneDetected": string;
+  "settings.defaultLang": string;
+  "settings.defaultLangNone": string;
+  "settings.defaultLangHint": string;
   "settings.tcManual": string;
   "settings.tcAutoDetected": string;
   "settings.timeFormat": string;

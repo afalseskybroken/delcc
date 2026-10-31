@@ -903,10 +903,13 @@ export class TmathApp {
       default: return text("contests.scoreNone");
     }
   }
-  private idxLetters(n: number): string {
-    let out = "";
-    for (let x = n + 1; x > 0; x = Math.floor((x - 1) / 26)) out = String.fromCharCode(65 + (x - 1) % 26) + out;
-    return out;
+  // pass #103 (He: "They changed it to be number-based (not letter-based)"): Official
+  // 1.1.0 renders number-based problem labels — the server `label` verbatim when the
+  // API ships one, else the 1-based position ("Bài 1", "Bài 2", …). This INVERTS the
+  // #76 rule (numeric labels used to fall back to letters); idxLetters is retired.
+  private probLabel(p: any, i: number): string {
+    const raw = p?.label == null ? "" : String(p.label).trim();
+    return raw !== "" ? raw : `${text("contests.tabWord")} ${i + 1}`;
   }
   private async workspace(host: HTMLElement, params: URLSearchParams, alive: () => boolean): Promise<void> {
     const key = params.get("contest") ?? this.contest?.key;
@@ -942,7 +945,7 @@ export class TmathApp {
     const tab = (p: any, i: number) => {
       const active = params.get("code") === p.code ? " active" : "";
       const score = this.scoreClass(p.score_status);
-      return `<button type="button" class="tm-contest-tab${active}${score ? " " + score : ""}" data-code="${esc(p.code)}">${text("contests.tabWord")} ${this.idxLetters(typeof p.display_index === "number" ? p.display_index : i)}<span class="sr-only">${this.scoreText(p.score_status)}</span></button>`;
+      return `<button type="button" class="tm-contest-tab${active}${score ? " " + score : ""}" data-code="${esc(p.code)}">${this.probLabel(p, i)}<span class="sr-only">${this.scoreText(p.score_status)}</span></button>`;
     };
     host.innerHTML = `<div class="tm-workspace"><div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("contests.workspaceEyebrow")}</div><h1>${esc(contest?.name ?? key)}</h1><p class="tm-contest-meta">${esc(modeTxt)}${dlText ? ` · ${text("contests.deadlineAt")}: ${esc(dlText)}` : ""}</p></div><div class="tm-contest-side"><aside class="tm-contest-clock" aria-label="${text("contests.clockLabel")}"><div class="tm-clock-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span data-clock-label>${text("contests.timeUnknown")}</span></div><div class="tm-clock-value" role="timer" aria-label="${text("contests.ariaTimeLeft")}" data-clock>--:--:--</div></aside><button type="button" class="tm-button destructive" data-action="leave">${text("contests.leave")}</button></div></div><div class="tm-contest-strip"><div class="tm-contest-scroll"><nav class="tm-contest-tabs" aria-label="${text("contests.problemsListAria")}">${rows.map(tab).join("")}</nav></div><button type="button" class="tm-icon-button" data-action="refresh-problems" aria-label="${text("contests.refreshList")}" title="${text("contests.refreshList")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button></div>${workspace?.next_problem_requirement != null ? `<p class="tm-ac-banner" role="status">${t("contests.acBanner", { n: workspace.accepted_problem_count ?? 0, r: workspace.next_problem_requirement })}</p>` : ""}<div id="tm-workspace-message" role="status"></div><div id="tm-solve-host"></div></div>`;
     // Live countdown per the carve: ceil(deadline - now), padded HH:MM:SS, destructive tint at <=300s.
@@ -1238,11 +1241,10 @@ export class TmathApp {
       ...pastJoined.map(c => `<option value="contest:${esc(c.key)}"${scopeRaw === `contest:${c.key}` ? " selected" : ""}>${esc(c.name)}</option>`),
     ].join("");
     // problem sub-select per scope: contest scopes list that contest's problems with the
-    // official "Bài <letter>" naming; Public uses the completed problems index; a scope
+    // official "Bài <number>" naming (pass #103); Public uses the completed problems index; a scope
     // whose problem list isn't ready (public, pre-index) falls back to the smart text box
-    const tabWord = text("contests.tabWord");
     const problemField = scopeRaw === "global" ? ""
-      : isContestScope && contestProblems.length ? `<div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><select id="tm-subs-problem" name="problem"><option value="">${text("subs.allProblems")}</option>${contestProblems.map(p => { const label = `${tabWord} ${this.idxLetters(p.display_index ?? contestProblems.findIndex(x => x.code === p.code))}`; return `<option value="${esc(p.code)}"${p.code === scopeProblem ? " selected" : ""}>${esc(label)}${p.name ? ` — ${esc(p.name)}` : ""}</option>`; }).join("")}</select></div>`
+      : isContestScope && contestProblems.length ? `<div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><select id="tm-subs-problem" name="problem"><option value="">${text("subs.allProblems")}</option>${contestProblems.map((p, i) => { const label = this.probLabel(p, i); return `<option value="${esc(p.code)}"${p.code === scopeProblem ? " selected" : ""}>${esc(label)}${p.name ? ` — ${esc(p.name)}` : ""}</option>`; }).join("")}</select></div>`
       : scopeRaw === "public" && this.problemsIndex?.complete ? `<div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><select id="tm-subs-problem" name="problem"><option value="">${text("subs.allProblems")}</option>${this.problemsIndex.items.map(p => `<option value="${esc(String(p.code))}"${String(p.code).toUpperCase() === problemQ.toUpperCase() ? " selected" : ""}>${esc(String(p.code).toUpperCase())} — ${esc(String(p.name))}</option>`).join("")}</select></div>`
       : `<div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><input id="tm-subs-problem" name="problem" placeholder="${text("subs.problemPlaceholder")}" value="${esc(problem)}"></div>`;
     const userField = isContestScope ? "" : `<div class="tm-field"><label for="tm-subs-user">${text("subs.user")}</label><input id="tm-subs-user" name="user" placeholder="${text("subs.user")}" value="${esc(user)}"></div>`;
@@ -1604,12 +1606,9 @@ export class TmathApp {
       }
       return m;
     });
-    // pass #99: one label mapping shared by the header and the drill-through tooltips
-    // (pass #76 rule: numeric labels fall back to the "Bài + letter" mapping)
-    const probLabel = (p: any, i: number): string => {
-      const raw = p?.label == null ? "" : String(p.label);
-      return raw && !/^\d+$/.test(raw) ? raw : `${tabWord} ${this.idxLetters(typeof p?.display_index === "number" ? p.display_index : i)}`;
-    };
+    // pass #99/#103: one label mapping shared by the header and the drill-through
+    // tooltips — now the class helper (number-based per He's 1.1.0 directive)
+    const probLabel = (p: any, i: number): string => this.probLabel(p, i);
     const cellHtml = (c: any, i: number, you: boolean, username: string): string => {
       if (!c || !c.has_data) return `<td class="score-empty">—</td>`;
       const tone = this.scoreClass(typeof c.status === "string" ? c.status : "");
@@ -1641,7 +1640,6 @@ export class TmathApp {
       const right = `<tr class="tm-lb-row${self}">${problems.map((_, k) => cellHtml(cells[k], k, you, username)).join("")}</tr>`;
       return { left, right };
     };
-    const tabWord = text("contests.tabWord");
     // pass #77/#80: the [You] ghost — a strip BELOW the split (never a sticky footer
     // inside it: that floats over the last visible rows — He's clipping), shown only
     // while the real row is out of view (IntersectionObserver on the real row; rebuilt
