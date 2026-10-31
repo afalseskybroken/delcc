@@ -1,22 +1,28 @@
 # Third-party notices
 
-delcc adapts the same graph-rendering stack the official TMath client's GraphTool
-ships on (carved 1.1.0: `cytoscape.esm` + cose-bilkent + dagre chunks). All three
-libraries are MIT-licensed; their bundles are compiled into delcc's own frontend
-(no CDN, the tools panel stays genuinely offline). This file carries the credit.
+delcc ships no official TMath code or assets. It does bundle third-party
+open-source libraries, credited here with their licenses.
 
-| library | version | license | use in delcc |
-|---|---|---|---|
-| [cytoscape](https://github.com/cytoscape/cytoscape.js) | 3.34.4 | MIT | graph rendering, node/edge model, drag, pan/zoom, multigraph |
-| [cytoscape-dagre](https://github.com/cytoscape/cytoscape.js-dagre) | 2.5.0 | MIT | the automatic tree layout ("Bố trí cây") |
-| [cytoscape-cose-bilkent](https://github.com/iVis-at-Bilkent/cytoscape.js-cose-bilkent) | 4.1.0 | MIT | the physics layout (drag re-settles the graph, toggleable) |
+## The tools panel
+
+- **[Another Graph Editor](https://github.com/anAcc22/another_graph_editor)**
+  (MIT) — the graph tab. Vendored as a built artifact under `public/age/`
+  from upstream commit `c11b36ad704b71831a70ccea43af5f52ff9a62f5` (2026-05-27),
+  with two build-time adjustments: the Vite `base` is `./` (so it loads from
+  delcc's own origin) and the PWA service-worker registration is disabled
+  (the SW file is not shipped; Tauri's custom protocol is not a SW host).
+  The same app the official client's graph tool embeds — the offline
+  contract holds: everything runs inside the panel, nothing is fetched.
+- The official client's graph tool loads this same editor by name
+  ("Đang mở Another Graph Editor…"); its sketch tab loads Excalidraw
+  (also MIT) — delcc's sketch tab is planned on that same basis.
 
 Everything else in delcc's frontend is first-party. The other bundled runtime
 dependencies (DOMPurify, KaTeX, Monaco, Tauri's JS API) are used unmodified per
 their own licenses (Apache-2.0 / MIT / MIT / MIT) and are declared in
 `package.json`.
 
-MIT License (applies to each of the three libraries above):
+MIT License (applies to Another Graph Editor):
 
 > Permission is hereby granted, free of charge, to any person obtaining a copy
 > of this software and associated documentation files (the "Software"), to deal

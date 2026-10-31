@@ -149,10 +149,13 @@ const fmtNum = (v: number, base: string): string => {
 
 // ---------- the panel ----------
 export function openToolsPanel(): void {
+  // pass #109 (He, live note "make the theme"): AGE reads darkMode from localStorage at its
+  // own mount — same origin, so we set it from delcc's current scheme before the iframe loads.
+  try { localStorage.setItem("darkMode", String(document.documentElement.classList.contains("dark"))); } catch { /* no storage — AGE keeps its default */ }
   if (panel) { panel.classList.remove("minimized"); (panel as HTMLElement).style.display = ""; return; }
   panel = document.createElement("div");
   panel.className = "tm-tools-panel";
-  panel.innerHTML = `<div class="tm-tools-head"><span class="tm-tools-grip" data-tools-drag>${esc(t("tools.title"))}</span><button type="button" class="tm-icon-button" data-tools-max aria-label="${esc(t("tools.maximize"))}" title="${esc(t("tools.maximize"))}">⤢</button><button type="button" class="tm-icon-button" data-tools-min aria-label="${esc(t("tools.minimize"))}" title="${esc(t("tools.minimize"))}">—</button><button type="button" class="tm-icon-button" data-tools-close aria-label="${esc(t("tools.close"))}" title="${esc(t("tools.close"))}">×</button></div>
+  panel.innerHTML = `<span class="tm-tools-resize" data-tools-resize aria-label="${esc(t("tools.resize"))}" title="${esc(t("tools.resize"))}"></span><div class="tm-tools-head"><span class="tm-tools-grip" data-tools-drag>${esc(t("tools.title"))}</span><button type="button" class="tm-icon-button" data-tools-max aria-label="${esc(t("tools.maximize"))}" title="${esc(t("tools.maximize"))}">⤢</button><button type="button" class="tm-icon-button" data-tools-min aria-label="${esc(t("tools.minimize"))}" title="${esc(t("tools.minimize"))}">—</button><button type="button" class="tm-icon-button" data-tools-close aria-label="${esc(t("tools.close"))}" title="${esc(t("tools.close"))}">×</button></div>
 <div class="tm-tools-tabs"><button type="button" class="tm-button" data-tab="calc">${esc(t("tools.tabCalc"))}</button><button type="button" class="tm-button" data-tab="bytes">${esc(t("tools.tabBytes"))}</button><button type="button" class="tm-button" data-tab="graph">${esc(t("tools.tabGraph"))}</button></div>
 <div class="tm-tools-body" data-pane="calc">
   <div class="tm-tools-row"><input class="tm-tools-input" data-calc-expr spellcheck="false" placeholder="sin(pi/4) + 0xff &amp; 0b1010 | 3 &lt;&lt; 2"><select class="tm-drafts-select" data-calc-base><option value="dec">DEC</option><option value="hex">HEX</option><option value="oct">OCT</option><option value="bin">BIN</option></select><button type="button" class="tm-button" data-calc-angle>RAD</button></div>
@@ -168,10 +171,9 @@ export function openToolsPanel(): void {
   <div class="tm-tools-result" data-bytes-detail>${esc(t("tools.clickByte"))}</div>
 </div>
 <div class="tm-tools-body" data-pane="graph" hidden>
-  <div class="tm-tools-cols"><div class="tm-tools-col narrow"><b>${esc(t("tools.graphEdges"))}</b><textarea class="tm-tools-area mono" data-graph-edges spellcheck="false" placeholder="1 2 4&#10;2 3 2&#10;3 1 5">1 2 4
-2 3 2
-3 1 5</textarea><label class="tm-tools-inline"><input type="checkbox" data-graph-directed> ${esc(t("tools.graphDirected"))}</label><div class="tm-tools-checks"><label class="tm-tools-inline"><input type="checkbox" data-graph-tree> ${esc(t("tools.treeLayout"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-lock> ${esc(t("tools.lockPositions"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-neigh> ${esc(t("tools.dragNeighbours"))}</label></div><div class="tm-tools-row"><label class="tm-tools-inline">${esc(t("tools.graphStart"))} <input class="tm-tools-mini" data-graph-start value="1"></label><label class="tm-tools-inline">${esc(t("tools.graphEnd"))} <input class="tm-tools-mini" data-graph-end value="3"></label></div><button type="button" class="tm-button primary" data-graph-draw>${esc(t("tools.graphDraw"))}</button><div class="tm-tools-result" data-graph-stats></div></div><div class="tm-tools-col"><div class="tm-tools-graph" data-graph-canvas></div></div></div>
-</div>`;
+  <p class="tm-muted">${esc(t("tools.graphEmbed"))}</p>
+  <iframe class="tm-tools-age" data-graph-frame src="age/index.html" title="Another Graph Editor" loading="lazy"></iframe>
+</div></div>`;
   document.body.appendChild(panel);
   // drag by the header — disabled while maximized (the panel is viewport-pinned then)
   const head = panel.querySelector<HTMLElement>("[data-tools-drag]")!;
@@ -187,6 +189,21 @@ export function openToolsPanel(): void {
     };
     head.onpointermove = move;
     head.onpointerup = () => { head.onpointermove = null; head.onpointerup = null; };
+  };
+  // pass #109 (He, live note "tool pane resizing?"): left-edge grip resizes the panel;
+  // the AGE canvas re-measures on the window resize event we dispatch into the iframe.
+  const rz = panel.querySelector<HTMLElement>("[data-tools-resize]")!;
+  rz.onpointerdown = e => {
+    if (panel!.classList.contains("maximized")) return;
+    const startX = e.clientX, startW = panel!.getBoundingClientRect().width;
+    rz.setPointerCapture(e.pointerId);
+    const frame = panel!.querySelector<HTMLIFrameElement>("[data-graph-frame]");
+    const move = (ev: PointerEvent): void => {
+      panel!.style.width = `${Math.min(window.innerWidth - 40, Math.max(560, startW + (startX - ev.clientX)))}px`;
+      try { frame?.contentWindow?.dispatchEvent(new Event("resize")); } catch { /* cross-origin guard */ }
+    };
+    rz.onpointermove = move;
+    rz.onpointerup = () => { rz.onpointermove = null; rz.onpointerup = null; };
   };
   panel.querySelector<HTMLElement>("[data-tools-close]")!.onclick = () => { panel?.remove(); panel = null; };
   panel.querySelector<HTMLElement>("[data-tools-min]")!.onclick = () => panel!.classList.toggle("minimized");
@@ -209,7 +226,6 @@ export function openToolsPanel(): void {
   panel!.querySelectorAll<HTMLElement>(".tm-tools-body").forEach(p => { p.hidden = p.dataset.pane !== active; });
   wireCalc(panel!);
   wireBytes(panel!);
-  wireGraph(panel!);
 }
 
 // ---------- calculator wiring ----------
@@ -349,145 +365,9 @@ function wireBytes(root: HTMLElement): void {
   });
 }
 
-// ---------- graph wiring (pass #108: cytoscape, Official's own stack, adapted offline) ----------
-// Official's GraphTool renders on cytoscape.esm + cytoscape-dagre + cytoscape-cose-bilkent
-// (carved 1.1.0 chunks); all three are MIT, so delcc adapts the same stack — bundled from
-// npm into the app bundle, NO CDN, the panel stays genuinely offline. Credits:
-// docs/THIRD-PARTY-NOTICES.md. What this buys over the #106 hand-rolled canvas: parallel
-// edges (multigraph), the dagre layered tree, real physics on drag (cose-bilkent,
-// toggleable), pan/zoom, and honest hit-testing at any DPI.
-let cyRegistered = false;
-async function ensureCytoscape(): Promise<typeof import("cytoscape")> {
-  const Cytoscape = (await import("cytoscape")).default as typeof import("cytoscape");
-  if (!cyRegistered) {
-    Cytoscape.use((await import("cytoscape-dagre")).default);
-    Cytoscape.use((await import("cytoscape-cose-bilkent")).default);
-    cyRegistered = true;
-  }
-  return Cytoscape as unknown as typeof import("cytoscape");
-}
-
-function wireGraph(root: HTMLElement): void {
-  const edges = root.querySelector<HTMLTextAreaElement>("[data-graph-edges]")!;
-  const container = root.querySelector<HTMLElement>("[data-graph-canvas]")!;
-  const stats = root.querySelector<HTMLElement>("[data-graph-stats]")!;
-  const directedBox = root.querySelector<HTMLInputElement>("[data-graph-directed]")!;
-  const treeBox = root.querySelector<HTMLInputElement>("[data-graph-tree]")!;
-  const lockBox = root.querySelector<HTMLInputElement>("[data-graph-lock]")!;
-  const neighBox = root.querySelector<HTMLInputElement>("[data-graph-neigh]")!;
-  let cy: import("cytoscape").Core | null = null;
-  let edgeSeq = 0;
-
-  const parse = (): { list: { u: number; v: number; w: number | null }[]; maxId: number } => {
-    const list: { u: number; v: number; w: number | null }[] = [];
-    let maxId = 0;
-    for (const line of edges.value.split(/\n+/)) {
-      const parts = line.trim().split(/\s+/).filter(Boolean);
-      if (!parts.length) continue;
-      const u = parseInt(parts[0] ?? "", 10), v = parseInt(parts[1] ?? "", 10);
-      if (!Number.isFinite(u) || !Number.isFinite(v)) continue;
-      const w = parts.length > 2 && Number.isFinite(parseFloat(parts[2]!)) ? parseFloat(parts[2]!) : null;
-      list.push({ u, v, w });
-      maxId = Math.max(maxId, u, v);
-    }
-    return { list, maxId };
-  };
-
-  const theme = (): Record<string, string> => {
-    const cs = getComputedStyle(container);
-    return {
-      fg: cs.color || "#ccc",
-      bg: cs.backgroundColor || "#10141d",
-      accent: cs.getPropertyValue("--tmath-primary")?.trim() || "#4ea1ff",
-    };
-  };
-
-  const restyle = (): void => {
-    if (!cy) return;
-    const start = root.querySelector<HTMLInputElement>("[data-graph-start]")!.value.trim();
-    const end = root.querySelector<HTMLInputElement>("[data-graph-end]")!.value.trim();
-    cy.nodes().forEach(n => {
-      const id = n.id();
-      n.classes(id === start ? "tm-start" : id === end ? "tm-end" : "");
-    });
-    cy.edges().style({
-      "target-arrow-shape": directedBox.checked ? "triangle" : "none",
-    });
-    cy.style().update(); // re-evaluate the classes above
-  };
-
-  const applyLayout = (): void => {
-    if (!cy) return;
-    if (treeBox.checked) {
-      cy.layout({ name: "dagre", rankDir: "TB", nodeSep: 42, rankSep: 64, animate: false } as import("cytoscape").LayoutOptions).run();
-    } else if (neighBox.checked) {
-      // COSE physics: the settle animates, and while it is the current arrangement a
-      // drag re-settles the whole graph on release (see the dragfree hook below).
-      cy.layout({ name: "cose-bilkent", animate: true, idealEdgeLength: 90, nodeRepulsion: 8000, randomize: false } as import("cytoscape").LayoutOptions).run();
-    } else {
-      cy.layout({ name: "circle", animate: false } as import("cytoscape").LayoutOptions).run();
-    }
-    cy.fit(undefined, 30);
-  };
-
-  const applyLock = (): void => {
-    if (cy) cy.autoungrabify(lockBox.checked); // "Cố định vị trí": the graph is a picture
-  };
-
-  const rebuild = async (): Promise<void> => {
-    const { list, maxId } = parse();
-    stats.textContent = t("tools.graphStats", { n: String(maxId), m: String(list.length) });
-    if (!maxId) { cy?.destroy(); cy = null; return; }
-    const Cytoscape = await ensureCytoscape();
-    const { fg, bg, accent } = theme();
-    const start = root.querySelector<HTMLInputElement>("[data-graph-start]")!.value.trim();
-    const end = root.querySelector<HTMLInputElement>("[data-graph-end]")!.value.trim();
-    const elements: import("cytoscape").ElementDefinition[] = [];
-    for (let v = 1; v <= maxId; v++) {
-      elements.push({ data: { id: String(v), label: String(v) }, classes: String(v) === start ? "tm-start" : String(v) === end ? "tm-end" : "", grabbable: !lockBox.checked });
-    }
-    list.forEach(({ u, v, w }) => {
-      elements.push({ data: { id: `e${edgeSeq++}`, source: String(u), target: String(v), label: w == null ? "" : String(w) } });
-    });
-    const graphStyle = [
-      { selector: "node", style: {
-        "background-color": bg, "border-width": 1.8, "border-color": fg,
-        label: "data(label)", color: fg, "font-size": 12, "text-valign": "center", "text-halign": "center",
-        width: 28, height: 28,
-      } },
-      { selector: "node.tm-start", style: { "background-color": "#166534", "border-color": accent } },
-      { selector: "node.tm-end", style: { "background-color": "#f87171", "border-color": accent } },
-      { selector: "edge", style: {
-        width: 1.6, "line-color": fg, "line-opacity": 0.8, "curve-style": "bezier",
-        label: "data(label)", "font-size": 11, color: accent,
-        "text-background-color": bg, "text-background-opacity": 0.75, "text-background-padding": 2,
-        "target-arrow-color": fg, "arrow-scale": 1.1,
-      } },
-    ] as unknown as import("cytoscape").StylesheetStyle[]; // @types is stricter per-prop than the runtime CSS parser
-    // multigraph isn't in CytoscapeOptions types but is real runtime API (parallel edges curve apart)
-    const opts = { container, multigraph: true, wheelSensitivity: 0.2, elements, style: graphStyle } as unknown as import("cytoscape").CytoscapeOptions;
-    if (!cy) {
-      cy = Cytoscape(opts);
-      cy.on("dragfree", "node", () => {
-        if (neighBox.checked && !treeBox.checked) applyLayout(); // physics re-settles the others — toggleable
-      });
-    } else {
-      cy.elements().remove();
-      cy.add(elements);
-    }
-    applyLock();
-    restyle();
-    applyLayout();
-  };
-
-  root.querySelector<HTMLButtonElement>("[data-graph-draw]")!.onclick = () => void rebuild();
-  edges.onchange = () => void rebuild();
-  treeBox.onchange = applyLayout;
-  neighBox.onchange = applyLayout;
-  lockBox.onchange = applyLock;
-  directedBox.onchange = restyle;
-  for (const mini of ["[data-graph-start]", "[data-graph-end]"]) {
-    root.querySelector<HTMLInputElement>(mini)!.onchange = restyle;
-  }
-  void rebuild();
-}
+// ---------- graph tab: the pane is an offline embed of Another Graph Editor (MIT,
+// pinned c11b36ad704b71831a70ccea43af5f52ff9a62f5, vendored under public/age/ with the
+// PWA service-worker registration disabled) — see docs/THIRD-PARTY-NOTICES.md. It manages
+// its own canvas, layouts (force/tree/bipartite/grid), lock mode, multi-edges, directed
+// arrows, weights, and [[u,v],..] input — the #106-#108 hand-rolled/cytoscape wrappers
+// were retired by He's pointer to the actual source Official ripped from.
