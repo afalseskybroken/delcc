@@ -183,6 +183,7 @@ struct Inner {
 struct AllowedBinaries {
     detected: HashMap<String, HashSet<String>>, // lang_key -> binaries the detector answered with
     overrides: HashMap<String, String>,         // lang_key -> Settings-registered path
+    confirmed_fixed: HashSet<String>,           // pass #101: planted-root/extension candidates the user confirmed
 }
 
 #[derive(Default, Clone)]
@@ -223,14 +224,36 @@ impl CphState {
     }
 
     /// Boot-time load of the persisted override registry (pass #96). Entries already
-    /// registered in this session win — the load only fills gaps.
+    /// registered in this session win — the load only fills gaps. Pass #101: the file
+    /// may be the OLD flat {lang: path} map or the NEW {overrides, confirmed_fixed}
+    /// document — both load, the new format wins on save.
     pub fn load_persisted_overrides(&self) {
         let Some(dir) = lock(&self.0.persist_dir).clone() else { return; };
         let Ok(text) = fs::read_to_string(dir.join("cph-overrides.json")) else { return; };
-        let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&text) else { return; };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { return; };
         let mut allowed = lock(&self.0.allowed);
-        for (lang, path) in map {
-            allowed.overrides.entry(lang).or_insert(path);
+        let fill = |map: &serde_json::Map<String, serde_json::Value>, allowed: &mut AllowedBinaries| {
+            for (lang, path) in map {
+                if let Some(p) = path.as_str() {
+                    allowed.overrides.entry(lang.clone()).or_insert_with(|| p.to_string());
+                }
+            }
+        };
+        match v.as_object() {
+            Some(o) if o.contains_key("overrides") || o.contains_key("confirmed_fixed") => {
+                if let Some(m) = o.get("overrides").and_then(|m| m.as_object()) {
+                    fill(m, &mut allowed);
+                }
+                if let Some(list) = o.get("confirmed_fixed").and_then(|l| l.as_array()) {
+                    for p in list {
+                        if let Some(s) = p.as_str() {
+                            allowed.confirmed_fixed.insert(s.to_string());
+                        }
+                    }
+                }
+            }
+            Some(o) => fill(o, &mut allowed), // old flat format
+            None => {}                        // unrecognizable — ignore, do not poison the session
         }
     }
 
@@ -238,9 +261,10 @@ impl CphState {
     /// must never leave a half file that silently loses the user's confirmations).
     fn save_persisted_overrides(&self) {
         let Some(dir) = lock(&self.0.persist_dir).clone() else { return; };
-        let map = lock(&self.0.allowed).overrides.clone();
+        let (map, fixed) = { let a = lock(&self.0.allowed); (a.overrides.clone(), a.confirmed_fixed.clone()) };
         if fs::create_dir_all(&dir).is_err() { return; }
-        let Ok(json) = serde_json::to_string_pretty(&map) else { return; };
+        let doc = serde_json::json!({ "overrides": map, "confirmed_fixed": fixed });
+        let Ok(json) = serde_json::to_string_pretty(&doc) else { return; };
         let tmp = dir.join("cph-overrides.json.tmp");
         if fs::write(&tmp, json).is_ok() {
             let _ = fs::rename(&tmp, dir.join("cph-overrides.json"));
@@ -353,8 +377,12 @@ fn have(out: &[Toolchain], lang_key: &str) -> bool {
 // language, try the well-known fixed install locations. is_file() gates every
 // candidate, so nothing spawns unless the binary is actually there; PATH keeps
 // priority (a fixed path is only probed when the language has no answer yet).
-fn push_fixed(out: &mut Vec<Toolchain>, lang_key: &str, label: &str, candidates: Vec<std::path::PathBuf>, version_args: &[&str]) {
-    if have(out, lang_key) {
+// pass #101 (wave-3 N6): candidates from locations a standard user can CREATE —
+// C:\-root dirs and VS Code extension bundles — land in the `planted` list and are
+// never executed-or-admitted silently; cph_detect gates each one behind the same
+// native confirmation as a Settings override, persisted once to the registry.
+fn push_fixed(out: &mut Vec<Toolchain>, planted: &mut Vec<Toolchain>, plant: bool, lang_key: &str, label: &str, candidates: Vec<std::path::PathBuf>, version_args: &[&str]) {
+    if have(out, lang_key) || have(planted, lang_key) {
         return;
     }
     for c in candidates {
@@ -362,7 +390,8 @@ fn push_fixed(out: &mut Vec<Toolchain>, lang_key: &str, label: &str, candidates:
             continue;
         }
         if let Some((binary, version)) = probe_one(&[c.to_string_lossy().as_ref()], version_args) {
-            out.push(Toolchain { lang_key: lang_key.into(), label: label.into(), binary, version });
+            let tc = Toolchain { lang_key: lang_key.into(), label: label.into(), binary, version };
+            if plant { planted.push(tc); } else { out.push(tc); }
             return;
         }
     }
@@ -442,8 +471,14 @@ fn vscode_extension_toolchains(profile: &std::path::Path) -> (Vec<std::path::Pat
     (gpp, py)
 }
 
-fn detect_all() -> Vec<Toolchain> {
+// Returns (trusted, planted): trusted = PATH + admin-writable Program Files roots +
+// the running user's own profile dirs (LOCALAPPDATA/USERPROFILE — a same-account
+// attacker can already execute code, so there is nothing to gate); planted = C:\-root
+// dirs (a standard user can create those on default Windows) and VS Code extension
+// bundles — each gated by the native confirmation in cph_detect before any use.
+fn detect_all() -> (Vec<Toolchain>, Vec<Toolchain>) {
     let mut out = Vec::new();
+    let mut planted: Vec<Toolchain> = Vec::new();
     // PATH probes first — a toolchain the user put on PATH always wins.
     push(&mut out, "cpp", "C++", probe_one(&["g++", "clang++"], &["--version"]));
     push(&mut out, "python", "Python", probe_one(&["python3", "python"], &["--version"]));
@@ -458,41 +493,31 @@ fn detect_all() -> Vec<Toolchain> {
     let local = std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from);
     let profile = std::env::var_os("USERPROFILE").map(std::path::PathBuf::from);
     let pf = |p: std::path::PathBuf| -> Vec<std::path::PathBuf> { vec![p] };
-    // pass #99/#100 (carve-verified Code::Blocks + the common defaults): MinGW-family
-    // installs that never touch PATH — Code::Blocks (per-user AND all-users), the
-    // classic C:\MinGW, WinLibs, TDM-GCC, MSYS2, and Dev-C++ (common in VN classrooms).
-    push_fixed(&mut out, "cpp", "C++", {
+    // pass #99/#100: trusted fixed locations — admin-writable Program Files and the
+    // per-user profile dirs (Code::Blocks per-user, Dev-C++ all-users, rustup, Node).
+    push_fixed(&mut out, &mut planted, false, "cpp", "C++", {
         let mut v = Vec::new();
         if let Some(lad) = &local {
             v.push(lad.join(r"Programs\CodeBlocks\MinGW\bin\g++.exe"));
         }
         v.extend([
-            std::path::PathBuf::from(r"C:\MinGW\bin\g++.exe"),
-            std::path::PathBuf::from(r"C:\mingw64\bin\g++.exe"),
-            std::path::PathBuf::from(r"C:\TDM-GCC-64\bin\g++.exe"),
-            std::path::PathBuf::from(r"C:\msys64\mingw64\bin\g++.exe"),
-            std::path::PathBuf::from(r"C:\msys64\ucrt64\bin\g++.exe"),
             std::path::PathBuf::from(r"C:\Program Files\CodeBlocks\MinGW\bin\g++.exe"),
             std::path::PathBuf::from(r"C:\Program Files (x86)\Dev-Cpp\MinGW64\bin\g++.exe"),
-            std::path::PathBuf::from(r"C:\Dev-Cpp\MinGW64\bin\g++.exe"),
         ]);
         v
     }, &["--version"]);
-    // python: the per-user installer default (newest first) + the old all-users roots
+    // python: per-user installer default (newest first) + Program Files — trusted
     if let Some(lad) = &local {
-        let mut py = glob_dirs(&lad.join(r"Programs\Python"), "Python");
-        py.extend(glob_dirs(std::path::Path::new(r"C:\"), "Python3"));
-        for d in py {
-            let exe = d.join("python.exe");
-            push_fixed(&mut out, "python", "Python", pf(exe), &["--version"]);
+        for d in glob_dirs(&lad.join(r"Programs\Python"), "Python") {
+            push_fixed(&mut out, &mut planted, false, "python", "Python", pf(d.join("python.exe")), &["--version"]);
             if have(&out, "python") {
                 break;
             }
         }
-    } else {
-        for d in glob_dirs(std::path::Path::new(r"C:\"), "Python3") {
-            let exe = d.join("python.exe");
-            push_fixed(&mut out, "python", "Python", pf(exe), &["--version"]);
+    }
+    if !have(&out, "python") {
+        for d in glob_dirs(std::path::Path::new(r"C:\Program Files"), "Python") {
+            push_fixed(&mut out, &mut planted, false, "python", "Python", pf(d.join("python.exe")), &["--version"]);
             if have(&out, "python") {
                 break;
             }
@@ -500,29 +525,12 @@ fn detect_all() -> Vec<Toolchain> {
     }
     // rustup's default never touches PATH on machines where cargo was skipped
     if let Some(prof) = &profile {
-        push_fixed(&mut out, "rust", "Rust", pf(prof.join(r".cargo\bin\rustc.exe")), &["--version"]);
+        push_fixed(&mut out, &mut planted, false, "rust", "Rust", pf(prof.join(r".cargo\bin\rustc.exe")), &["--version"]);
     }
-    push_fixed(&mut out, "go", "Go", vec![
-        std::path::PathBuf::from(r"C:\Go\bin\go.exe"),
+    push_fixed(&mut out, &mut planted, false, "go", "Go", vec![
         std::path::PathBuf::from(r"C:\Program Files\Go\bin\go.exe"),
     ], &["version"]);
-    // FPC ships versioned (C:\FPC\3.2.2\bin\i386-win32); Lazarus bundles its own
-    if !have(&out, "pascal") {
-        'fpc: for root in [std::path::PathBuf::from(r"C:\FPC"), std::path::PathBuf::from(r"C:\lazarus\fpc")] {
-            for d in glob_dirs(&root, "") {
-                for arch in ["i386-win32", "x86_64-win64"] {
-                    let exe = d.join("bin").join(arch).join("fpc.exe");
-                    if exe.is_file() {
-                        push_fixed(&mut out, "pascal", "Pascal", pf(exe), &["-iV"]);
-                        if have(&out, "pascal") {
-                            break 'fpc;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    push_fixed(&mut out, "javascript", "Node.js", vec![
+    push_fixed(&mut out, &mut planted, false, "javascript", "Node.js", vec![
         std::path::PathBuf::from(r"C:\Program Files\nodejs\node.exe"),
     ], &["--version"]);
     // java: the JDK vendors' default roots (newest first); both javac and java must
@@ -550,30 +558,90 @@ fn detect_all() -> Vec<Toolchain> {
             }
         }
     }
-    // VS Code extension-bundled toolchains (bounded scan) — last resort for cpp/python
-    if let Some(prof) = &profile {
-        let (gpp, py) = vscode_extension_toolchains(prof);
-        for p in gpp {
-            push_fixed(&mut out, "cpp", "C++", pf(p), &["--version"]);
-            if have(&out, "cpp") {
-                break;
-            }
-        }
-        for p in py {
-            push_fixed(&mut out, "python", "Python", pf(p), &["--version"]);
-            if have(&out, "python") {
+    // pass #101 (wave-3 N6): PLANTED-root candidates — standard users can create C:\
+    // dirs on default Windows, so a cross-user plant lands here and must be confirmed
+    // before delcc ever executes it. Same toolchains as #100, relocated by trust.
+    push_fixed(&mut out, &mut planted, true, "cpp", "C++", vec![
+        std::path::PathBuf::from(r"C:\MinGW\bin\g++.exe"),
+        std::path::PathBuf::from(r"C:\mingw64\bin\g++.exe"),
+        std::path::PathBuf::from(r"C:\TDM-GCC-64\bin\g++.exe"),
+        std::path::PathBuf::from(r"C:\msys64\mingw64\bin\g++.exe"),
+        std::path::PathBuf::from(r"C:\msys64\ucrt64\bin\g++.exe"),
+        std::path::PathBuf::from(r"C:\Dev-Cpp\MinGW64\bin\g++.exe"),
+    ], &["--version"]);
+    if !have(&out, "python") && !have(&planted, "python") {
+        for d in glob_dirs(std::path::Path::new(r"C:\"), "Python3") {
+            push_fixed(&mut out, &mut planted, true, "python", "Python", pf(d.join("python.exe")), &["--version"]);
+            if have(&out, "python") || have(&planted, "python") {
                 break;
             }
         }
     }
-    out
+    push_fixed(&mut out, &mut planted, true, "go", "Go", vec![
+        std::path::PathBuf::from(r"C:\Go\bin\go.exe"),
+    ], &["version"]);
+    // FPC ships versioned (C:\FPC\3.2.2\bin\...); Lazarus bundles its own at C:\lazarus
+    if !have(&out, "pascal") && !have(&planted, "pascal") {
+        'fpc: for root in [std::path::PathBuf::from(r"C:\FPC"), std::path::PathBuf::from(r"C:\lazarus\fpc")] {
+            for d in glob_dirs(&root, "") {
+                for arch in ["i386-win32", "x86_64-win64"] {
+                    let exe = d.join("bin").join(arch).join("fpc.exe");
+                    if exe.is_file() {
+                        push_fixed(&mut out, &mut planted, true, "pascal", "Pascal", pf(exe), &["-iV"]);
+                        if have(&out, "pascal") || have(&planted, "pascal") {
+                            break 'fpc;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // VS Code extension-bundled toolchains (bounded scan) — planted: an extension dir
+    // is same-account writable, and conservatively we confirm before executing
+    if let Some(prof) = &profile {
+        let (gpp, py) = vscode_extension_toolchains(prof);
+        for p in gpp {
+            push_fixed(&mut out, &mut planted, true, "cpp", "C++", pf(p), &["--version"]);
+            if have(&out, "cpp") || have(&planted, "cpp") {
+                break;
+            }
+        }
+        for p in py {
+            push_fixed(&mut out, &mut planted, true, "python", "Python", pf(p), &["--version"]);
+            if have(&out, "python") || have(&planted, "python") {
+                break;
+            }
+        }
+    }
+    (out, planted)
 }
 
 // Async + spawn_blocking: a plain `fn` command runs on the main thread in Tauri 2 and the
 // probes (java -version in particular) would freeze the window while they run.
 #[tauri::command]
 pub async fn cph_detect(state: tauri::State<'_, CphState>) -> Result<Vec<Toolchain>, String> {
-    let found = tauri::async_runtime::spawn_blocking(detect_all).await.unwrap_or_default();
+    let (mut found, planted) = tauri::async_runtime::spawn_blocking(detect_all).await.unwrap_or_default();
+    // pass #101 (wave-3 N6): planted candidates (C:\-root dirs, VS Code extension
+    // bundles) are NEVER executed-or-admitted silently — each one is gated behind the
+    // same native confirmation as a Settings override, and an acceptance persists to
+    // the registry so it is asked exactly once per path. Refusal just drops the hit.
+    for tc in planted {
+        let already = { lock(&state.0.allowed).confirmed_fixed.contains(&tc.binary) };
+        let accept = already || {
+            let ok = confirm_override(&tc.lang_key, &tc.binary);
+            if ok {
+                let mut allowed = lock(&state.0.allowed);
+                if allowed.confirmed_fixed.insert(tc.binary.clone()) {
+                    drop(allowed);
+                    state.save_persisted_overrides();
+                }
+            }
+            ok
+        };
+        if accept {
+            found.push(tc);
+        }
+    }
     {
         let mut allowed = lock(&state.0.allowed);
         allowed.detected = found.iter().fold(HashMap::new(), |mut m, t| {
@@ -645,10 +713,19 @@ fn validate_binary(inner: &Inner, lang_key: &str, binary: &str) -> Result<(), St
 // OUTSIDE the page — a native dialog the user must accept. Registration persists across
 // sessions, so the dialog fires only when an override actually changes (first set, or a
 // value the persisted registry does not already hold). Blank clears the registration.
+// pass #101 (wave-3 N1b, audit-confirmed): the dialog was MB_OKCANCEL but the result
+// was compared to IDYES — an OK/Cancel box returns IDOK/IDCANCEL, never IDYES, so the
+// confirmation could NEVER succeed and no toolchain override was ever registrable.
+// MB_YESNO matches the question being asked; the return-code mapping is a pure fn so
+// tests reach it on every platform (the dialog itself stays cfg'd out of tests).
+fn confirm_rc_is_yes(rc: i32) -> bool {
+    rc == 6 // windows_sys IDYES; 1=IDOK, 2=IDCANCEL, 7=IDNO all refuse
+}
+
 #[cfg(all(windows, not(test)))]
 fn confirm_override(lang_key: &str, bin: &str) -> bool {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        MessageBoxW, IDYES, MB_ICONQUESTION, MB_OKCANCEL, MB_SETFOREGROUND, MB_TOPMOST,
+        MessageBoxW, MB_ICONQUESTION, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO,
     };
     let text: Vec<u16> = format!(
         "Allow \u{201c}{bin}\u{201d} to be used as the {lang_key} toolchain?\r\n\r\nOnly confirm a path you chose yourself in delcc Settings. Refuse anything else."
@@ -660,12 +737,12 @@ fn confirm_override(lang_key: &str, bin: &str) -> bool {
         .encode_utf16()
         .collect();
     unsafe {
-        MessageBoxW(
+        confirm_rc_is_yes(MessageBoxW(
             std::ptr::null_mut(),
             text.as_ptr(),
             title.as_ptr(),
-            MB_OKCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST,
-        ) == IDYES
+            MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST,
+        ))
     }
 }
 #[cfg(any(not(windows), test))]
@@ -1275,6 +1352,46 @@ pub async fn cph_stop(state: tauri::State<'_, CphState>) -> Result<bool, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn override_dialog_rc_mapping() {
+        // pass #101 (wave-3 N1b): the shipped MB_OKCANCEL-vs-IDYES comparison made the
+        // override dialog UNACCEPTABLE forever (OK/Cancel returns 1/2, never IDYES=6).
+        // Only a real YES accepts; every other return code refuses.
+        assert!(confirm_rc_is_yes(6)); // IDYES
+        assert!(!confirm_rc_is_yes(1)); // IDOK
+        assert!(!confirm_rc_is_yes(2)); // IDCANCEL
+        assert!(!confirm_rc_is_yes(7)); // IDNO
+        assert!(!confirm_rc_is_yes(0));
+    }
+
+    #[test]
+    fn persisted_registry_loads_both_formats_and_saves_new() {
+        // pass #101: the old flat {lang: path} map and the new {overrides,
+        // confirmed_fixed} document must both load; unrecognizable JSON is ignored.
+        let state = CphState::default();
+        let dir = std::env::temp_dir().join(format!("delcc-cph-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        state.set_persist_dir(dir.clone());
+        // old format
+        std::fs::write(dir.join("cph-overrides.json"), r#"{"cpp":"C:\\old\\g++.exe"}"#).unwrap();
+        state.load_persisted_overrides();
+        assert_eq!(lock(&state.0.allowed).overrides.get("cpp").map(String::as_str), Some(r"C:\old\g++.exe"));
+        // new format (overrides + confirmed_fixed)
+        std::fs::write(dir.join("cph-overrides.json"), r#"{"overrides":{"python":"C:\\new\\python.exe"},"confirmed_fixed":["C:\\MinGW\\bin\\g++.exe"]}"#).unwrap();
+        state.load_persisted_overrides();
+        {
+            let allowed = lock(&state.0.allowed);
+            assert_eq!(allowed.overrides.get("python").map(String::as_str), Some(r"C:\new\python.exe"));
+            assert!(allowed.confirmed_fixed.contains(r"C:\MinGW\bin\g++.exe"));
+        }
+        // save writes the new document shape
+        state.save_persisted_overrides();
+        let saved = std::fs::read_to_string(dir.join("cph-overrides.json")).unwrap();
+        assert!(saved.contains(r#""overrides""#) && saved.contains(r#""confirmed_fixed""#));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn binary_validation_rejects_unknown_executables() {
