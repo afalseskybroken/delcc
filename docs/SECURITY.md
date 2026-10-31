@@ -135,11 +135,15 @@ BLOCKS those never-executed attributes (parse-only; sanitization completes
 and the execute-vectors stay dead). The statement browser test tolerates
 exactly that fingerprint and fails on anything else.
 
-Third-party graph stack (#108): the tools panel’s graph tab renders on
-cytoscape.js + cytoscape-dagre + cytoscape-cose-bilkent — all MIT, all
-compiled INTO the app bundle from npm (no CDN, no runtime fetches; the
-panel’s zero-network contract holds). Licenses and versions are recorded in
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+Third-party graph stack (#109): the tools panel’s graph tab is an offline IFRAME embed of
+[Another Graph Editor](https://github.com/anAcc22/another_graph_editor) (MIT) — the same
+app the official client’s graph tool loads — vendored as a built artifact under
+public/age/ from a pinned upstream commit, with its PWA service-worker registration
+disabled and the Vite base made relative. The CSP frame-src gains self for exactly this
+same-origin embed (no cross-origin frames). It manages its own canvas and storage;
+nothing is fetched at runtime. Licenses and the vendoring recipe are recorded in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). The pass #108 cytoscape adaptation was
+retired by this swap once the actual upstream was identified.
 
 ## Reporting
 
