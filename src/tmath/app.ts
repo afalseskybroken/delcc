@@ -847,9 +847,28 @@ export class TmathApp {
     if (this.problemsIndex && this.problemsIndexOwner !== (this.user?.username ?? null)) this.dropProblemsIndex();
     const idx = this.problemsIndex;
     const indexReady = Boolean(idx?.complete);
-    const clientMode = Boolean(idx?.complete) && !group;
+    // pass #121 (the recarve queued upgrade, His word: "Official have a better way to
+    // sweep that's documented by another instance, merge it"): the chips no longer
+    // depend on the client sweep — they run on the SERVER-side progress filter the
+    // 2026-10-27 live OpenAPI documents (progress=attempted|unattempted, the server's
+    // own legend semantics). The client index demotes to fallback + row dots + the
+    // submissions problem-picker; the sweep still warms for those, pacer-gated.
+    let clientMode = Boolean(idx?.complete) && !group && chip === "all";
     if (!indexReady && !this.problemsSweep) void this.warmProblemsIndex();
     const topicsP = api.topics(token).catch(() => [] as string[]);
+    let rows: any[] | null = null;
+    if (!clientMode) {
+      const progress: "attempted" | "unattempted" | undefined = chip === "todo" ? "attempted" : chip === "none" ? "unattempted" : undefined;
+      try {
+        rows = await api.problems(token, { page, page_size: PAGE_SIZE, search, type, group, progress });
+      } catch (e) {
+        // fallback: a backend without the progress param must not brick the chips —
+        // a complete client index filters exactly as #120 did
+        if (!idx?.complete) throw e;
+        clientMode = true;
+      }
+      if (!alive()) return;
+    }
     let items: any[] = [], serverCount = 0;
     if (clientMode) {
       const q = search.trim().toLowerCase();
@@ -858,9 +877,7 @@ export class TmathApp {
         (!type || p.types.includes(type)) &&
         (chip === "all" || (chip === "todo" ? idx!.attempted.has(p.code) && !idx!.solved.has(p.code) : !idx!.attempted.has(p.code) && !idx!.solved.has(p.code))));
     } else {
-      const rows = await api.problems(token, { page, page_size: PAGE_SIZE, search, type, group });
-      if (!alive()) return;
-      items = list(rows); serverCount = items.length;
+      items = list(rows ?? []); serverCount = items.length;
     }
     const topics = await topicsP;
     if (!alive()) return;
@@ -887,10 +904,13 @@ export class TmathApp {
     };
     // official chips carry no counts (audit screenshots) — labels only
     const chipLabel = (k: "all" | "todo" | "none"): string => text(k === "all" ? "problems.chipAll" : k === "todo" ? "problems.chipTodo" : "problems.chipNone");
-    const note = clientMode ? "" : !indexReady
+    // pass #121: chips are live in every mode now (server-side progress), so the old
+    // chipGroupNote ("filters are off while filtering by group") is retired — group +
+    // progress compose on the server; only the sweep's indexing note remains.
+    const note = !indexReady
       ? (this.problemsAttempts >= 2 && !this.problemsSweep ? t("problems.indexUnavailable") : t("problems.indexing", { n: this.problemsIndexTotal }))
-      : t("problems.chipGroupNote");
-    const chipBar = `<div class="tm-chip-row" role="group" aria-label="${text("problems.filterLabel")}">${(["all","todo","none"] as const).map(k => `<button type="button" class="tm-chip${clientMode && chip === k ? " active" : ""}" data-chip="${k}"${clientMode ? "" : " disabled"} aria-pressed="${clientMode && chip === k}">${chipLabel(k)}</button>`).join("")}${note ? `<span class="tm-chip-note"${indexReady ? "" : " data-index-note"} role="status">${esc(note)}</span>` : ""}</div>`;
+      : "";
+    const chipBar = `<div class="tm-chip-row" role="group" aria-label="${text("problems.filterLabel")}">${(["all","todo","none"] as const).map(k => `<button type="button" class="tm-chip${chip === k ? " active" : ""}" data-chip="${k}" aria-pressed="${chip === k}">${chipLabel(k)}</button>`).join("")}${note ? `<span class="tm-chip-note"${indexReady ? "" : " data-index-note"} role="status">${esc(note)}</span>` : ""}</div>`;
     const legend = indexReady ? `<div class="tm-legend">${(["solved","attempted","none"] as const).map(k => `<span class="tm-legend-item"><span class="tm-legend-dot ${k}" aria-hidden="true"></span>${text(k === "solved" ? "problems.legendSolved" : k === "attempted" ? "problems.legendAttempted" : "problems.legendNone")}</span>`).join("")}</div>` : "";
     const activeFilter = Boolean(search || type || group);
     // pass #52 (official carve, problems list component): the search form, chips and

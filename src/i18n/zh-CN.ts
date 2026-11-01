@@ -258,7 +258,6 @@ export const zhCN: Dict = {
   "problems.legendNone": "未尝试：暂无提交",
   "problems.indexing": "正在建立题目索引… 已载入 {n}",
   "problems.indexUnavailable": "本次会话无法按进度筛选（扫描未完成）。",
-  "problems.chipGroupNote": "按分组筛选时不启用进度筛选。",
   "problems.desc": "查找公开题目，在竞赛之外练习。",
   "problems.eyebrow": "自由练习",
   "contests.searchPlaceholder": "输入竞赛名称…",

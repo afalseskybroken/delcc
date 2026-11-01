@@ -268,7 +268,6 @@ export interface Dict {
   "problems.legendNone": string;
   "problems.indexing": string;
   "problems.indexUnavailable": string;
-  "problems.chipGroupNote": string;
   "problems.desc": string;
   "problems.eyebrow": string;
   "contests.searchPlaceholder": string;

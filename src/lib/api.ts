@@ -223,11 +223,15 @@ export const api = {
     raw(`/contests/${encodeURIComponent(key)}/leaderboard`, { token: t }),
   contestProblem: (t: string, key: string, code: string, withHeaders = false): Promise<ContestProblemDetail> =>
     raw(`/contests/${encodeURIComponent(key)}/problems/${encodeURIComponent(code)}`, { token: t, submitHeaders: withHeaders }),
-  problems: (t: string, o: { page?: number; page_size?: number; search?: string; type?: string; group?: string } = {}): Promise<ProblemListItem[]> => {
+  problems: (t: string, o: { page?: number; page_size?: number; search?: string; type?: string; group?: string; progress?: "attempted" | "unattempted" } = {}): Promise<ProblemListItem[]> => {
     const q = new URLSearchParams();
     // search/type/group are real server-side params per openapi contract.
     for (const k of ["search", "type", "group"] as const)
       if (o[k]) q.set(k, String(o[k]));
+    // pass #121 (the recarve queued upgrade, His word): the server-side progress filter
+    // the 2026-10-27 live OpenAPI documents — "attempted" = submitted, not fully AC;
+    // "unattempted" = no submissions (the server's own legend semantics).
+    if (o.progress) q.set("progress", o.progress);
     q.set("page", String(o.page ?? 1));
     q.set("page_size", String(o.page_size ?? 50));
     return raw(`/problems?${q.toString()}`, { token: t });

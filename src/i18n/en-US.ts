@@ -259,7 +259,6 @@ export const enUS: Dict = {
   "problems.legendNone": "Not attempted: no submissions",
   "problems.indexing": "Indexing problems… {n} loaded",
   "problems.indexUnavailable": "Progress filters are unavailable this session (the scan did not finish).",
-  "problems.chipGroupNote": "Progress filters are off while filtering by group.",
   "problems.desc": "Find public problems to practice outside of contests.",
   "problems.eyebrow": "PRACTICE",
   "contests.searchPlaceholder": "Enter the contest name…",

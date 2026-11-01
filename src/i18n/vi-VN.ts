@@ -258,7 +258,6 @@ export const viVN: Dict = {
   "problems.legendNone": "Chưa làm: chưa nộp bài",
   "problems.indexing": "Đang lập chỉ mục bài… {n} bài",
   "problems.indexUnavailable": "Phiên này không lọc được theo tiến độ (quét dữ liệu chưa xong).",
-  "problems.chipGroupNote": "Tắt lọc tiến độ khi đang lọc theo nhóm.",
   "problems.desc": "Tìm bài public để luyện tập ngoài cuộc thi.",
   "problems.eyebrow": "LUYỆN TẬP",
   "contests.searchPlaceholder": "Nhập tên cuộc thi…",
