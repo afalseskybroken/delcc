@@ -5,6 +5,11 @@
 // quota handled honestly); the theme follows delcc's scheme on every mount/update.
 import { createRoot, type Root } from "react-dom/client";
 import { createElement } from "react";
+// pass #113 (He's screenshot: giant padlock + raw hint text): the component ships its
+// own stylesheet — without it the whole UI renders unstyled at default sizes. The 0.18
+// export resolves dev/prod automatically; everything is bundled local (CSP already
+// allows 'self' styles and 'self data:' fonts — no new surface, nothing remote).
+import "@excalidraw/excalidraw/index.css";
 
 const SCENE_KEY = "delcc-sketch-scene";
 let root: Root | null = null;

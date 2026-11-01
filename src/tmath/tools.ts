@@ -13,7 +13,9 @@ import "./tools.css";
 type Tab = "calc" | "bytes" | "graph" | "sketch";
 
 let panel: HTMLElement | null = null;
-let active: Tab = "calc";
+// pass #113: Graph opens first — Official's tools panel leads with the graph tool
+// (carve: default tab graph), ours led with the calculator and left the canvas cold
+let active: Tab = "graph";
 
 // ---------- expression evaluator (recursive descent, C-like precedence) ----------
 // tokens: numbers (dec/hex 0x/bin 0b/oct 0o), identifiers, operators, parens, comma
@@ -209,7 +211,8 @@ export function openToolsPanel(): void {
     head.onpointerup = () => { head.onpointermove = null; head.onpointerup = null; };
   };
   // pass #109 (He, live note "tool pane resizing?"): left-edge grip resizes the panel;
-  // the AGE canvas re-measures on the window resize event we dispatch into the iframe.
+  // pass #113: the AGE canvas lives in THIS document since #111 — it re-measures on the
+  // window resize event (the old code still dispatched into the long-gone iframe).
   const rz = panel.querySelector<HTMLElement>("[data-tools-resize]")!;
   // pass #110 (He: "we need vertical"): the top-left corner resizes BOTH axes — the panel
   // is bottom-anchored, so dragging up grows it upward; bodies flex-fill (see CSS).
@@ -221,12 +224,11 @@ export function openToolsPanel(): void {
     const r = panel!.getBoundingClientRect();
     const startW = r.width, startH = r.height;
     rzCorner.setPointerCapture(e.pointerId);
-    const frame = panel!.querySelector<HTMLIFrameElement>("[data-graph-frame]");
     const move = (ev: PointerEvent): void => {
       panel!.style.width = `${Math.min(window.innerWidth - 40, Math.max(560, startW + (startX - ev.clientX)))}px`;
       panel!.style.height = `${Math.min(window.innerHeight - 88, Math.max(340, startH + (startY - ev.clientY)))}px`;
       panel!.setAttribute("data-user-height", "");
-      try { frame?.contentWindow?.dispatchEvent(new Event("resize")); } catch { /* cross-origin guard */ }
+      window.dispatchEvent(new Event("resize"));
     };
     rzCorner.onpointermove = move;
     rzCorner.onpointerup = () => { rzCorner.onpointermove = null; rzCorner.onpointerup = null; };
@@ -235,10 +237,9 @@ export function openToolsPanel(): void {
     if (panel!.classList.contains("maximized")) return;
     const startX = e.clientX, startW = panel!.getBoundingClientRect().width;
     rz.setPointerCapture(e.pointerId);
-    const frame = panel!.querySelector<HTMLIFrameElement>("[data-graph-frame]");
     const move = (ev: PointerEvent): void => {
       panel!.style.width = `${Math.min(window.innerWidth - 40, Math.max(560, startW + (startX - ev.clientX)))}px`;
-      try { frame?.contentWindow?.dispatchEvent(new Event("resize")); } catch { /* cross-origin guard */ }
+      window.dispatchEvent(new Event("resize"));
     };
     rz.onpointermove = move;
     rz.onpointerup = () => { rz.onpointermove = null; rz.onpointerup = null; };
@@ -254,6 +255,7 @@ export function openToolsPanel(): void {
     maxBtn.textContent = maximized ? "⤡" : "⤢";
     maxBtn.title = maximized ? t("tools.restore") : t("tools.maximize");
     maxBtn.setAttribute("aria-label", maxBtn.title);
+    window.dispatchEvent(new Event("resize")); // the AGE canvas re-measures to the new host height
   };
   panel.querySelectorAll<HTMLButtonElement>(".tm-tools-tabs [data-tab]").forEach(b => b.onclick = () => {
     active = b.dataset.tab as Tab;
@@ -267,6 +269,9 @@ export function openToolsPanel(): void {
   wireCalc(panel!);
   wireBytes(panel!);
   pushAge = wireGraph(panel!);
+  // pass #113: the graph must be VISIBLE on first open (Official renders it immediately) —
+  // the wire alone never mounted the canvas; it sat empty until the first Draw click
+  if (active === "graph") pushAge();
   let sketchMounted = false;
   pushSketch = (): void => {
     void import("./sketch").then((m) => {
