@@ -290,6 +290,9 @@ export class TmathApp {
       if (p && !p.locked) { p.token = token; p.needsReauth = false; saveProfiles(profiles); }
       if (!token && this.sessionReady && !this.stopped) {
         this.user = null; this.contest = null; this.part = null;
+        // pass #120: the problems index belongs to the just-logged-out account — drop
+        // it here (the render-time owner guard would catch it too; say it where it happens)
+        this.dropProblemsIndex();
         void this.render();
       }
     });
@@ -441,7 +444,9 @@ export class TmathApp {
       if (this.route === "account") await this.account(content, alive);
       // every page's hero Refresh button (audit: it rendered but was never wired)
       const refresh = content.querySelector<HTMLButtonElement>('[data-action="refresh"]');
-      if (refresh) refresh.onclick = () => { if (alive()) void this.render(); };
+      // pass #120: on Problems the hero Refresh must actually refresh — the index IS
+      // the page's cache, so it is dropped and re-scanned, never re-rendered stale
+      if (refresh) refresh.onclick = () => { if (alive()) { if (this.route === "problems") this.dropProblemsIndex(); void this.render(); } };
       // GitHub fast-travel (sidebar footer + settings)
       this.host.querySelectorAll<HTMLButtonElement>('[data-action="open-github"]').forEach(b => b.onclick = () => void openExternal("https://github.com/afalseskybroken/delcc"));
     } catch (error) {
@@ -696,6 +701,24 @@ export class TmathApp {
   private problemsAttempts = 0;
   private problemsIndexTotal = 0;
   private problemsProgress: (() => void)[] = [];
+  // pass #120 (He: "Stale — when the Problem scan finished, it will just save
+  // indefinitely… due to stale list, it copy from my main (which doesn't have them
+  // AC'd)"): the index is stamped with the account that produced it. Any identity
+  // change — logout, profile switch, token swap — discards it, and the next Problems
+  // visit re-scans as whoever is signed in NOW. He's alt was seeing main's
+  // solved/attempted sets because the sweep ran once per LAUNCH and nothing ever
+  // invalidated it; even the hero Refresh only re-rendered the stale set.
+  private problemsIndexOwner: string | null = null;
+
+  // pass #120: one honest reset — the index, the sweep promise, the attempts cap and
+  // the progress total all belong to the (account, launch) pair, so they go together.
+  private dropProblemsIndex(): void {
+    this.problemsIndex = null;
+    this.problemsSweep = null;
+    this.problemsAttempts = 0;
+    this.problemsIndexTotal = 0;
+    this.problemsIndexOwner = null;
+  }
 
   private readonly pacer = new SweepPacer();
 
@@ -748,12 +771,19 @@ export class TmathApp {
   }
 
   private warmProblemsIndex(): Promise<void> {
+    // pass #120: an index stamped by another account is stale by definition — drop it
+    // here AND at render time (problems()) so no code path can ever serve it.
+    if (this.problemsIndexOwner !== (this.user?.username ?? null)) this.dropProblemsIndex();
     if (this.problemsSweep) return this.problemsSweep;
     if (this.problemsAttempts >= 2) return Promise.resolve();
     const token = auth.accessToken();
     if (!token) return Promise.resolve();
     this.problemsAttempts++;
     this.problemsSweep = (async () => {
+      // pass #120: the sample belongs to whoever is signed in when the sweep starts;
+      // if the identity changes mid-flight the result is discarded, never attached.
+      const owner = this.user?.username ?? null;
+      this.problemsIndexOwner = owner;
       const PS = 100;
       const items: any[] = [];
       const seen = new Set<string>();
@@ -772,7 +802,7 @@ export class TmathApp {
       const listComplete = listWalk.stopped && listWalk.failures === 0;
       const solved = new Set<string>();
       const attempted = new Set<string>();
-      const me = this.user?.username;
+      const me = owner;
       let triedComplete = !me;
       if (me) {
         try {
@@ -788,13 +818,20 @@ export class TmathApp {
         failures += subsWalk.failures;
         triedComplete = subsWalk.stopped;
       }
-      this.problemsIndex = { complete: listComplete && triedComplete && failures === 0, items, solved, attempted };
-      // a partial scan (some pages failed) must not wedge the sweep promise as
-      // resolved forever — clear it so the next visit retries (attempts cap bounds us)
-      if (!this.problemsIndex.complete) this.problemsSweep = null;
-      for (const cb of this.problemsProgress) cb();
-      this.problemsProgress = [];
-      if (this.problemsIndex.complete && this.route === "problems") void this.render();
+      if (this.problemsIndexOwner === owner) {
+        this.problemsIndex = { complete: listComplete && triedComplete && failures === 0, items, solved, attempted };
+        // a partial scan (some pages failed) must not wedge the sweep promise as
+        // resolved forever — clear it so the next visit retries (attempts cap bounds us)
+        if (!this.problemsIndex.complete) this.problemsSweep = null;
+        for (const cb of this.problemsProgress) cb();
+        this.problemsProgress = [];
+        if (this.problemsIndex.complete && this.route === "problems") void this.render();
+      } else {
+        // pass #120: the account changed mid-sweep — this sample is someone else's;
+        // discard it (dropProblemsIndex already ran, so just release the waiters)
+        for (const cb of this.problemsProgress) cb();
+        this.problemsProgress = [];
+      }
     })().catch(() => { this.problemsSweep = null; });
     return this.problemsSweep;
   }
@@ -805,6 +842,9 @@ export class TmathApp {
     const chipValue = params.get("chip") ?? "";
     const chip: "all" | "todo" | "none" = chipValue === "todo" ? "todo" : chipValue === "none" ? "none" : "all";
     const token = auth.accessToken()!;
+    // pass #120: render-time staleness guard — an index stamped by another account is
+    // dropped here too, covering every path the explicit hooks could possibly miss
+    if (this.problemsIndex && this.problemsIndexOwner !== (this.user?.username ?? null)) this.dropProblemsIndex();
     const idx = this.problemsIndex;
     const indexReady = Boolean(idx?.complete);
     const clientMode = Boolean(idx?.complete) && !group;
