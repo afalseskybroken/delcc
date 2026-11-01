@@ -14,6 +14,8 @@ import type { Settings, TestCases } from "./types";
 
 export interface AgeData {
   edgesText: string;
+  rootsText: string; // pass #114: roots + isolated vertices — tree layering starts here
+  labelOffset: number; // pass #114: displayed relabel (Official's Đổi nhãn số)
   directed: boolean;
   tree: boolean;
   lock: boolean;
@@ -60,8 +62,11 @@ function defaults(dark: boolean): Settings {
   };
 }
 
-function buildTestCases(edgesText: string): TestCases {
-  const parsed = parseGraphInputEdges("", edgesText, "", 1);
+function buildTestCases(rootsText: string, edgesText: string): TestCases {
+  // roots/isolated vertices come in as arg 1 (pass #114) — they land FIRST in the node
+  // set, which is what the tree layering uses as its depth-start (Official's
+  // "Đỉnh gốc / đỉnh rời" semantics)
+  const parsed = parseGraphInputEdges(rootsText, edgesText, "", 1);
   const m: TestCases = new Map();
   m.set(1, {
     graphEdges: parsed.graph ?? getDefaultGraph(),
@@ -78,6 +83,7 @@ function AgeCanvas(props: {
   tree: boolean;
   lock: boolean;
   physics: boolean;
+  labelOffset: number;
 }) {
   const [settings] = useState<Settings>(() => ({
     ...defaults(props.dark),
@@ -90,6 +96,7 @@ function AgeCanvas(props: {
   settings.lockMode = props.lock;
   settings.edgePhysics = props.physics;
   settings.darkMode = props.dark;
+  settings.labelOffset = props.labelOffset; // pass #114: the relabel combobox
   return (
     <GraphCanvas testCases={props.cases} directed={props.directed} settings={settings} setSettings={() => { /* the embed keeps panel-owned settings authoritative */ }} />
   );
@@ -100,7 +107,7 @@ let hostEl: HTMLElement | null = null;
 
 function render(data: AgeData): void {
   if (!root || !hostEl) return;
-  const cases = buildTestCases(data.edgesText);
+  const cases = buildTestCases(data.rootsText, data.edgesText);
   root.render(
     <div className={`tm-age-scope ${data.dark ? "dark" : "light"} bg-ovr text-text w-full h-full overflow-hidden no-scrollbar`}>
       <AgeCanvas
@@ -110,6 +117,7 @@ function render(data: AgeData): void {
         tree={data.tree}
         lock={data.lock}
         physics={data.physics}
+        labelOffset={data.labelOffset}
       />
     </div>,
   );

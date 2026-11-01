@@ -2,6 +2,8 @@
 // which is excluded from tsc — upstream typing friction; vite transpiles it).
 export interface AgeData {
   edgesText: string;
+  rootsText: string; // pass #114: roots + isolated vertices (tree layering starts here)
+  labelOffset: number; // pass #114: displayed relabel (Official's Đổi nhãn số)
   directed: boolean;
   tree: boolean;
   lock: boolean;

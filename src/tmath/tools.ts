@@ -171,20 +171,21 @@ export function openToolsPanel(): void {
 <div class="tm-tools-body" data-pane="calc">
   <div class="tm-tools-row"><input class="tm-tools-input" data-calc-expr spellcheck="false" placeholder="sin(pi/4) + 0xff &amp; 0b1010 | 3 &lt;&lt; 2"><select class="tm-drafts-select" data-calc-base><option value="dec">DEC</option><option value="hex">HEX</option><option value="oct">OCT</option><option value="bin">BIN</option></select><button type="button" class="tm-button" data-calc-angle>RAD</button></div>
   <div class="tm-tools-result" data-calc-out>—</div>
+  <div class="tm-calc-pad" data-calc-pad><div class="tm-calc-fns"><button type="button" class="tm-button tm-calc-key" data-key="sin(">sin(</button><button type="button" class="tm-button tm-calc-key" data-key="cos(">cos(</button><button type="button" class="tm-button tm-calc-key" data-key="tan(">tan(</button><button type="button" class="tm-button tm-calc-key" data-key="asin(">asin(</button><button type="button" class="tm-button tm-calc-key" data-key="ln(">ln(</button><button type="button" class="tm-button tm-calc-key" data-key="log(">log(</button><button type="button" class="tm-button tm-calc-key" data-key="sqrt(">sqrt(</button><button type="button" class="tm-button tm-calc-key" data-key="abs(">abs(</button><button type="button" class="tm-button tm-calc-key" data-key="floor(">floor(</button><button type="button" class="tm-button tm-calc-key" data-key="gcd(">gcd(</button><button type="button" class="tm-button tm-calc-key" data-key="pi">π</button><button type="button" class="tm-button tm-calc-key" data-key="e">e</button><button type="button" class="tm-button tm-calc-key" data-key="tau">τ</button><button type="button" class="tm-button tm-calc-key" data-action="clear">C</button></div><div class="tm-calc-grid"><button type="button" class="tm-button tm-calc-key" data-key="7">7</button><button type="button" class="tm-button tm-calc-key" data-key="8">8</button><button type="button" class="tm-button tm-calc-key" data-key="9">9</button><button type="button" class="tm-button tm-calc-key" data-key="/">÷</button><button type="button" class="tm-button tm-calc-key" data-key="*">×</button><button type="button" class="tm-button tm-calc-key" data-key="-">−</button><button type="button" class="tm-button tm-calc-key" data-action="back">⌫</button><button type="button" class="tm-button tm-calc-key" data-key="4">4</button><button type="button" class="tm-button tm-calc-key" data-key="5">5</button><button type="button" class="tm-button tm-calc-key" data-key="6">6</button><button type="button" class="tm-button tm-calc-key" data-key="+">+</button><button type="button" class="tm-button tm-calc-key" data-key="^">^</button><button type="button" class="tm-button tm-calc-key" data-key="(">(</button><button type="button" class="tm-button tm-calc-key" data-key=")">)</button><button type="button" class="tm-button tm-calc-key" data-key="1">1</button><button type="button" class="tm-button tm-calc-key" data-key="2">2</button><button type="button" class="tm-button tm-calc-key" data-key="3">3</button><button type="button" class="tm-button tm-calc-key" data-key="0">0</button><button type="button" class="tm-button tm-calc-key" data-key=".">.</button><button type="button" class="tm-button tm-calc-key" data-action="ans">Ans</button><button type="button" class="tm-button tm-calc-key" data-action="eval">=</button></div></div>
   <div class="tm-tools-sub"><b>f(x) =</b> <input class="tm-tools-input" data-calc-fn spellcheck="false" placeholder="x^2 · sin(x)"> <label class="tm-tools-inline">x min <input class="tm-tools-mini" data-calc-xmin value="-10"></label> <label class="tm-tools-inline">x max <input class="tm-tools-mini" data-calc-xmax value="10"></label> <button type="button" class="tm-button" data-calc-plot>${esc(t("tools.plot"))}</button></div>
   <canvas class="tm-tools-canvas" data-calc-canvas width="760" height="240" hidden></canvas>
   <div class="tm-tools-history" data-calc-hist></div>
 </div>
 <div class="tm-tools-body" data-pane="bytes" hidden>
   <div class="tm-tools-cols"><div class="tm-tools-col"><b>${esc(t("tools.text"))}</b><textarea class="tm-tools-area" data-bytes-text spellcheck="false"></textarea></div><div class="tm-tools-col"><b>${esc(t("tools.hex"))}</b><textarea class="tm-tools-area mono" data-bytes-hex spellcheck="false" placeholder="48 65 6c 6c 6f"></textarea></div></div>
-  <div class="tm-tools-row wrap"><button type="button" class="tm-button" data-conv="b64enc">Base64 →</button><button type="button" class="tm-button" data-conv="b64dec">← Base64</button><button type="button" class="tm-button" data-conv="urlenc">URL →</button><button type="button" class="tm-button" data-conv="urldec">← URL</button><button type="button" class="tm-button" data-conv="htmenc">HTML →</button><button type="button" class="tm-button" data-conv="htmdec">← HTML</button><button type="button" class="tm-button" data-conv="utf8hex">UTF-8 hex →</button><button type="button" class="tm-button" data-conv="binstr">Binary →</button><button type="button" class="tm-button" data-conv="lower">hex →</button></div>
-  <pre class="tm-tools-dump" data-bytes-dump></pre>
-  <div class="tm-tools-result" data-bytes-detail>${esc(t("tools.clickByte"))}</div>
+  <div class="tm-tools-row wrap"><button type="button" class="tm-button" data-conv="b64enc">Base64 →</button><button type="button" class="tm-button" data-conv="b64dec">← Base64</button><button type="button" class="tm-button" data-conv="urlenc">URL →</button><button type="button" class="tm-button" data-conv="urldec">← URL</button><button type="button" class="tm-button" data-conv="htmenc">HTML →</button><button type="button" class="tm-button" data-conv="htmdec">← HTML</button><button type="button" class="tm-button" data-conv="utf8hex">UTF-8 hex →</button><button type="button" class="tm-button" data-conv="binstr">Binary →</button><button type="button" class="tm-button" data-conv="lower">hex →</button><button type="button" class="tm-button" data-conv="applyhex">${esc(t("tools.bytesApply"))}</button></div>
+  <div class="tm-hex-host" data-bytes-dump></div>
+  <div class="tm-tools-result" data-bytes-detail></div>
 </div>
 <div class="tm-tools-body" data-pane="graph" hidden>
   <div class="tm-tools-cols"><div class="tm-tools-col narrow"><b>${esc(t("tools.graphEdges"))}</b><textarea class="tm-tools-area mono" data-graph-edges spellcheck="false" placeholder="1 2 4&#10;2 3 2&#10;3 1 5">1 2 4
 2 3 2
-3 1 5</textarea><label class="tm-tools-inline"><input type="checkbox" data-graph-directed> ${esc(t("tools.graphDirected"))}</label><div class="tm-tools-checks"><label class="tm-tools-inline"><input type="checkbox" data-graph-tree> ${esc(t("tools.treeLayout"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-lock> ${esc(t("tools.lockPositions"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-neigh> ${esc(t("tools.dragNeighbours"))}</label></div><button type="button" class="tm-button primary" data-graph-draw>${esc(t("tools.graphDraw"))}</button><div class="tm-tools-result" data-graph-stats></div></div><div class="tm-tools-col"><div class="tm-age-host" data-graph-host></div></div></div>
+3 1 5</textarea><input class="tm-tools-input" data-graph-roots spellcheck="false" placeholder="${esc(t("tools.graphRootPh"))}" aria-label="${esc(t("tools.graphRoot"))}" title="${esc(t("tools.graphRoot"))}"><button type="button" class="tm-button primary" data-graph-draw>${esc(t("tools.graphDraw"))}</button><div class="tm-tools-sub">${esc(t("tools.graphHint"))}</div><div class="tm-tools-checks"><label class="tm-tools-inline"><input type="checkbox" data-graph-directed> ${esc(t("tools.graphDirected"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-tree> ${esc(t("tools.treeLayout"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-lock> ${esc(t("tools.lockPositions"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-neigh> ${esc(t("tools.dragNeighbours"))}</label></div><label class="tm-tools-inline">${esc(t("tools.graphRelabel"))} <select class="tm-drafts-select" data-graph-relabel><option value="0">${esc(t("tools.graphRelabelKeep"))}</option><option value="-1">${esc(t("tools.graphRelabelZero"))}</option><option value="1">${esc(t("tools.graphRelabelOne"))}</option></select></label><div class="tm-tools-result" data-graph-stats></div></div><div class="tm-tools-col"><div class="tm-age-host" data-graph-host></div></div></div>
 </div></div>`;
   // pass #112: the sketch pane is appended in JS as a DIRECT child of the panel — the
   // template nesting bit us twice (a pane inside the graph pane body vanishes with it).
@@ -287,6 +288,15 @@ export function openToolsPanel(): void {
 
 // ---------- calculator wiring ----------
 const calcHistory: string[] = [];
+// pass #114: insert at the caret (keeps the selection edge), then re-run the live eval
+function insertAtCaret(input: HTMLInputElement, s: string): void {
+  const st = input.selectionStart ?? input.value.length;
+  const en = input.selectionEnd ?? st;
+  input.value = input.value.slice(0, st) + s + input.value.slice(en);
+  input.selectionStart = input.selectionEnd = st + s.length;
+  input.focus();
+  input.dispatchEvent(new Event("input"));
+}
 function wireCalc(root: HTMLElement): void {
   const input = root.querySelector<HTMLInputElement>("[data-calc-expr]")!;
   const fnInput = root.querySelector<HTMLInputElement>("[data-calc-fn]")!;
@@ -294,6 +304,7 @@ function wireCalc(root: HTMLElement): void {
   const base = root.querySelector<HTMLSelectElement>("[data-calc-base]")!;
   const angle = root.querySelector<HTMLButtonElement>("[data-calc-angle]")!;
   let deg = false;
+  let ans = 0; // pass #114: the keypad's Ans — last finite result, decimal literal
   angle.onclick = () => { deg = !deg; angle.textContent = deg ? "DEG" : "RAD"; if (input.value.trim()) run(); };
   const run = (): void => {
     const v = input.value.trim();
@@ -302,6 +313,7 @@ function wireCalc(root: HTMLElement): void {
       const r = evalExpr(v, deg);
       const line = fmtNum(r, base.value);
       out.textContent = `= ${line}`;
+      if (Number.isFinite(r)) ans = r;
       if (input.dataset.last !== v && Number.isFinite(r)) {
         input.dataset.last = v;
         calcHistory.unshift(`${v} = ${line}`);
@@ -315,6 +327,29 @@ function wireCalc(root: HTMLElement): void {
   };
   input.oninput = run;
   base.onchange = run;
+  // pass #114: the button pad — He ("Calculator should have UI-rendered button for the
+  // numbers and things"). Keys insert at the caret; Ans replays the last finite result;
+  // ⌫ deletes the selection or one char; C clears; = runs the same eval as live typing.
+  const pad = root.querySelector<HTMLElement>("[data-calc-pad]")!;
+  pad.querySelectorAll<HTMLButtonElement>(".tm-calc-key").forEach(b => b.onclick = () => {
+    if (b.dataset.key != null) { insertAtCaret(input, b.dataset.key); return; }
+    const act = b.dataset.action;
+    if (act === "back") {
+      const s = input.selectionStart ?? input.value.length;
+      const e2 = input.selectionEnd ?? s;
+      input.value = s === e2 && s > 0
+        ? input.value.slice(0, s - 1) + input.value.slice(e2)
+        : input.value.slice(0, s) + input.value.slice(e2);
+      input.selectionStart = input.selectionEnd = s === e2 ? Math.max(0, s - 1) : s;
+      input.focus();
+      input.dispatchEvent(new Event("input"));
+    } else if (act === "clear") {
+      input.value = "";
+      input.focus();
+      input.dispatchEvent(new Event("input"));
+    } else if (act === "eval") run();
+    else if (act === "ans") insertAtCaret(input, fmtNum(ans, "dec"));
+  });
   const canvas = root.querySelector<HTMLCanvasElement>("[data-calc-canvas]")!;
   const plot = (): void => {
     const f = fnInput.value.trim();
@@ -367,32 +402,39 @@ function wireCalc(root: HTMLElement): void {
 }
 
 // ---------- bytes & encodings wiring ----------
+// pass #114 (He: "Hex seems like it could use a hex editor out there, as just
+// reinventing the wheel is painful"): the hand-rolled .byte-span dump is replaced by
+// @hexcanvas/element (<hexcanvas-editor>, MIT, zero runtime deps) — real cursor,
+// selection, overwrite/insert editing, undo, search. The lazy import keeps it out of
+// the main chunk; the theme rides the inherited --tmath-* custom properties.
+type HexEditorElement = HTMLElement & { source: unknown };
+let hexEditor: HexEditorElement | null = null;
+let hexBuffer: import("@hexcanvas/core").MemoryBinaryBuffer | null = null;
 function wireBytes(root: HTMLElement): void {
   const text = root.querySelector<HTMLTextAreaElement>("[data-bytes-text]")!;
   const hex = root.querySelector<HTMLTextAreaElement>("[data-bytes-hex]")!;
   const dump = root.querySelector<HTMLElement>("[data-bytes-dump]")!;
   const detail = root.querySelector<HTMLElement>("[data-bytes-detail]")!;
   const bytesOf = (): Uint8Array => new TextEncoder().encode(text.value);
-  const renderDump = (bytes: Uint8Array): void => {
-    const rows: string[] = [];
-    for (let o = 0; o < bytes.length; o += 16) {
-      const slice = bytes.slice(o, o + 16);
-      const hexPart = [...slice].map(b => `<span class="byte" data-b="${b}" data-o="${o}">${b.toString(16).padStart(2, "0")}</span>`).join(" ");
-      const ascii = [...slice].map(b => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : "·")).join("");
-      rows.push(`<div class="row"><span class="off">${o.toString(16).padStart(6, "0")}</span>${hexPart}<span class="asc">${esc(ascii)}</span></div>`);
-    }
-    dump.innerHTML = rows.length ? rows.join("") : "—";
-    dump.onclick = e => {
-      const b0 = (e.target as HTMLElement).closest<HTMLElement>(".byte");
-      if (!b0) return;
-      const b = Number(b0.dataset.b), off = Number(b0.dataset.o);
-      detail.textContent = t("tools.byteDetail", { off: String(off), hex: `0x${b.toString(16).padStart(2, "0")}`, dec: String(b), oct: `0o${b.toString(8)}`, bin: b.toString(2).padStart(8, "0"), ascii: b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : "·" });
-    };
+  const loadEditor = (bytes: Uint8Array): void => {
+    void Promise.all([import("@hexcanvas/element"), import("@hexcanvas/core")]).then(([el, core]) => {
+      if (!dump.isConnected) return; // the panel closed while loading
+      if (!hexEditor) {
+        hexEditor = document.createElement("hexcanvas-editor") as HexEditorElement;
+        dump.textContent = "";
+        dump.appendChild(hexEditor);
+      }
+      hexBuffer = new core.MemoryBinaryBuffer(bytes.slice());
+      (hexEditor as { source: unknown }).source = core.fromBinaryBuffer(hexBuffer);
+      detail.textContent = t("tools.bytesCount", { n: String(bytes.length) });
+    }).catch(() => {
+      detail.textContent = t("tools.bytesCount", { n: String(bytes.length) }) + " — hex editor unavailable";
+    });
   };
   const syncFromText = (): void => {
     const bytes = bytesOf();
     hex.value = [...bytes].map(b => b.toString(16).padStart(2, "0")).join(" ");
-    renderDump(bytes);
+    loadEditor(bytes);
   };
   const syncFromHex = (): void => {
     const cleaned = hex.value.replace(/0x/gi, " ").replace(/[^0-9a-fA-F\s]/g, " ");
@@ -400,7 +442,7 @@ function wireBytes(root: HTMLElement): void {
     if (pairs.length % 2 === 1) pairs.pop();
     const bytes = new Uint8Array(pairs.map(p => parseInt(p, 16)));
     text.value = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-    renderDump(bytes);
+    loadEditor(bytes);
   };
   text.oninput = syncFromText;
   hex.oninput = syncFromHex;
@@ -417,6 +459,14 @@ function wireBytes(root: HTMLElement): void {
       else if (kind === "utf8hex") text.value = [...bytesOf()].map(x => x.toString(16).padStart(2, "0")).join(" ");
       else if (kind === "binstr") text.value = [...bytesOf()].map(x => x.toString(2).padStart(8, "0")).join(" ");
       else if (kind === "lower") { hex.value = hex.value.toLowerCase(); syncFromHex(); return; }
+      else if (kind === "applyhex") { // pass #114: the editor's edits flow back to the columns
+        if (!hexBuffer) return;
+        const bytes = hexBuffer.toUint8Array();
+        hex.value = [...bytes].map(b => b.toString(16).padStart(2, "0")).join(" ");
+        text.value = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+        syncFromText();
+        return;
+      }
       syncFromText();
     } catch (e) { detail.textContent = e instanceof Error ? e.message : String(e); }
   });
@@ -427,9 +477,13 @@ function wireBytes(root: HTMLElement): void {
 // palette + font-path patches, scoped stylesheet). React mounts lazily on first show.
 function wireGraph(root: HTMLElement): () => void {
   const edges = root.querySelector<HTMLTextAreaElement>("[data-graph-edges]")!;
+  const roots = root.querySelector<HTMLInputElement>("[data-graph-roots]")!;
+  const relabel = root.querySelector<HTMLSelectElement>("[data-graph-relabel]")!;
   const stats = root.querySelector<HTMLElement>("[data-graph-stats]")!;
   const ageData = (): import("../vendor/age").AgeData => ({
     edgesText: edges.value,
+    rootsText: roots.value, // pass #114: roots/isolated — tree layering depth-start
+    labelOffset: parseInt(relabel.value, 10) || 0, // pass #114: displayed relabel
     directed: root.querySelector<HTMLInputElement>("[data-graph-directed]")?.checked ?? false,
     tree: root.querySelector<HTMLInputElement>("[data-graph-tree]")?.checked ?? false,
     lock: root.querySelector<HTMLInputElement>("[data-graph-lock]")?.checked ?? false,
@@ -461,6 +515,8 @@ function wireGraph(root: HTMLElement): () => void {
   };
   root.querySelector<HTMLButtonElement>("[data-graph-draw]")!.onclick = () => { updateStats(); push(); };
   edges.onchange = () => { updateStats(); push(); };
+  roots.onchange = push; // pass #114: roots/isolated change re-parses (tree depth-start)
+  relabel.onchange = push; // pass #114: displayed relabel
   for (const box of ["[data-graph-directed]", "[data-graph-tree]", "[data-graph-lock]", "[data-graph-neigh]"]) {
     root.querySelector<HTMLInputElement>(box)!.onchange = push;
   }

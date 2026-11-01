@@ -20,3 +20,12 @@
   flex: 1 1 0;
   min-height: 0;
 }
+
+/* pass #114 addendum — Official parity (side-by-side ruling): the tool row
+   (GraphPalette swatches + Paint/Pen/Expand) is DEAD weight in the embed — setSettings
+   is a no-op bridge — and its selected-swatch outline ring renders as the stray
+   crescent glyph. Official exposes none of it. Hide the row; the canvas takes the space. */
+.tm-age-scope .flex.h-screen > div > .flex.justify-between.items-end { display: none; }
+/* the canvas draws its own 2px ring that glows on the dark panel — Official's canvas is
+   borderless; kill the border on all three stacked canvases (appendix order wins) */
+.tm-age-scope .flex.h-screen > div > .relative.h-full.w-full > canvas { border-color: transparent; }

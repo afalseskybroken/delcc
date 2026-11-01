@@ -37,6 +37,14 @@ open-source libraries, credited here with their licenses.
 - The official client's graph tool loads this same editor by name
   ("Đang mở Another Graph Editor…"); its sketch tab loads Excalidraw
   (also MIT) — delcc's sketch tab runs on that same basis.
+- **[@hexcanvas/core + @hexcanvas/element](https://github.com/htcom-code/hexcanvas)**
+  (MIT, 0.2.0) — the Bytes & encodings tab's hex view (pass #114). He's ruling:
+  a hex editor is a wheel we should not reinvent — this is a framework-free
+  `<hexcanvas-editor>` web component (canvas renderer, cursor, selection,
+  overwrite/insert editing, undo, search; zero runtime dependencies) used
+  unmodified, loaded lazily so it stays out of the main chunk. delcc only
+  themes it through the documented `--hexcanvas-*` custom properties and feeds
+  it a `MemoryBinaryBuffer`; the "Apply edits" button is delcc's own glue.
 
 Everything else in delcc's frontend is first-party. The other bundled runtime
 dependencies (DOMPurify, KaTeX, Monaco, Tauri's JS API) are used unmodified per
