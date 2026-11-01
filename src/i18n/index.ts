@@ -120,6 +120,13 @@ export interface Dict {
   "tools.treeLayout": string;
   "tools.lockPositions": string;
   "tools.plot": string;
+  "tools.plotFn": string;
+  "tools.plotAdd": string;
+  "tools.plotEye": string;
+  "tools.plotRemove": string;
+  "tools.plotErrRange": string;
+  "tools.plotErrNone": string;
+  "tools.calc2nd": string;
   "tools.text": string;
   "tools.hex": string;
   "tools.resize": string;

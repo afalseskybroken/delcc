@@ -171,9 +171,9 @@ export function openToolsPanel(): void {
 <div class="tm-tools-body" data-pane="calc">
   <div class="tm-tools-row"><input class="tm-tools-input" data-calc-expr spellcheck="false" placeholder="sin(pi/4) + 0xff &amp; 0b1010 | 3 &lt;&lt; 2"><select class="tm-drafts-select" data-calc-base><option value="dec">DEC</option><option value="hex">HEX</option><option value="oct">OCT</option><option value="bin">BIN</option></select><button type="button" class="tm-button" data-calc-angle>RAD</button></div>
   <div class="tm-tools-result" data-calc-out>—</div>
-  <div class="tm-calc-pad" data-calc-pad><div class="tm-calc-fns"><button type="button" class="tm-button tm-calc-key" data-key="sin(">sin(</button><button type="button" class="tm-button tm-calc-key" data-key="cos(">cos(</button><button type="button" class="tm-button tm-calc-key" data-key="tan(">tan(</button><button type="button" class="tm-button tm-calc-key" data-key="asin(">asin(</button><button type="button" class="tm-button tm-calc-key" data-key="ln(">ln(</button><button type="button" class="tm-button tm-calc-key" data-key="log(">log(</button><button type="button" class="tm-button tm-calc-key" data-key="sqrt(">sqrt(</button><button type="button" class="tm-button tm-calc-key" data-key="abs(">abs(</button><button type="button" class="tm-button tm-calc-key" data-key="floor(">floor(</button><button type="button" class="tm-button tm-calc-key" data-key="gcd(">gcd(</button><button type="button" class="tm-button tm-calc-key" data-key="pi">π</button><button type="button" class="tm-button tm-calc-key" data-key="e">e</button><button type="button" class="tm-button tm-calc-key" data-key="tau">τ</button><button type="button" class="tm-button tm-calc-key" data-action="clear">C</button></div><div class="tm-calc-grid"><button type="button" class="tm-button tm-calc-key" data-action="clear">C</button><button type="button" class="tm-button tm-calc-key" data-action="back">⌫</button><button type="button" class="tm-button tm-calc-key" data-key="(">(</button><button type="button" class="tm-button tm-calc-key" data-key=")">)</button><button type="button" class="tm-button tm-calc-key" data-key="/">÷</button><button type="button" class="tm-button tm-calc-key" data-key="7">7</button><button type="button" class="tm-button tm-calc-key" data-key="8">8</button><button type="button" class="tm-button tm-calc-key" data-key="9">9</button><button type="button" class="tm-button tm-calc-key" data-key="^">^</button><button type="button" class="tm-button tm-calc-key" data-key="*">×</button><button type="button" class="tm-button tm-calc-key" data-key="4">4</button><button type="button" class="tm-button tm-calc-key" data-key="5">5</button><button type="button" class="tm-button tm-calc-key" data-key="6">6</button><button type="button" class="tm-button tm-calc-key" data-action="ans">Ans</button><button type="button" class="tm-button tm-calc-key" data-key="-">−</button><button type="button" class="tm-button tm-calc-key" data-key="1">1</button><button type="button" class="tm-button tm-calc-key" data-key="2">2</button><button type="button" class="tm-button tm-calc-key" data-key="3">3</button><button type="button" class="tm-button tm-calc-key" data-key=".">.</button><button type="button" class="tm-button tm-calc-key" data-key="+">+</button><button type="button" class="tm-button tm-calc-key tm-calc-zero" data-key="0">0</button><button type="button" class="tm-button tm-calc-key tm-calc-eq" data-action="eval">=</button></div></div>
-  <div class="tm-tools-sub"><b>f(x) =</b> <input class="tm-tools-input" data-calc-fn spellcheck="false" placeholder="x^2 · sin(x)"> <label class="tm-tools-inline">x min <input class="tm-tools-mini" data-calc-xmin value="-10"></label> <label class="tm-tools-inline">x max <input class="tm-tools-mini" data-calc-xmax value="10"></label> <button type="button" class="tm-button" data-calc-plot>${esc(t("tools.plot"))}</button></div>
-  <canvas class="tm-tools-canvas" data-calc-canvas width="760" height="240" hidden></canvas>
+  <div class="tm-calc-pad" data-calc-pad><div class="tm-calc-fns"><button type="button" class="tm-button tm-calc-key tm-calc-2nd" data-action="2nd" title="${esc(t("tools.calc2nd"))}">2nd</button><button type="button" class="tm-button tm-calc-key" data-key="sin(">sin(</button><button type="button" class="tm-button tm-calc-key" data-key="cos(">cos(</button><button type="button" class="tm-button tm-calc-key" data-key="tan(">tan(</button><button type="button" class="tm-button tm-calc-key" data-key="asin(">asin(</button><button type="button" class="tm-button tm-calc-key" data-key="ln(">ln(</button><button type="button" class="tm-button tm-calc-key" data-key="log(">log(</button><button type="button" class="tm-button tm-calc-key" data-key="sqrt(">sqrt(</button><button type="button" class="tm-button tm-calc-key" data-key="abs(">abs(</button><button type="button" class="tm-button tm-calc-key" data-key="floor(">floor(</button><button type="button" class="tm-button tm-calc-key" data-key="gcd(">gcd(</button><button type="button" class="tm-button tm-calc-key" data-key="pi">π</button><button type="button" class="tm-button tm-calc-key" data-key="e">e</button><button type="button" class="tm-button tm-calc-key" data-key="tau">τ</button><button type="button" class="tm-button tm-calc-key" data-action="clear">C</button></div><div class="tm-calc-grid"><button type="button" class="tm-button tm-calc-key" data-action="clear">C</button><button type="button" class="tm-button tm-calc-key" data-action="back">⌫</button><button type="button" class="tm-button tm-calc-key" data-key="(">(</button><button type="button" class="tm-button tm-calc-key" data-key=")">)</button><button type="button" class="tm-button tm-calc-key" data-key="/">÷</button><button type="button" class="tm-button tm-calc-key" data-key="7">7</button><button type="button" class="tm-button tm-calc-key" data-key="8">8</button><button type="button" class="tm-button tm-calc-key" data-key="9">9</button><button type="button" class="tm-button tm-calc-key" data-key="^">^</button><button type="button" class="tm-button tm-calc-key" data-key="*">×</button><button type="button" class="tm-button tm-calc-key" data-key="4">4</button><button type="button" class="tm-button tm-calc-key" data-key="5">5</button><button type="button" class="tm-button tm-calc-key" data-key="6">6</button><button type="button" class="tm-button tm-calc-key" data-action="ans">Ans</button><button type="button" class="tm-button tm-calc-key" data-key="-">−</button><button type="button" class="tm-button tm-calc-key" data-key="1">1</button><button type="button" class="tm-button tm-calc-key" data-key="2">2</button><button type="button" class="tm-button tm-calc-key" data-key="3">3</button><button type="button" class="tm-button tm-calc-key" data-key=".">.</button><button type="button" class="tm-button tm-calc-key" data-key="+">+</button><button type="button" class="tm-button tm-calc-key tm-calc-zero" data-key="0">0</button><button type="button" class="tm-button tm-calc-key tm-calc-eq" data-action="eval">=</button></div></div>
+  <div class="tm-tools-sub"><button type="button" class="tm-button tm-plot-open" data-plot-open>${esc(t("tools.plotFn"))}</button></div>
+  <div class="tm-plot-panel" data-plot-panel hidden><div class="tm-plot-rows" data-plot-rows></div><div class="tm-tools-row wrap"><button type="button" class="tm-button tm-plot-add" data-plot-add>+ ${esc(t("tools.plotAdd"))}</button><label class="tm-tools-inline">x min <input class="tm-tools-mini" data-plot-xmin value="-10"></label><label class="tm-tools-inline">x max <input class="tm-tools-mini" data-plot-xmax value="10"></label><button type="button" class="tm-button" data-plot-redraw>${esc(t("tools.plot"))}</button></div><canvas class="tm-tools-canvas" data-plot-canvas width="760" height="280"></canvas><div class="tm-tools-sub" data-plot-note></div></div>
   <div class="tm-tools-history" data-calc-hist></div>
 </div>
 <div class="tm-tools-body" data-pane="bytes" hidden>
@@ -299,7 +299,6 @@ function insertAtCaret(input: HTMLInputElement, s: string): void {
 }
 function wireCalc(root: HTMLElement): void {
   const input = root.querySelector<HTMLInputElement>("[data-calc-expr]")!;
-  const fnInput = root.querySelector<HTMLInputElement>("[data-calc-fn]")!;
   const out = root.querySelector<HTMLElement>("[data-calc-out]")!;
   const base = root.querySelector<HTMLSelectElement>("[data-calc-base]")!;
   const angle = root.querySelector<HTMLButtonElement>("[data-calc-angle]")!;
@@ -340,6 +339,41 @@ function wireCalc(root: HTMLElement): void {
   // numbers and things"). Keys insert at the caret; Ans replays the last finite result;
   // ⌫ deletes the selection or one char; C clears; = runs the same eval as live typing.
   const pad = root.querySelector<HTMLElement>("[data-calc-pad]")!;
+  // pass #118 (He: "polishing to the top row, 2nd (will invoke the arc func. for
+  // sin/cos/tan, ln() for log(), and thing like that)"): the 2nd modifier lives as the
+  // FIRST chip of the functions strip; while lit, the strip swaps to the inverse set —
+  // sin→sin⁻¹( (asin), cos→acos, tan→atan, log↔ln, sqrt→∛( (cbrt), floor→ceil. Every
+  // target is already in FUNCS, so this is a pure label/insert swap, no engine change.
+  const MAP2ND: Record<string, { key: string; label: string }> = {
+    "sin(": { key: "asin(", label: "sin⁻¹(" },
+    "asin(": { key: "sin(", label: "sin(" },
+    "cos(": { key: "acos(", label: "cos⁻¹(" },
+    "acos(": { key: "cos(", label: "cos(" },
+    "tan(": { key: "atan(", label: "tan⁻¹(" },
+    "atan(": { key: "tan(", label: "tan(" },
+    "ln(": { key: "log(", label: "log(" },
+    "log(": { key: "ln(", label: "ln(" },
+    "sqrt(": { key: "cbrt(", label: "∛(" },
+    "floor(": { key: "ceil(", label: "ceil(" },
+  };
+  let second = false;
+  const apply2nd = (): void => {
+    pad.querySelectorAll<HTMLButtonElement>(".tm-calc-fns .tm-calc-key").forEach(b => {
+      const k = b.dataset.key;
+      if (k == null) return;
+      if (second && MAP2ND[k]) {
+        b.dataset.origKey = k;
+        b.dataset.origLabel = b.textContent ?? k;
+        b.dataset.key = MAP2ND[k].key;
+        b.textContent = MAP2ND[k].label;
+      } else if (!second && b.dataset.origKey) {
+        b.dataset.key = b.dataset.origKey;
+        b.textContent = b.dataset.origLabel ?? b.dataset.origKey;
+        delete b.dataset.origKey;
+        delete b.dataset.origLabel;
+      }
+    });
+  };
   pad.querySelectorAll<HTMLButtonElement>(".tm-calc-key").forEach(b => b.onclick = () => {
     if (b.dataset.key != null) { insertAtCaret(input, b.dataset.key); return; }
     const act = b.dataset.action;
@@ -352,6 +386,10 @@ function wireCalc(root: HTMLElement): void {
       input.selectionStart = input.selectionEnd = s === e2 ? Math.max(0, s - 1) : s;
       input.focus();
       input.dispatchEvent(new Event("input"));
+    } else if (act === "2nd") {
+      second = !second;
+      b.classList.toggle("active", second);
+      apply2nd();
     } else if (act === "clear") {
       input.value = "";
       input.focus();
@@ -359,55 +397,201 @@ function wireCalc(root: HTMLElement): void {
     } else if (act === "eval") run();
     else if (act === "ans") insertAtCaret(input, fmtNum(ans, "dec"));
   });
-  const canvas = root.querySelector<HTMLCanvasElement>("[data-calc-canvas]")!;
-  const plot = (): void => {
-    const f = fnInput.value.trim();
-    if (!f) { canvas.hidden = true; return; }
-    canvas.hidden = false;
-    const ctx = canvas.getContext("2d")!;
-    const xmin = parseFloat(root.querySelector<HTMLInputElement>("[data-calc-xmin]")!.value) || -10;
-    const xmax = parseFloat(root.querySelector<HTMLInputElement>("[data-calc-xmax]")!.value) || 10;
-    if (!(xmax > xmin)) { out.textContent = "x max must be greater than x min"; return; }
-    const N = 400, ys: number[] = [];
-    let ymin = Infinity, ymax = -Infinity;
-    for (let k = 0; k <= N; k++) {
-      const x = xmin + (xmax - xmin) * k / N;
-      let y: number;
-      try { y = evalExpr(f, deg, x); } catch { y = NaN; }
-      ys.push(y);
-      if (Number.isFinite(y)) { ymin = Math.min(ymin, y); ymax = Math.max(ymax, y); }
-    }
-    if (!Number.isFinite(ymin)) { out.textContent = "f(x) produced no finite values on this range"; return; }
-    if (ymax - ymin < 1e-9) { ymin -= 1; ymax += 1; }
-    const pad = (ymax - ymin) * 0.08; ymin -= pad; ymax += pad;
-    const W = canvas.width, H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
+  // ---------- pass #118: the multigraph plot panel ----------
+  // He: "make f(x) a button to invoke plot … multigraphing (f(x) + g(x) + other
+  // graphs) … time to outdo them". The single-curve f(x) row collapses into a button;
+  // the panel it opens carries colored named curves (ƒ g h p q r s u), visibility
+  // eyes, add/remove, nice-tick labeled axes, an outlier-resistant y-range, a live
+  // crosshair readout, and per-curve honest errors. State persists locally
+  // (delcc-tmath-plot-v2); the angle mode follows the calculator's RAD/DEG toggle.
+  const PLOT_LS = "delcc-tmath-plot-v2";
+  const PLOT_MAX = 8;
+  const PLOT_COLORS = ["#4ea1ff", "#f59e0b", "#34d399", "#f472b6", "#a78bfa", "#22d3ee", "#fb7185", "#a3e635"];
+  const PLOT_NAMES = ["ƒ", "g", "h", "p", "q", "r", "s", "u"];
+  type PlotFn = { expr: string; on: boolean };
+  let plotFns: PlotFn[] = [{ expr: "sin(x)", on: true }, { expr: "x^2/4 - 2", on: true }];
+  const plotPanel = root.querySelector<HTMLElement>("[data-plot-panel]")!;
+  const plotRows = plotPanel.querySelector<HTMLElement>("[data-plot-rows]")!;
+  const plotCanvas = plotPanel.querySelector<HTMLCanvasElement>("[data-plot-canvas]")!;
+  const plotNote = plotPanel.querySelector<HTMLElement>("[data-plot-note]")!;
+  const plotXmin = plotPanel.querySelector<HTMLInputElement>("[data-plot-xmin]")!;
+  const plotXmax = plotPanel.querySelector<HTMLInputElement>("[data-plot-xmax]")!;
+  try {
+    const saved = JSON.parse(localStorage.getItem(PLOT_LS) ?? "null") as { fns?: PlotFn[]; xmin?: string; xmax?: string } | null;
+    if (saved && Array.isArray(saved.fns) && saved.fns.length <= PLOT_MAX
+      && saved.fns.every(f => !!f && typeof f.expr === "string" && typeof f.on === "boolean")) plotFns = saved.fns;
+    if (saved && typeof saved.xmin === "string") plotXmin.value = saved.xmin;
+    if (saved && typeof saved.xmax === "string") plotXmax.value = saved.xmax;
+  } catch { /* corrupt or absent — the defaults stand */ }
+  const persistPlot = (): void => {
+    try { localStorage.setItem(PLOT_LS, JSON.stringify({ fns: plotFns, xmin: plotXmin.value, xmax: plotXmax.value })); } catch { /* private mode — session only */ }
+  };
+  const fmtTick = (v: number): string => {
+    if (Math.abs(v) < 1e-12) return "0";
+    const a = Math.abs(v);
+    if (a >= 1e5 || a < 1e-3) return v.toExponential(1);
+    return String(Math.round(v * 1e6) / 1e6);
+  };
+  const fmtVal = (v: number): string => {
+    if (!Number.isFinite(v)) return "—";
+    if (v !== 0 && (Math.abs(v) >= 1e6 || Math.abs(v) < 1e-4)) return v.toExponential(3);
+    return String(Math.round(v * 1e4) / 1e4);
+  };
+  const niceStep = (span: number): number => {
+    const raw = span / 8;
+    const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+    const n = raw / pow;
+    return (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10) * pow;
+  };
+  const N_PLOT = 600;
+  // the crosshair redraws read this cache — pointer moves never re-sample the curves
+  let plotSamples: { ys: number[]; color: string }[] = [];
+  let plotView = { xmin: -10, xmax: 10, ymin: -1, ymax: 1 };
+  const drawPlot = (crossX?: number): void => {
+    const ctx = plotCanvas.getContext("2d")!;
+    const W = plotCanvas.width, H = plotCanvas.height;
+    const { xmin, xmax, ymin, ymax } = plotView;
     const px = (x: number): number => (x - xmin) / (xmax - xmin) * W;
     const py = (y: number): number => H - (y - ymin) / (ymax - ymin) * H;
-    ctx.strokeStyle = getComputedStyle(canvas).color || "#888";
-    ctx.globalAlpha = 0.25;
-    ctx.beginPath();
-    for (let gx = Math.ceil(xmin); gx <= Math.floor(xmax); gx++) { ctx.moveTo(px(gx), 0); ctx.lineTo(px(gx), H); }
-    for (let gy = Math.ceil(ymin); gy <= Math.floor(ymax); gy++) { ctx.moveTo(0, py(gy)); ctx.lineTo(W, py(gy)); }
+    const css = getComputedStyle(plotCanvas);
+    const ink = css.color || "#888";
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = ink; ctx.fillStyle = ink;
+    ctx.font = "10px " + (css.fontFamily || "sans-serif");
+    const sx = niceStep(xmax - xmin), sy = niceStep(ymax - ymin);
+    ctx.globalAlpha = 0.18; ctx.lineWidth = 1; ctx.beginPath();
+    for (let gx = Math.ceil(xmin / sx) * sx; gx <= xmax; gx += sx) { ctx.moveTo(px(gx), 0); ctx.lineTo(px(gx), H); }
+    for (let gy = Math.ceil(ymin / sy) * sy; gy <= ymax; gy += sy) { ctx.moveTo(0, py(gy)); ctx.lineTo(W, py(gy)); }
+    ctx.stroke();
+    ctx.globalAlpha = 0.55; ctx.beginPath();
+    if (ymin < 0 && ymax > 0) { ctx.moveTo(0, py(0)); ctx.lineTo(W, py(0)); }
+    if (xmin < 0 && xmax > 0) { ctx.moveTo(px(0), 0); ctx.lineTo(px(0), H); }
     ctx.stroke();
     ctx.globalAlpha = 1;
-    ctx.strokeStyle = getComputedStyle(canvas).getPropertyValue("--tmath-primary") || "#4ea1ff";
+    ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    for (let gx = Math.ceil(xmin / sx) * sx; gx <= xmax; gx += sx) ctx.fillText(fmtTick(gx), px(gx), H - 2);
+    ctx.textAlign = "left"; ctx.textBaseline = "top";
+    for (let gy = Math.ceil(ymin / sy) * sy; gy <= ymax; gy += sy) ctx.fillText(fmtTick(gy), 2, py(gy) + 2);
     ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    let pen = false;
-    for (let k = 0; k <= N; k++) {
-      const y = ys[k];
-      if (!Number.isFinite(y) || y < ymin - (ymax - ymin) * 2 || y > ymax + (ymax - ymin) * 2) { pen = false; continue; }
-      const X = px(xmin + (xmax - xmin) * k / N), Y = py(y);
-      if (pen) ctx.lineTo(X, Y); else { ctx.moveTo(X, Y); pen = true; }
+    for (const s of plotSamples) {
+      ctx.strokeStyle = s.color;
+      ctx.beginPath();
+      let pen = false;
+      for (let k = 0; k <= N_PLOT; k++) {
+        const y = s.ys[k];
+        if (!Number.isFinite(y) || y < ymin - (ymax - ymin) * 2 || y > ymax + (ymax - ymin) * 2) { pen = false; continue; }
+        const X = px(xmin + (xmax - xmin) * k / N_PLOT), Y = py(y);
+        if (pen) ctx.lineTo(X, Y); else { ctx.moveTo(X, Y); pen = true; }
+      }
+      ctx.stroke();
     }
-    ctx.stroke();
-    ctx.fillStyle = getComputedStyle(canvas).color || "#888";
-    ctx.font = "10px sans-serif";
-    ctx.fillText(`x ∈ [${xmin}, ${xmax}]  y ∈ [${Math.round(ymin * 100) / 100}, ${Math.round(ymax * 100) / 100}]`, 6, 12);
+    if (crossX !== undefined && crossX >= xmin && crossX <= xmax) {
+      ctx.globalAlpha = 0.4; ctx.strokeStyle = ink;
+      ctx.beginPath(); ctx.moveTo(px(crossX), 0); ctx.lineTo(px(crossX), H); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
   };
-  root.querySelector<HTMLButtonElement>("[data-calc-plot]")!.onclick = plot;
-  fnInput.onchange = plot;
+  let rowErrs: (string | null)[] = [];
+  let plotTimer: ReturnType<typeof setTimeout> | null = null;
+  const schedulePlot = (): void => { if (plotTimer) clearTimeout(plotTimer); plotTimer = setTimeout(renderPlot, 250); };
+  const renderPlot = (): void => {
+    const xmin = parseFloat(plotXmin.value), xmax = parseFloat(plotXmax.value);
+    if (!Number.isFinite(xmin) || !Number.isFinite(xmax) || !(xmax > xmin)) {
+      plotNote.textContent = t("tools.plotErrRange"); plotSamples = []; drawPlot(); return;
+    }
+    plotSamples = []; rowErrs = plotFns.map(() => null);
+    const all: number[] = [];
+    const errs: string[] = [];
+    plotFns.forEach((f, i) => {
+      if (!f.on || !f.expr.trim()) return;
+      const ys: number[] = [];
+      for (let k = 0; k <= N_PLOT; k++) {
+        const x = xmin + (xmax - xmin) * k / N_PLOT;
+        try {
+          const y = evalExpr(f.expr, deg, x);
+          ys.push(y);
+          if (Number.isFinite(y)) all.push(y);
+        } catch (e) {
+          ys.push(NaN);
+          if (!rowErrs[i]) rowErrs[i] = e instanceof Error ? e.message : String(e);
+        }
+      }
+      if (rowErrs[i]) errs.push(`${PLOT_NAMES[i]}: ${rowErrs[i]}`);
+      plotSamples.push({ ys, color: PLOT_COLORS[i % PLOT_COLORS.length] });
+    });
+    // err rings on the chips — an expression that cannot parse is said, never swallowed
+    plotRows.querySelectorAll<HTMLElement>(".tm-plot-row").forEach((r, i) => {
+      const err = !!(plotFns[i]?.on && rowErrs[i]);
+      r.classList.toggle("err", err);
+      const chip = r.querySelector<HTMLElement>(".tm-plot-chip");
+      if (chip) chip.title = err ? rowErrs[i]! : "";
+    });
+    if (!plotSamples.length || !all.length) {
+      plotNote.textContent = errs[0] ?? t("tools.plotErrNone");
+      plotSamples = plotSamples.filter(s => s.ys.some(Number.isFinite));
+      drawPlot();
+      return;
+    }
+    let ymin = Math.min(...all), ymax = Math.max(...all);
+    // outlier-resistant range: a lone spike (tan near its pole) must not flatten
+    // every other curve — when min/max dwarf the 1–99% band, the band wins
+    if (all.length >= 20) {
+      const sorted = [...all].sort((a, b) => a - b);
+      const p1 = sorted[Math.floor(sorted.length * 0.01)];
+      const p99 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.99) + 1)];
+      if (Number.isFinite(p1) && Number.isFinite(p99) && p99 > p1 && ymax - ymin > 30 * (p99 - p1)) { ymin = p1; ymax = p99; }
+    }
+    if (!(ymax - ymin > 1e-9)) { ymin -= 1; ymax += 1; }
+    const padY = (ymax - ymin) * 0.08; ymin -= padY; ymax += padY;
+    plotView = { xmin, xmax, ymin, ymax };
+    drawPlot();
+    plotNote.textContent = `x ∈ [${fmtTick(xmin)}, ${fmtTick(xmax)}]  y ∈ [${fmtTick(ymin)}, ${fmtTick(ymax)}] · ${deg ? "DEG" : "RAD"}`
+      + (errs.length ? ` · ${errs.join(" · ")}` : "");
+  };
+  const renderRows = (): void => {
+    plotRows.innerHTML = plotFns.map((f, i) =>
+      `<div class="tm-plot-row"><span class="tm-plot-chip" style="background:${PLOT_COLORS[i % PLOT_COLORS.length]}">${PLOT_NAMES[i]}</span><input class="tm-tools-input mono" data-plot-fn spellcheck="false" value="${esc(f.expr)}" placeholder="sin(x)" aria-label="${esc(t("tools.plotFn"))} ${PLOT_NAMES[i]}"><button type="button" class="tm-button tm-plot-mini${f.on ? "" : " off"}" data-plot-eye title="${esc(t("tools.plotEye"))}" aria-label="${esc(t("tools.plotEye"))}">${f.on ? "◉" : "○"}</button><button type="button" class="tm-button tm-plot-mini" data-plot-del title="${esc(t("tools.plotRemove"))}" aria-label="${esc(t("tools.plotRemove"))}">×</button></div>`).join("");
+    plotRows.querySelectorAll<HTMLInputElement>("[data-plot-fn]").forEach((inp, i) => {
+      inp.oninput = () => { plotFns[i].expr = inp.value; persistPlot(); schedulePlot(); };
+    });
+    plotRows.querySelectorAll<HTMLButtonElement>("[data-plot-eye]").forEach((b, i) => {
+      b.onclick = () => { plotFns[i].on = !plotFns[i].on; persistPlot(); renderRows(); schedulePlot(); };
+    });
+    plotRows.querySelectorAll<HTMLButtonElement>("[data-plot-del]").forEach((b, i) => {
+      b.onclick = () => { plotFns.splice(i, 1); persistPlot(); renderRows(); renderPlot(); };
+    });
+  };
+  const plotOpen = root.querySelector<HTMLButtonElement>("[data-plot-open]")!;
+  plotOpen.onclick = () => {
+    plotPanel.hidden = !plotPanel.hidden;
+    plotOpen.classList.toggle("active", !plotPanel.hidden);
+    if (!plotPanel.hidden) { renderRows(); renderPlot(); }
+  };
+  plotPanel.querySelector<HTMLButtonElement>("[data-plot-add]")!.onclick = () => {
+    if (plotFns.length >= PLOT_MAX) return;
+    plotFns.push({ expr: "", on: true });
+    persistPlot(); renderRows();
+    const inputs = plotRows.querySelectorAll<HTMLInputElement>("[data-plot-fn]");
+    (inputs[inputs.length - 1] ?? null)?.focus();
+  };
+  plotXmin.onchange = plotXmax.onchange = () => { persistPlot(); renderPlot(); };
+  plotPanel.querySelector<HTMLButtonElement>("[data-plot-redraw]")!.onclick = () => renderPlot();
+  // the crosshair: a vertical line + live per-curve values at the pointer, evaluated
+  // straight from the expressions — the curves themselves re-draw from the sample cache
+  plotCanvas.onpointermove = e => {
+    if (plotPanel.hidden || !plotSamples.length) return;
+    const r = plotCanvas.getBoundingClientRect();
+    if (!r.width) return;
+    const x = plotView.xmin + (e.clientX - r.left) / r.width * (plotView.xmax - plotView.xmin);
+    drawPlot(x);
+    const parts = [`x = ${fmtVal(x)}`];
+    plotFns.forEach((f, i) => {
+      if (!f.on || !f.expr.trim()) return;
+      try { parts.push(`${PLOT_NAMES[i]} = ${fmtVal(evalExpr(f.expr, deg, x))}`); } catch { parts.push(`${PLOT_NAMES[i]} = —`); }
+    });
+    plotNote.textContent = parts.join("  ·  ");
+  };
+  plotCanvas.onpointerleave = () => { if (!plotPanel.hidden) renderPlot(); };
 }
 
 // ---------- bytes & encodings wiring ----------

@@ -170,6 +170,60 @@ try {
   console.log("[probe] calc:", JSON.stringify({ ...calc, histAfter }));
   await page.screenshot({ path: `${OUT}/calc.png` });
 
+  // ---------- PLOT (pass #118): the f(x) button → multigraph panel ----------
+  // He: "make f(x) a button to invoke plot … multigraphing (f(x) + g(x) + other
+  // graphs) … 2nd (arc funcs for sin/cos/tan, ln for log) … time to outdo them".
+  await page.locator('[data-pane="calc"] [data-plot-open]').click();
+  await page.waitForSelector('[data-pane="calc"] [data-plot-panel]:not([hidden])', { timeout: 5000 });
+  await sleep(700); // first render + the debounced repaint settle
+  const plot1 = await page.evaluate(() => {
+    const panel = document.querySelector('[data-pane="calc"] [data-plot-panel]');
+    const cv = panel.querySelector('[data-plot-canvas]');
+    const img = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    const near = (r, g, b, tol) => { let n = 0; for (let i = 0; i < img.length; i += 4) { const d = (img[i]-r)**2 + (img[i+1]-g)**2 + (img[i+2]-b)**2; if (d < tol*tol) n++; } return n; };
+    return {
+      rows: panel.querySelectorAll('.tm-plot-row').length,
+      blue: near(78, 161, 255, 70),   // curve ƒ
+      orange: near(245, 158, 11, 70), // curve g
+      note: panel.querySelector('[data-plot-note]').textContent,
+    };
+  });
+  // 2nd: the sin chip swaps to sin⁻¹( (asin() and back; the swap is what inserts
+  const before2nd = await page.evaluate(() => document.querySelector('[data-pane="calc"] .tm-calc-fns [data-key="sin("]')?.dataset.key ?? null);
+  await page.locator('[data-pane="calc"] [data-action="2nd"]').click();
+  const after2nd = await page.evaluate(() => {
+    const chip = document.querySelector('[data-pane="calc"] .tm-calc-fns [data-key="asin("]');
+    return { key: chip?.dataset.key ?? null, label: chip?.textContent ?? null };
+  });
+  await page.locator('[data-pane="calc"] .tm-calc-fns [data-key="asin("]').click();
+  const secondInsert = await page.evaluate(() => document.querySelector('[data-calc-expr]').value);
+  await page.locator('[data-pane="calc"] [data-action="2nd"]').click();
+  const restored2nd = await page.evaluate(() => document.querySelector('[data-pane="calc"] .tm-calc-fns [data-key="sin("]')?.dataset.key ?? null);
+  // add a third curve, eye off the first, delete the third
+  await page.locator('[data-pane="calc"] [data-plot-add]').click();
+  const rows3 = await page.evaluate(() => document.querySelectorAll('[data-pane="calc"] .tm-plot-row').length);
+  await page.locator('[data-pane="calc"] .tm-plot-row:nth-child(3) [data-plot-fn]').fill('x/3');
+  await sleep(700);
+  const inkOf = (r, g, b) => page.evaluate(([R, G, B]) => {
+    const cv = document.querySelector('[data-pane="calc"] [data-plot-canvas]');
+    const img = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    let n = 0;
+    for (let i = 0; i < img.length; i += 4) { const d = (img[i]-R)**2 + (img[i+1]-G)**2 + (img[i+2]-B)**2; if (d < 70*70) n++; }
+    return n;
+  }, [r, g, b]);
+  const greenInk = await inkOf(52, 211, 153); // curve h
+  await page.locator('[data-pane="calc"] .tm-plot-row:nth-child(1) [data-plot-eye]').click();
+  await sleep(700);
+  const blueAfterEye = await inkOf(78, 161, 255);
+  const rowsEye = await page.evaluate(() => document.querySelectorAll('[data-pane="calc"] .tm-plot-row').length);
+  await page.locator('[data-pane="calc"] .tm-plot-row:nth-child(3) [data-plot-del]').click();
+  const rowsAfterDel = await page.evaluate(() => document.querySelectorAll('[data-pane="calc"] .tm-plot-row').length);
+  const plot = { plot1, before2nd, after2nd, secondInsert, restored2nd, rows3, greenInk, blueAfterEye, rowsEye, rowsAfterDel };
+  console.log("[probe] plot:", JSON.stringify(plot));
+  await sleep(400);
+  await page.screenshot({ path: `${OUT}/plot.png` }); // open panel, two curves + range line
+  await page.locator('[data-pane="calc"] [data-plot-open]').click(); // close again
+
   // ---------- BYTES hex editor ----------
   await page.locator('[data-tab="bytes"]').click();
   // pass #116 ghost check: two successive loads must leave EXACTLY one editor whose
@@ -202,6 +256,11 @@ try {
 
   if (calc.result !== "= 3") fail = "calculator keypad eval failed: " + JSON.stringify(calc);
   if (calc.gridCols !== 5 || !calc.wideSpans) fail = "numpad layout not canonical: " + JSON.stringify(calc);
+  if (plot.plot1.rows !== 2 || plot.plot1.blue < 50 || plot.plot1.orange < 50) fail = "plot multigraph failed: " + JSON.stringify(plot.plot1);
+  if (plot.before2nd !== "sin(" || plot.after2nd.key !== "asin(" || plot.after2nd.label !== "sin⁻¹(" || !plot.secondInsert.endsWith("asin(") || plot.restored2nd !== "sin(") fail = "2nd modifier failed: " + JSON.stringify({ b: plot.before2nd, a: plot.after2nd, ins: plot.secondInsert, r: plot.restored2nd });
+  if (plot.rows3 !== 3 || plot.greenInk < 50) fail = "plot add/third curve failed: " + JSON.stringify({ rows3: plot.rows3, green: plot.greenInk });
+  if (plot.blueAfterEye > 0 || plot.rowsEye !== 3) fail = "plot eye-off failed: " + JSON.stringify({ blue: plot.blueAfterEye, rows: plot.rowsEye });
+  if (plot.rowsAfterDel !== 2) fail = "plot del failed: rows=" + plot.rowsAfterDel;
   if (!calc.histClearChip || histAfterCheck.chips !== 0 || histAfterCheck.clearChip) fail = "history clear failed: " + JSON.stringify(histAfterCheck);
   if (!graph.rootsInput || !graph.relabelSelect || !graph.hintPresent) fail = "graph controls missing: " + JSON.stringify(graph);
   if (!graph.physicsGone) fail = "edge-physics stub checkbox still present";

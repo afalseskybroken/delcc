@@ -108,3 +108,16 @@
 
 /* pass #116: the history row's clear chip (He: "What if we want to delete history?") */
 .tm-tools-hist-clear { color: var(--tmath-destructive, #e5484d); border-color: var(--tmath-destructive, #e5484d); }
+
+/* ---- pass #118 (He): the f(x) button + multigraph plot panel + the 2nd modifier ---- */
+.tm-calc-2nd.active, .tm-plot-open.active { background: var(--tmath-primary); color: var(--tmath-primary-foreground); border-color: var(--tmath-primary); }
+.tm-plot-panel { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--tmath-border); border-radius: 8px; padding: 10px; background: var(--tmath-card); }
+.tm-plot-rows { display: flex; flex-direction: column; gap: 6px; }
+.tm-plot-row { display: flex; align-items: center; gap: 6px; }
+.tm-plot-row .tm-tools-input { flex: 1 1 0; min-width: 0; box-sizing: border-box; }
+.tm-plot-chip { flex: 0 0 auto; min-width: 24px; height: 24px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: #0b1220; font-weight: 700; font-size: 12px; }
+.tm-plot-row.err .tm-plot-chip { outline: 2px solid var(--tmath-destructive, #e5484d); outline-offset: 1px; }
+.tm-plot-mini { min-width: 26px; width: 26px; height: 26px; min-height: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; line-height: 1; }
+.tm-plot-mini.off { opacity: 0.55; }
+.tm-plot-add { border-style: dashed; }
+.tm-plot-panel[hidden] { display: none; }
