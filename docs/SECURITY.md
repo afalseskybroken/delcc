@@ -149,6 +149,19 @@ Sketch tab (#112): Excalidraw 0.18.1 (MIT) renders as a lazy React component in 
 tools panel; its fonts and locales are bundled (no CDN, no runtime fetches), and the
 scene persists locally in the delcc-sketch-scene localStorage key.
 
+## Dependency advisories (as of 0.3.20-alpha)
+
+Pass #117 closes the first RustSec sweep the tree has ever had (cargo-audit 0.22.2,
+1,395 advisories, run 2026-11-01): `rustls-webpki` 0.103.15 → 0.103.16
+(RUSTSEC-2026-0382 — certificate verification could accept distrusted intermediates)
+and `webpki-root-certs` 1.0.9 → 1.0.11 (RUSTSEC-2026-0383 — bundled roots trusted
+distrusted emSign intermediates). Both sit on delcc's TLS verification path for every
+HTTPS call the shell makes (`reqwest` → `rustls`), so the fix ships in the binary,
+not just the lockfile — verified with `cargo tree`. The npm dev-chain advisory found
+in the same sweep (vite `server.fs.deny` bypass, GHSA-8g5g-mxqh-grgj, moderate) is
+dev-server-only and was bumped in the same pass (6.4.5). The sweep tooling is kept
+for reuse so future passes can re-run it; production npm gates remain the CI audit.
+
 ## Reporting
 
 Report at **https://github.com/afalseskybroken/delcc/issues** — for anything

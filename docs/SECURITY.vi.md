@@ -90,6 +90,20 @@ năng khoá chặn việc dùng profile sau một hash, và đăng xuất xoá s
 - build dir CPH: temp dir mỗi lần chạy (`delcc-cph-*`), bị xoá trên mọi đường
   chạy; cache dir bị xoá khi app thoát qua `cleanup()`
 
+## Cảnh báo phụ thuộc (tính tới 0.3.20-alpha)
+
+Pass #117 xử lý đợt quét RustSec đầu tiên mà cây mã này từng có (cargo-audit 0.22.2,
+1.395 advisory, chạy ngày 2026-11-01): `rustls-webpki` 0.103.15 → 0.103.16
+(RUSTSEC-2026-0382 — việc xác minh chứng chỉ có thể chấp nhận intermediate bị thu hồi
+niềm tin) và `webpki-root-certs` 1.0.9 → 1.0.11 (RUSTSEC-2026-0383 — bộ root đóng gói
+sẵn tin các intermediate emSign đã bị thu hồi niềm tin). Cả hai nằm trên đường xác
+minh TLS của mọi lệnh gọi HTTPS mà shell thực hiện (`reqwest` → `rustls`), nên bản
+vá chạy trong binary, không chỉ trong lockfile — đã xác minh bằng `cargo tree`.
+Advisory npm chuỗi dev tìm thấy trong cùng đợt quét (lỗi `server.fs.deny` của vite,
+GHSA-8g5g-mxqh-grgj, mức moderate) chỉ ảnh hưởng dev-server và cũng được nâng trong
+cùng pass (6.4.5). Công cụ quét được giữ lại để các pass sau chạy lại; gate npm production
+vẫn là audit của CI.
+
 ## Reporting
 
 Chưa có tracker công khai — mục này là placeholder cho maintainer điền (issue
