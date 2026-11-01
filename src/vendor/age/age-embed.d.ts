@@ -7,7 +7,6 @@ export interface AgeData {
   directed: boolean;
   tree: boolean;
   lock: boolean;
-  physics: boolean;
   dark: boolean;
 }
 export function mountAge(host: HTMLElement, data: AgeData): void;

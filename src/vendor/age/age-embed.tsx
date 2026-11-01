@@ -19,7 +19,6 @@ export interface AgeData {
   directed: boolean;
   tree: boolean;
   lock: boolean;
-  physics: boolean;
   dark: boolean;
 }
 
@@ -82,21 +81,21 @@ function AgeCanvas(props: {
   dark: boolean;
   tree: boolean;
   lock: boolean;
-  physics: boolean;
   labelOffset: number;
 }) {
   const [settings] = useState<Settings>(() => ({
     ...defaults(props.dark),
     treeMode: props.tree,
     lockMode: props.lock,
-    edgePhysics: props.physics,
   }));
   // our checkboxes are authoritative on every bridge re-render
   settings.treeMode = props.tree;
   settings.lockMode = props.lock;
-  settings.edgePhysics = props.physics;
   settings.darkMode = props.dark;
   settings.labelOffset = props.labelOffset; // pass #114: the relabel combobox
+  // pass #115: the edge-physics toggle is GONE from the panel — AGE's physics only
+  // bends parallel edges (indices 2–9), inert for plain graphs, so exposing it was a
+  // stub. edgePhysics stays at AGE's upstream default (true).
   return (
     <GraphCanvas testCases={props.cases} directed={props.directed} settings={settings} setSettings={() => { /* the embed keeps panel-owned settings authoritative */ }} />
   );
@@ -116,7 +115,6 @@ function render(data: AgeData): void {
         dark={data.dark}
         tree={data.tree}
         lock={data.lock}
-        physics={data.physics}
         labelOffset={data.labelOffset}
       />
     </div>,

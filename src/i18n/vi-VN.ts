@@ -176,7 +176,6 @@ export const viVN: Dict = {
   "tools.bytesCount": "{n} byte",
   "tools.treeLayout": "Bố trí cây (tự động)",
   "tools.lockPositions": "Cố định vị trí",
-  "tools.dragNeighbours": "Vật lý cạnh (kéo sẽ tái cân bằng)",
   "tools.plot": "Vẽ đồ thị hàm",
   "tools.text": "Văn bản",
   "tools.hex": "Hex",

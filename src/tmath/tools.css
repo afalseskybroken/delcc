@@ -53,16 +53,24 @@
    scope root (whose own tailwind classes can't match itself under the scoped CSS) fills it. */
 .tm-age-host { position: relative; width: 100%; height: 460px; min-height: 280px; overflow: hidden; border-radius: 8px; }
 .tm-age-host > div { width: 100%; height: 100%; }
+/* pass #115 (He, side-by-side): Official's graph lives in a bordered box — ours is that
+   box (.tm-graph-box wraps the AGE host); the vertices/edges count moves INTO the box's
+   corner as a badge instead of dangling under the control column. */
+.tm-graph-box { position: relative; width: 100%; height: 460px; min-height: 280px; overflow: hidden; border: 1px solid var(--tmath-border); border-radius: 8px; display: flex; }
+.tm-graph-box .tm-age-host { flex: 1 1 0; height: auto; min-height: 0; border-radius: 0; }
+.tm-graph-badge { position: absolute; right: 10px; bottom: 10px; z-index: 5; pointer-events: none; padding: 3px 10px; border: 1px solid var(--tmath-border); border-radius: 999px; background: var(--tmath-card); color: var(--tmath-muted-foreground); font-size: 11px; }
+/* the root input's min-width(220) + padding overflows the 220px narrow column into the box */
+.tm-tools-col.narrow .tm-tools-input { min-width: 0; width: 100%; box-sizing: border-box; }
 /* pass #109 (He's live notes): left-edge resize grip + maximize uses the viewport height */
 .tm-tools-resize { position: absolute; left: 0; top: 0; bottom: 0; width: 7px; cursor: ew-resize; z-index: 5; }
-.tm-tools-panel.maximized .tm-age-host { height: calc(100vh - 250px); }
+.tm-tools-panel.maximized .tm-graph-box { height: calc(100vh - 250px); }
 /* pass #110 (He: "we need vertical" + "color scheme fit us"): top-left corner resizes both
    axes; with a user-set height the bodies flex-fill and the AGE iframe grows with them. */
 .tm-tools-resize-corner { position: absolute; left: 0; top: 0; width: 16px; height: 16px; cursor: nwse-resize; z-index: 6; }
 .tm-tools-panel[data-user-height] .tm-tools-body { max-height: none; flex: 1 1 0; min-height: 0; }
 .tm-tools-panel[data-user-height] .tm-tools-body[data-pane="graph"] { display: flex; flex-direction: column; gap: 10px; }
-.tm-tools-panel[data-user-height] .tm-age-host { flex: 1 1 0; height: auto; min-height: 240px; }
-.tm-tools-panel[data-user-height].maximized .tm-age-host { height: auto; }
+.tm-tools-panel[data-user-height] .tm-graph-box { flex: 1 1 0; height: auto; min-height: 240px; }
+.tm-tools-panel[data-user-height].maximized .tm-graph-box { height: auto; }
 
 /* pass #112: the Excalidraw sketch host (fills the pane; the canvas follows its container) */
 .tm-sketch-host { width: 100%; height: 460px; min-height: 360px; border: 1px solid var(--tmath-border); border-radius: 8px; overflow: hidden; }

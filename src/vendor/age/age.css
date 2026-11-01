@@ -29,3 +29,9 @@
 /* the canvas draws its own 2px ring that glows on the dark panel — Official's canvas is
    borderless; kill the border on all three stacked canvases (appendix order wins) */
 .tm-age-scope .flex.h-screen > div > .relative.h-full.w-full > canvas { border-color: transparent; }
+
+/* pass #115 addendum — He: "Download is way broken". The PNG/SVG row uses blob-anchor
+   downloads that WebView2 (the shipping shell) silently drops — and Official exposes no
+   download at all. Hide the row; the canvas takes the whole pane (the tool row above is
+   hidden since #114, so this is the wrapper's last visible child). */
+.tm-age-scope .flex.h-screen > div > .flex.justify-end { display: none; }

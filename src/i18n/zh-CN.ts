@@ -176,7 +176,6 @@ export const zhCN: Dict = {
   "tools.bytesCount": "{n} 字节",
   "tools.treeLayout": "树形布局（自动）",
   "tools.lockPositions": "锁定位置",
-  "tools.dragNeighbours": "边物理（拖动后重新平衡）",
   "tools.plot": "绘制函数",
   "tools.text": "文本",
   "tools.hex": "十六进制",

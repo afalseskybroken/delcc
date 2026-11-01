@@ -185,7 +185,7 @@ export function openToolsPanel(): void {
 <div class="tm-tools-body" data-pane="graph" hidden>
   <div class="tm-tools-cols"><div class="tm-tools-col narrow"><b>${esc(t("tools.graphEdges"))}</b><textarea class="tm-tools-area mono" data-graph-edges spellcheck="false" placeholder="1 2 4&#10;2 3 2&#10;3 1 5">1 2 4
 2 3 2
-3 1 5</textarea><input class="tm-tools-input" data-graph-roots spellcheck="false" placeholder="${esc(t("tools.graphRootPh"))}" aria-label="${esc(t("tools.graphRoot"))}" title="${esc(t("tools.graphRoot"))}"><button type="button" class="tm-button primary" data-graph-draw>${esc(t("tools.graphDraw"))}</button><div class="tm-tools-sub">${esc(t("tools.graphHint"))}</div><div class="tm-tools-checks"><label class="tm-tools-inline"><input type="checkbox" data-graph-directed> ${esc(t("tools.graphDirected"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-tree> ${esc(t("tools.treeLayout"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-lock> ${esc(t("tools.lockPositions"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-neigh> ${esc(t("tools.dragNeighbours"))}</label></div><label class="tm-tools-inline">${esc(t("tools.graphRelabel"))} <select class="tm-drafts-select" data-graph-relabel><option value="0">${esc(t("tools.graphRelabelKeep"))}</option><option value="-1">${esc(t("tools.graphRelabelZero"))}</option><option value="1">${esc(t("tools.graphRelabelOne"))}</option></select></label><div class="tm-tools-result" data-graph-stats></div></div><div class="tm-tools-col"><div class="tm-age-host" data-graph-host></div></div></div>
+3 1 5</textarea><input class="tm-tools-input" data-graph-roots spellcheck="false" placeholder="${esc(t("tools.graphRootPh"))}" aria-label="${esc(t("tools.graphRoot"))}" title="${esc(t("tools.graphRoot"))}"><button type="button" class="tm-button primary" data-graph-draw>${esc(t("tools.graphDraw"))}</button><div class="tm-tools-sub">${esc(t("tools.graphHint"))}</div><div class="tm-tools-checks"><label class="tm-tools-inline"><input type="checkbox" data-graph-directed> ${esc(t("tools.graphDirected"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-tree> ${esc(t("tools.treeLayout"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-lock> ${esc(t("tools.lockPositions"))}</label></div><label class="tm-tools-inline">${esc(t("tools.graphRelabel"))} <select class="tm-drafts-select" data-graph-relabel><option value="0">${esc(t("tools.graphRelabelKeep"))}</option><option value="-1">${esc(t("tools.graphRelabelZero"))}</option><option value="1">${esc(t("tools.graphRelabelOne"))}</option></select></label></div><div class="tm-tools-col"><div class="tm-graph-box" data-graph-box><div class="tm-age-host" data-graph-host></div><div class="tm-graph-badge" data-graph-stats></div></div></div></div>
 </div></div>`;
   // pass #112: the sketch pane is appended in JS as a DIRECT child of the panel — the
   // template nesting bit us twice (a pane inside the graph pane body vanishes with it).
@@ -487,7 +487,6 @@ function wireGraph(root: HTMLElement): () => void {
     directed: root.querySelector<HTMLInputElement>("[data-graph-directed]")?.checked ?? false,
     tree: root.querySelector<HTMLInputElement>("[data-graph-tree]")?.checked ?? false,
     lock: root.querySelector<HTMLInputElement>("[data-graph-lock]")?.checked ?? false,
-    physics: root.querySelector<HTMLInputElement>("[data-graph-neigh]")?.checked ?? false,
     dark: document.documentElement.classList.contains("dark"),
   });
   const updateStats = (): void => {
@@ -508,6 +507,12 @@ function wireGraph(root: HTMLElement): () => void {
       if (!mounted) {
         age.mountAge(root.querySelector<HTMLElement>("[data-graph-host]")!, ageData());
         mounted = true;
+        // pass #115: the first parse can race the panel layout — nodes get placed for a
+        // stale canvas size, then clamped into the top-left corner (resetPos only
+        // clamps, it never re-centers). One settled re-measure + re-parse places the
+        // graph for the real box.
+        window.dispatchEvent(new Event("resize"));
+        setTimeout(() => { window.dispatchEvent(new Event("resize")); push(); }, 250);
       } else {
         age.updateAge(ageData());
       }
@@ -517,7 +522,7 @@ function wireGraph(root: HTMLElement): () => void {
   edges.onchange = () => { updateStats(); push(); };
   roots.onchange = push; // pass #114: roots/isolated change re-parses (tree depth-start)
   relabel.onchange = push; // pass #114: displayed relabel
-  for (const box of ["[data-graph-directed]", "[data-graph-tree]", "[data-graph-lock]", "[data-graph-neigh]"]) {
+  for (const box of ["[data-graph-directed]", "[data-graph-tree]", "[data-graph-lock]"]) {
     root.querySelector<HTMLInputElement>(box)!.onchange = push;
   }
   updateStats();

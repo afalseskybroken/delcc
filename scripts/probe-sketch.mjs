@@ -70,25 +70,70 @@ try {
   }, sel);
 
   // ---------- GRAPH (default tab) ----------
-  await page.waitForSelector("[data-graph-host] canvas", { timeout: 30000 });
-  await sleep(1000);
+  // poll (waitForSelector's visibility heuristic false-negatives on the stacked
+  // absolutely-positioned canvases) and dump the host state if it never mounts
+  let graphWait = null;
+  for (let i = 0; i < 40; i++) {
+    await sleep(1000);
+    graphWait = await page.evaluate(() => {
+      const host = document.querySelector("[data-graph-host]");
+      const cs = [...(host?.querySelectorAll("canvas") ?? [])];
+      const b = cs[0]?.getBoundingClientRect();
+      return { canvases: cs.length, first: b ? `${Math.round(b.width)}x${Math.round(b.height)}` : null };
+    });
+    if (graphWait.canvases >= 3 && graphWait.first !== "0x0" && graphWait.first !== null) break;
+  }
+  if (!graphWait || graphWait.canvases < 3) {
+    const dump = await page.evaluate(() => document.querySelector("[data-graph-host]")?.innerHTML.slice(0, 300) ?? "NO HOST");
+    throw new Error("graph canvases never mounted: " + JSON.stringify(graphWait) + " host=" + dump);
+  }
+  console.log("[probe] graph mount:", JSON.stringify(graphWait));
+  await sleep(1400); // mount + the #115 settled re-parse
   const graph = await page.evaluate(() => {
     const q = s => document.querySelector(s);
     const visible = el => !!el && el.offsetParent !== null;
     const toolRow = [...(q("[data-graph-host]")?.querySelectorAll("div") ?? [])]
       .find(d => d.className.includes("justify-between") && d.className.includes("items-end"));
+    const dlRow = [...(q("[data-graph-host]")?.querySelectorAll("div") ?? [])]
+      .find(d => d.className.includes("justify-end"));
     const host = q("[data-graph-host]");
+    const box = q("[data-graph-box]");
+    const badge = q("[data-graph-stats]");
     const canvases = [...(host?.querySelectorAll("canvas") ?? [])].map(c => {
       const b = c.getBoundingClientRect();
       return { w: Math.round(b.width), h: Math.round(b.height) };
     });
+    // the badge must sit INSIDE the box (corner overlay), not below the column
+    const bb = box?.getBoundingClientRect();
+    const gb = badge?.getBoundingClientRect();
+    const badgeInBox = !!bb && !!gb && gb.right <= bb.right + 1 && gb.bottom <= bb.bottom + 1 && gb.top >= bb.top - 1;
+    // nodes centered? sample the canvas ink centroid vs canvas center
+    const canvas = host?.querySelector("canvas");
+    let centroid = null;
+    if (canvas) {
+      const ctx = canvas.getContext("2d");
+      const { width: W, height: H } = canvas;
+      const img = ctx.getImageData(0, 0, W, H).data;
+      let sx = 0, sy = 0, n = 0;
+      for (let y = 0; y < H; y += 4) for (let x = 0; x < W; x += 4) {
+        const a = img[(y * W + x) * 4 + 3];
+        if (a > 40) { sx += x; sy += y; n++; }
+      }
+      if (n > 20) centroid = { x: Math.round(sx / n / W * 100), y: Math.round(sy / n / H * 100) };
+    }
     return {
       rootsInput: visible(q("[data-graph-roots]")),
       relabelSelect: visible(q("[data-graph-relabel]")),
       hintPresent: !!q("[data-pane='graph'] .tm-tools-sub"),
+      physicsGone: !q("[data-graph-neigh]"),
       toolRowHidden: !toolRow || !visible(toolRow),
+      downloadHidden: !dlRow || !visible(dlRow),
+      boxBorder: box ? getComputedStyle(box).borderTopWidth : null,
+      badgeInBox,
+      badgeText: badge?.textContent ?? null,
       hostRect: host ? { w: Math.round(host.getBoundingClientRect().width), h: Math.round(host.getBoundingClientRect().height) } : null,
       canvases,
+      centroidPct: centroid,
     };
   });
   console.log("[probe] graph:", JSON.stringify(graph));
@@ -140,7 +185,11 @@ try {
 
   if (calc.result !== "= 3") fail = "calculator keypad eval failed: " + JSON.stringify(calc);
   if (!graph.rootsInput || !graph.relabelSelect || !graph.hintPresent) fail = "graph controls missing: " + JSON.stringify(graph);
+  if (!graph.physicsGone) fail = "edge-physics stub checkbox still present";
   if (!graph.toolRowHidden) fail = "AGE tool row still visible (crescent source)";
+  if (!graph.downloadHidden) fail = "broken Download row still visible";
+  if (graph.boxBorder !== "1px") fail = "bounding box border missing: " + JSON.stringify(graph.boxBorder);
+  if (!graph.badgeInBox || !/vertices/.test(graph.badgeText ?? "")) fail = "stats badge not inside the box: " + JSON.stringify(graph);
   if (!bytes.editorMounted || !/9/.test(bytes.detail ?? "")) fail = "hex editor not mounted/count wrong: " + JSON.stringify(bytes);
   if (errors.length) console.log("[probe] page errors:\n" + errors.slice(0, 12).join("\n"));
   else console.log("[probe] no console/page errors");

@@ -177,7 +177,6 @@ export const enUS: Dict = {
   "tools.bytesCount": "{n} bytes",
   "tools.treeLayout": "Tree layout (automatic)",
   "tools.lockPositions": "Lock positions",
-  "tools.dragNeighbours": "Edge physics (drag re-settles)",
   "tools.plot": "Plot",
   "tools.text": "Text",
   "tools.hex": "Hex",
