@@ -910,6 +910,11 @@ body[data-persona="tmath"] .tm-mono-grip[data-dragging]::before { background: va
    (official palette: Rated red-100/red-700, Unrated green-100/green-700, dark
    counterparts red-950/red-300, green-950/green-300) + the rate-ceiling cap badge */
 body[data-persona="tmath"] .tm-rate-badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 16px; vertical-align: middle; }
+
+/* pass #119 (He): the contest title, the Rated badge and the rate-cap badge sit
+   butt-joined — Official separates them (his screenshot ruling); one scoped gap
+   rule spaces the pills from the title and from each other. */
+body[data-persona="tmath"] .tm-contest-summary .tm-rate-badge { margin-left: 6px; }
 body[data-persona="tmath"] .tm-rate-badge.yes { background: #fee2e2; color: #b91c1c; }
 body[data-persona="tmath"] .tm-rate-badge.no { background: #dcfce7; color: #166534; }
 html.dark body[data-persona="tmath"] .tm-rate-badge.yes { background: #450a0a; color: #fca5a5; }
