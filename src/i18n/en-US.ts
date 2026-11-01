@@ -175,6 +175,7 @@ export const enUS: Dict = {
   "tools.bytesHint": "Editable hex view - type to overwrite bytes, then Apply edits writes them back to the columns.",
   "tools.bytesApply": "Apply edits",
   "tools.bytesCount": "{n} bytes",
+  "tools.histClear": "Clear history",
   "tools.treeLayout": "Tree layout (automatic)",
   "tools.lockPositions": "Lock positions",
   "tools.plot": "Plot",

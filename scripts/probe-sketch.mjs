@@ -39,6 +39,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 let exitCode = 0;
 let fail = null;
+let histAfterCheck = null; // { chips, clearChip } — filled by the calc section
 try {
   let ready = false;
   for (let i = 0; i < 60 && !ready; i++) {
@@ -149,24 +150,40 @@ try {
   const calc = await page.evaluate(() => {
     const expr = document.querySelector("[data-calc-expr]");
     const out = document.querySelector("[data-calc-out]");
+    const grid = document.querySelector(".tm-calc-grid");
     return {
       keys: document.querySelectorAll("[data-calc-pad] .tm-calc-key").length,
       expression: expr?.value ?? null,
       result: out?.textContent ?? null,
+      gridCols: grid ? getComputedStyle(grid).gridTemplateColumns.split(" ").length : null,
+      wideSpans: !!document.querySelector(".tm-calc-zero") && !!document.querySelector(".tm-calc-eq"),
+      histClearChip: !!document.querySelector("[data-hist-clear]"),
     };
   });
-  console.log("[probe] calc:", JSON.stringify(calc));
+  // the #116 clear-history chip: one click wipes the record
+  await page.locator('[data-hist-clear]').first().click();
+  const histAfter = await page.evaluate(() => ({
+    chips: document.querySelectorAll("[data-calc-hist] .tm-tools-hist").length,
+    clearChip: !!document.querySelector("[data-hist-clear]"),
+  }));
+  histAfterCheck = histAfter;
+  console.log("[probe] calc:", JSON.stringify({ ...calc, histAfter }));
   await page.screenshot({ path: `${OUT}/calc.png` });
 
   // ---------- BYTES hex editor ----------
   await page.locator('[data-tab="bytes"]').click();
+  // pass #116 ghost check: two successive loads must leave EXACTLY one editor whose
+  // byte count matches the latest columns (the old code stacked a stale one)
   await page.locator('[data-pane="bytes"] [data-bytes-text]').fill("delcc hex");
   await page.waitForSelector("[data-bytes-dump] hexcanvas-editor", { timeout: 30000 });
-  await sleep(600);
+  await sleep(700);
+  await page.locator('[data-pane="bytes"] [data-bytes-text]').fill("gg");
+  await sleep(700);
   const bytes = await page.evaluate(() => {
     const host = document.querySelector("[data-bytes-dump]");
     const detail = document.querySelector("[data-bytes-detail]");
     return {
+      editorCount: host?.querySelectorAll("hexcanvas-editor").length ?? 0,
       editorMounted: !!host?.querySelector("hexcanvas-editor"),
       editorSize: host ? { w: Math.round(host.getBoundingClientRect().width), h: Math.round(host.getBoundingClientRect().height) } : null,
       detail: detail?.textContent ?? null,
@@ -184,13 +201,15 @@ try {
   await page.screenshot({ path: `${OUT}/sketch.png` });
 
   if (calc.result !== "= 3") fail = "calculator keypad eval failed: " + JSON.stringify(calc);
+  if (calc.gridCols !== 5 || !calc.wideSpans) fail = "numpad layout not canonical: " + JSON.stringify(calc);
+  if (!calc.histClearChip || histAfterCheck.chips !== 0 || histAfterCheck.clearChip) fail = "history clear failed: " + JSON.stringify(histAfterCheck);
   if (!graph.rootsInput || !graph.relabelSelect || !graph.hintPresent) fail = "graph controls missing: " + JSON.stringify(graph);
   if (!graph.physicsGone) fail = "edge-physics stub checkbox still present";
   if (!graph.toolRowHidden) fail = "AGE tool row still visible (crescent source)";
   if (!graph.downloadHidden) fail = "broken Download row still visible";
   if (graph.boxBorder !== "1px") fail = "bounding box border missing: " + JSON.stringify(graph.boxBorder);
   if (!graph.badgeInBox || !/vertices/.test(graph.badgeText ?? "")) fail = "stats badge not inside the box: " + JSON.stringify(graph);
-  if (!bytes.editorMounted || !/9/.test(bytes.detail ?? "")) fail = "hex editor not mounted/count wrong: " + JSON.stringify(bytes);
+  if (!bytes.editorMounted || bytes.editorCount !== 1 || !/2/.test(bytes.detail ?? "")) fail = "hex editor ghost/stale: " + JSON.stringify(bytes);
   if (errors.length) console.log("[probe] page errors:\n" + errors.slice(0, 12).join("\n"));
   else console.log("[probe] no console/page errors");
   await browser.close();

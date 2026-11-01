@@ -171,7 +171,7 @@ export function openToolsPanel(): void {
 <div class="tm-tools-body" data-pane="calc">
   <div class="tm-tools-row"><input class="tm-tools-input" data-calc-expr spellcheck="false" placeholder="sin(pi/4) + 0xff &amp; 0b1010 | 3 &lt;&lt; 2"><select class="tm-drafts-select" data-calc-base><option value="dec">DEC</option><option value="hex">HEX</option><option value="oct">OCT</option><option value="bin">BIN</option></select><button type="button" class="tm-button" data-calc-angle>RAD</button></div>
   <div class="tm-tools-result" data-calc-out>—</div>
-  <div class="tm-calc-pad" data-calc-pad><div class="tm-calc-fns"><button type="button" class="tm-button tm-calc-key" data-key="sin(">sin(</button><button type="button" class="tm-button tm-calc-key" data-key="cos(">cos(</button><button type="button" class="tm-button tm-calc-key" data-key="tan(">tan(</button><button type="button" class="tm-button tm-calc-key" data-key="asin(">asin(</button><button type="button" class="tm-button tm-calc-key" data-key="ln(">ln(</button><button type="button" class="tm-button tm-calc-key" data-key="log(">log(</button><button type="button" class="tm-button tm-calc-key" data-key="sqrt(">sqrt(</button><button type="button" class="tm-button tm-calc-key" data-key="abs(">abs(</button><button type="button" class="tm-button tm-calc-key" data-key="floor(">floor(</button><button type="button" class="tm-button tm-calc-key" data-key="gcd(">gcd(</button><button type="button" class="tm-button tm-calc-key" data-key="pi">π</button><button type="button" class="tm-button tm-calc-key" data-key="e">e</button><button type="button" class="tm-button tm-calc-key" data-key="tau">τ</button><button type="button" class="tm-button tm-calc-key" data-action="clear">C</button></div><div class="tm-calc-grid"><button type="button" class="tm-button tm-calc-key" data-key="7">7</button><button type="button" class="tm-button tm-calc-key" data-key="8">8</button><button type="button" class="tm-button tm-calc-key" data-key="9">9</button><button type="button" class="tm-button tm-calc-key" data-key="/">÷</button><button type="button" class="tm-button tm-calc-key" data-key="*">×</button><button type="button" class="tm-button tm-calc-key" data-key="-">−</button><button type="button" class="tm-button tm-calc-key" data-action="back">⌫</button><button type="button" class="tm-button tm-calc-key" data-key="4">4</button><button type="button" class="tm-button tm-calc-key" data-key="5">5</button><button type="button" class="tm-button tm-calc-key" data-key="6">6</button><button type="button" class="tm-button tm-calc-key" data-key="+">+</button><button type="button" class="tm-button tm-calc-key" data-key="^">^</button><button type="button" class="tm-button tm-calc-key" data-key="(">(</button><button type="button" class="tm-button tm-calc-key" data-key=")">)</button><button type="button" class="tm-button tm-calc-key" data-key="1">1</button><button type="button" class="tm-button tm-calc-key" data-key="2">2</button><button type="button" class="tm-button tm-calc-key" data-key="3">3</button><button type="button" class="tm-button tm-calc-key" data-key="0">0</button><button type="button" class="tm-button tm-calc-key" data-key=".">.</button><button type="button" class="tm-button tm-calc-key" data-action="ans">Ans</button><button type="button" class="tm-button tm-calc-key" data-action="eval">=</button></div></div>
+  <div class="tm-calc-pad" data-calc-pad><div class="tm-calc-fns"><button type="button" class="tm-button tm-calc-key" data-key="sin(">sin(</button><button type="button" class="tm-button tm-calc-key" data-key="cos(">cos(</button><button type="button" class="tm-button tm-calc-key" data-key="tan(">tan(</button><button type="button" class="tm-button tm-calc-key" data-key="asin(">asin(</button><button type="button" class="tm-button tm-calc-key" data-key="ln(">ln(</button><button type="button" class="tm-button tm-calc-key" data-key="log(">log(</button><button type="button" class="tm-button tm-calc-key" data-key="sqrt(">sqrt(</button><button type="button" class="tm-button tm-calc-key" data-key="abs(">abs(</button><button type="button" class="tm-button tm-calc-key" data-key="floor(">floor(</button><button type="button" class="tm-button tm-calc-key" data-key="gcd(">gcd(</button><button type="button" class="tm-button tm-calc-key" data-key="pi">π</button><button type="button" class="tm-button tm-calc-key" data-key="e">e</button><button type="button" class="tm-button tm-calc-key" data-key="tau">τ</button><button type="button" class="tm-button tm-calc-key" data-action="clear">C</button></div><div class="tm-calc-grid"><button type="button" class="tm-button tm-calc-key" data-action="clear">C</button><button type="button" class="tm-button tm-calc-key" data-action="back">⌫</button><button type="button" class="tm-button tm-calc-key" data-key="(">(</button><button type="button" class="tm-button tm-calc-key" data-key=")">)</button><button type="button" class="tm-button tm-calc-key" data-key="/">÷</button><button type="button" class="tm-button tm-calc-key" data-key="7">7</button><button type="button" class="tm-button tm-calc-key" data-key="8">8</button><button type="button" class="tm-button tm-calc-key" data-key="9">9</button><button type="button" class="tm-button tm-calc-key" data-key="^">^</button><button type="button" class="tm-button tm-calc-key" data-key="*">×</button><button type="button" class="tm-button tm-calc-key" data-key="4">4</button><button type="button" class="tm-button tm-calc-key" data-key="5">5</button><button type="button" class="tm-button tm-calc-key" data-key="6">6</button><button type="button" class="tm-button tm-calc-key" data-action="ans">Ans</button><button type="button" class="tm-button tm-calc-key" data-key="-">−</button><button type="button" class="tm-button tm-calc-key" data-key="1">1</button><button type="button" class="tm-button tm-calc-key" data-key="2">2</button><button type="button" class="tm-button tm-calc-key" data-key="3">3</button><button type="button" class="tm-button tm-calc-key" data-key=".">.</button><button type="button" class="tm-button tm-calc-key" data-key="+">+</button><button type="button" class="tm-button tm-calc-key tm-calc-zero" data-key="0">0</button><button type="button" class="tm-button tm-calc-key tm-calc-eq" data-action="eval">=</button></div></div>
   <div class="tm-tools-sub"><b>f(x) =</b> <input class="tm-tools-input" data-calc-fn spellcheck="false" placeholder="x^2 · sin(x)"> <label class="tm-tools-inline">x min <input class="tm-tools-mini" data-calc-xmin value="-10"></label> <label class="tm-tools-inline">x max <input class="tm-tools-mini" data-calc-xmax value="10"></label> <button type="button" class="tm-button" data-calc-plot>${esc(t("tools.plot"))}</button></div>
   <canvas class="tm-tools-canvas" data-calc-canvas width="760" height="240" hidden></canvas>
   <div class="tm-tools-history" data-calc-hist></div>
@@ -318,12 +318,21 @@ function wireCalc(root: HTMLElement): void {
         input.dataset.last = v;
         calcHistory.unshift(`${v} = ${line}`);
         if (calcHistory.length > 30) calcHistory.pop();
-        const hist = root.querySelector<HTMLElement>("[data-calc-hist]")!;
-        hist.innerHTML = calcHistory.map(h => `<button type="button" class="tm-tools-hist">${esc(h)}</button>`).join("");
-        hist.querySelectorAll<HTMLButtonElement>(".tm-tools-hist").forEach(b => b.onclick = () => { input.value = b.textContent!.split(" = ")[0] ?? ""; input.focus(); });
+        renderHistory();
       }
     } catch (e) { out.textContent = e instanceof Error ? e.message : String(e); out.classList.add("tm-error"); return; }
     out.classList.remove("tm-error");
+  };
+  // pass #116 (He: "What if we want to delete history?"): a clear chip heads the row —
+  // wipes the record (the results already on screen are just display state)
+  const renderHistory = (): void => {
+    const hist = root.querySelector<HTMLElement>("[data-calc-hist]")!;
+    hist.innerHTML = (calcHistory.length
+      ? `<button type="button" class="tm-tools-hist tm-tools-hist-clear" data-hist-clear>${esc(t("tools.histClear"))}</button>`
+      : "") + calcHistory.map(h => `<button type="button" class="tm-tools-hist">${esc(h)}</button>`).join("");
+    hist.querySelectorAll<HTMLButtonElement>(".tm-tools-hist:not(.tm-tools-hist-clear)").forEach(b => b.onclick = () => { input.value = b.textContent!.split(" = ")[0] ?? ""; input.focus(); });
+    const clear = hist.querySelector<HTMLButtonElement>("[data-hist-clear]");
+    if (clear) clear.onclick = () => { calcHistory.length = 0; renderHistory(); };
   };
   input.oninput = run;
   base.onchange = run;
@@ -408,7 +417,6 @@ function wireCalc(root: HTMLElement): void {
 // selection, overwrite/insert editing, undo, search. The lazy import keeps it out of
 // the main chunk; the theme rides the inherited --tmath-* custom properties.
 type HexEditorElement = HTMLElement & { source: unknown };
-let hexEditor: HexEditorElement | null = null;
 let hexBuffer: import("@hexcanvas/core").MemoryBinaryBuffer | null = null;
 function wireBytes(root: HTMLElement): void {
   const text = root.querySelector<HTMLTextAreaElement>("[data-bytes-text]")!;
@@ -416,20 +424,32 @@ function wireBytes(root: HTMLElement): void {
   const dump = root.querySelector<HTMLElement>("[data-bytes-dump]")!;
   const detail = root.querySelector<HTMLElement>("[data-bytes-detail]")!;
   const bytesOf = (): Uint8Array => new TextEncoder().encode(text.value);
-  const loadEditor = (bytes: Uint8Array): void => {
+  // pass #116 (He: "HexTool is this mess" — stale rows + ghosted ASCII for a 2-byte
+  // input): swapping .source on a LIVE editor kept stale render state. The editor is
+  // now RECREATED per load (a fresh element is deterministic), repaints are debounced
+  // so typing doesn't thrash the canvas, and the buffer itself updates SYNCHRONOUSLY
+  // (Apply edits can never race a pending repaint).
+  let hexCore: typeof import("@hexcanvas/core") | null = null;
+  let hexLoadTimer: ReturnType<typeof setTimeout> | null = null;
+  const paintEditor = (bytes: Uint8Array): void => {
     void Promise.all([import("@hexcanvas/element"), import("@hexcanvas/core")]).then(([el, core]) => {
       if (!dump.isConnected) return; // the panel closed while loading
-      if (!hexEditor) {
-        hexEditor = document.createElement("hexcanvas-editor") as HexEditorElement;
-        dump.textContent = "";
-        dump.appendChild(hexEditor);
-      }
-      hexBuffer = new core.MemoryBinaryBuffer(bytes.slice());
-      (hexEditor as { source: unknown }).source = core.fromBinaryBuffer(hexBuffer);
-      detail.textContent = t("tools.bytesCount", { n: String(bytes.length) });
+      hexCore = core;
+      if (!hexBuffer) hexBuffer = new core.MemoryBinaryBuffer(bytes.slice());
+      const editor = document.createElement("hexcanvas-editor") as HexEditorElement;
+      dump.textContent = "";
+      dump.appendChild(editor);
+      (editor as { source: unknown }).source = core.fromBinaryBuffer(hexBuffer);
+      detail.textContent = t("tools.bytesCount", { n: String(hexBuffer.length) });
     }).catch(() => {
       detail.textContent = t("tools.bytesCount", { n: String(bytes.length) }) + " — hex editor unavailable";
     });
+  };
+  const loadEditor = (bytes: Uint8Array): void => {
+    if (hexCore) hexBuffer = new hexCore.MemoryBinaryBuffer(bytes.slice());
+    if (hexLoadTimer) clearTimeout(hexLoadTimer);
+    if (hexCore) hexLoadTimer = setTimeout(() => paintEditor(bytes), 200);
+    else paintEditor(bytes); // first load — nothing to debounce past
   };
   const syncFromText = (): void => {
     const bytes = bytesOf();

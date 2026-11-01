@@ -80,7 +80,11 @@
    things, similar to Official, but with our outdoing") — phone-style 7×3 grid + a
    functions strip; keys insert at the caret, = runs the same eval as live typing */
 .tm-calc-pad { display: flex; flex-direction: column; gap: 6px; }
-.tm-calc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.tm-calc-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+/* pass #116: canonical calculator arrangement — utilities + ÷ on top, digits classic,
+   ÷ × − + stacked right, = big bottom-right (He: the 7×3 order read arbitrary) */
+.tm-calc-zero { grid-column: span 3; }
+.tm-calc-eq { grid-column: span 2; }
 .tm-calc-grid .tm-calc-key { padding: 7px 0; font-family: var(--tmath-font-mono, monospace); font-size: 13px; }
 .tm-calc-fns { display: flex; flex-wrap: wrap; gap: 4px; }
 .tm-calc-fns .tm-calc-key { padding: 2px 8px; font-family: var(--tmath-font-mono, monospace); font-size: 11px; }
@@ -101,3 +105,6 @@
   background: var(--tmath-card);
 }
 .tm-hex-host hexcanvas-editor { width: 100%; height: 100%; display: block; }
+
+/* pass #116: the history row's clear chip (He: "What if we want to delete history?") */
+.tm-tools-hist-clear { color: var(--tmath-destructive, #e5484d); border-color: var(--tmath-destructive, #e5484d); }

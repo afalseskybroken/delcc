@@ -174,6 +174,7 @@ export const zhCN: Dict = {
   "tools.bytesHint": "可编辑的十六进制视图 - 直接输入覆盖字节, 然后点 应用编辑 写回各栏。",
   "tools.bytesApply": "应用编辑",
   "tools.bytesCount": "{n} 字节",
+  "tools.histClear": "清空历史",
   "tools.treeLayout": "树形布局（自动）",
   "tools.lockPositions": "锁定位置",
   "tools.plot": "绘制函数",

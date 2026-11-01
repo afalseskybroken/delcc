@@ -174,6 +174,7 @@ export const viVN: Dict = {
   "tools.bytesHint": "Xem hex chỉnh sửa được - gõ để ghi đè byte, rồi Áp dụng sửa sẽ ghi trả về các cột.",
   "tools.bytesApply": "Áp dụng sửa",
   "tools.bytesCount": "{n} byte",
+  "tools.histClear": "Xoá lịch sử",
   "tools.treeLayout": "Bố trí cây (tự động)",
   "tools.lockPositions": "Cố định vị trí",
   "tools.plot": "Vẽ đồ thị hàm",
