@@ -896,10 +896,21 @@ export class TmathApp {
     }) : items;
     const display = clientMode ? sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) : sorted;
     const arrow = (k: string) => col === k ? (dir === "asc" ? " ↑" : " ↓") : "";
-    const rowState = (code: string): "solved" | "attempted" | "untouched" => {
-      if (!indexReady || !idx) return "untouched";
-      if (idx.solved.has(code)) return "solved";
-      if (idx.attempted.has(code)) return "attempted";
+    // pass #122 (He: "API is remapped from my other instance. Review, and make changes
+    // to existing functions if a better methods via API exist"): the 2026-11-02 remap
+    // re-confirmed ProblemListItemSchema.user_progress (solved|attempted|unattempted,
+    // null when the server has no per-user record) — the row dot is SERVER-AUTHORITATIVE
+    // now, no sweep needed to light it, and fresher than any client cache (a submission
+    // from a minute ago shows on the next list fetch). The client index stays as the
+    // fallback for rows without the field (clientMode samples + older backends).
+    const rowState = (p: any): "solved" | "attempted" | "untouched" => {
+      if (p.user_progress === "solved" || p.user_progress === "attempted") return p.user_progress;
+      if (p.user_progress === "unattempted") return "untouched";
+      const code = String(p.code);
+      if (indexReady && idx) {
+        if (idx.solved.has(code)) return "solved";
+        if (idx.attempted.has(code)) return "attempted";
+      }
       return "untouched";
     };
     // official chips carry no counts (audit screenshots) — labels only
@@ -911,12 +922,13 @@ export class TmathApp {
       ? (this.problemsAttempts >= 2 && !this.problemsSweep ? t("problems.indexUnavailable") : t("problems.indexing", { n: this.problemsIndexTotal }))
       : "";
     const chipBar = `<div class="tm-chip-row" role="group" aria-label="${text("problems.filterLabel")}">${(["all","todo","none"] as const).map(k => `<button type="button" class="tm-chip${chip === k ? " active" : ""}" data-chip="${k}" aria-pressed="${chip === k}">${chipLabel(k)}</button>`).join("")}${note ? `<span class="tm-chip-note"${indexReady ? "" : " data-index-note"} role="status">${esc(note)}</span>` : ""}</div>`;
-    const legend = indexReady ? `<div class="tm-legend">${(["solved","attempted","none"] as const).map(k => `<span class="tm-legend-item"><span class="tm-legend-dot ${k}" aria-hidden="true"></span>${text(k === "solved" ? "problems.legendSolved" : k === "attempted" ? "problems.legendAttempted" : "problems.legendNone")}</span>`).join("")}</div>` : "";
+    // pass #122: the legend always rides the rows now — dots are server-authoritative
+    const legend = `<div class="tm-legend">${(["solved","attempted","none"] as const).map(k => `<span class="tm-legend-item"><span class="tm-legend-dot ${k}" aria-hidden="true"></span>${text(k === "solved" ? "problems.legendSolved" : k === "attempted" ? "problems.legendAttempted" : "problems.legendNone")}</span>`).join("")}</div>`;
     const activeFilter = Boolean(search || type || group);
     // pass #52 (official carve, problems list component): the search form, chips and
     // legend float FREE on the page — the bordered rounded card wraps ONLY the table.
     // Ours boxed everything in one tm-card, so a border ringed the search area too.
-    host.innerHTML = this.pageTitle("problems.eyebrow","problems.title","problems.desc","problems.refresh") + `<form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-problem-search">${text("problems.searchField")}</label><input id="tm-problem-search" name="search" placeholder="${text("problems.searchPlaceholder")}" value="${esc(search)}" maxlength="200"></div><div class="tm-field"><label for="tm-problem-topic">${text("problems.topic")}</label><select id="tm-problem-topic" name="type"><option value="">${text("problems.allTopics")}</option>${list<string>(topics).map(topic => `<option${topic === type ? " selected" : ""}>${esc(topic)}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-problem-group">${text("problems.group")}</label><input id="tm-problem-group" name="group" placeholder="${text("problems.group")}" value="${esc(group)}"></div></div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form>${chipBar}${legend}<section class="tm-card"><div class="tm-table-wrap"><table class="tm-table tm-problem-table"><thead><tr>${[["code","problems.code"],["name","problems.name"],["points","problems.points"],["topic","problems.topic"],["solvers","problems.solvers"]].map(([k, key]) => `<th><button type="button" class="tm-sort-h" data-sort="${k}" title="${text("problems.sortHint")}">${text(key as DictKey)}${arrow(k)}</button></th>`).join("")}</tr></thead><tbody>${display.map(p => { const st = rowState(String(p.code)); return `<tr class="tm-row-${st}"><td class="tm-code-muted"><span class="tm-dot ${st}" aria-hidden="true"></span>${esc(String(p.code).toUpperCase())}</td><td><a href="#/problems?code=${encodeURIComponent(p.code)}">${esc(p.name)}</a></td><td>${esc(p.points)}</td><td>${esc(list(p.types).join(", "))}</td><td>${esc(p.user_count ?? "—")}</td></tr>`; }).join("")}</tbody></table>${display.length ? "" : empty()}</div></section>`;
+    host.innerHTML = this.pageTitle("problems.eyebrow","problems.title","problems.desc","problems.refresh") + `<form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-problem-search">${text("problems.searchField")}</label><input id="tm-problem-search" name="search" placeholder="${text("problems.searchPlaceholder")}" value="${esc(search)}" maxlength="200"></div><div class="tm-field"><label for="tm-problem-topic">${text("problems.topic")}</label><select id="tm-problem-topic" name="type"><option value="">${text("problems.allTopics")}</option>${list<string>(topics).map(topic => `<option${topic === type ? " selected" : ""}>${esc(topic)}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-problem-group">${text("problems.group")}</label><input id="tm-problem-group" name="group" placeholder="${text("problems.group")}" value="${esc(group)}"></div></div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form>${chipBar}${legend}<section class="tm-card"><div class="tm-table-wrap"><table class="tm-table tm-problem-table"><thead><tr>${[["code","problems.code"],["name","problems.name"],["points","problems.points"],["topic","problems.topic"],["solvers","problems.solvers"]].map(([k, key]) => `<th><button type="button" class="tm-sort-h" data-sort="${k}" title="${text("problems.sortHint")}">${text(key as DictKey)}${arrow(k)}</button></th>`).join("")}</tr></thead><tbody>${display.map(p => { const st = rowState(p); return `<tr class="tm-row-${st}"><td class="tm-code-muted"><span class="tm-dot ${st}" aria-hidden="true"></span>${esc(String(p.code).toUpperCase())}</td><td><a href="#/problems?code=${encodeURIComponent(p.code)}">${esc(p.name)}</a></td><td>${esc(p.points)}</td><td>${esc(list(p.types).join(", "))}</td><td>${esc(p.user_count ?? "—")}</td></tr>`; }).join("")}</tbody></table>${display.length ? "" : empty()}</div></section>`;
     const clearFilter = host.querySelector<HTMLButtonElement>('[data-action="clear"]');
     if (clearFilter) clearFilter.onclick = () => this.go("problems", {});
     host.querySelectorAll<HTMLButtonElement>("[data-chip]").forEach(b => b.onclick = () => {
