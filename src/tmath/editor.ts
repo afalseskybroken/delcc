@@ -67,6 +67,9 @@ export function createEditor(host: HTMLElement, value: string, language: string,
         range: new monaco.Range(line, 1, line, 1),
         options: { isWholeLine: true, className: "tm-debug-line" },
       }] : []);
+      // pass #125 (He, the stepping-experience pick): a highlight off-screen is a blind
+      // step — every stop centers its line, so the eye lands where the debugger is.
+      if (line !== null && line >= 1 && line <= max) editor.revealLineInCenter(line);
     },
   };
 }

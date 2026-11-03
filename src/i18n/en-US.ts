@@ -145,6 +145,7 @@ export const enUS: Dict = {
   "tools.bytesApply": "Apply edits",
   "tools.bytesCount": "{n} bytes",
   "tools.histClear": "Clear history",
+  "tools.histDelOne": "Delete entry",
   "tools.treeLayout": "Tree layout (automatic)",
   "tools.lockPositions": "Lock positions",
   "tools.plot": "Plot",

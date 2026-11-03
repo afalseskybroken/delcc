@@ -121,3 +121,7 @@
 .tm-plot-mini.off { opacity: 0.55; }
 .tm-plot-add { border-style: dashed; }
 .tm-plot-panel[hidden] { display: none; }
+/* ---- pass #125 (He): history rows — a per-entry × rides each chip; restore and
+   delete are separate targets (a mis-tap on a chip must never erase it) ---- */
+.tm-hist-item { display: inline-flex; align-items: center; gap: 2px; }
+.tm-hist-del { min-width: 20px; width: 20px; height: 24px; min-height: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; line-height: 1; color: var(--tmath-destructive, #e5484d); border-color: color-mix(in srgb, var(--tmath-destructive, #e5484d) 45%, transparent); }

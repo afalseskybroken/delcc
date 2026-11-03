@@ -144,6 +144,7 @@ export const zhCN: Dict = {
   "tools.bytesApply": "应用编辑",
   "tools.bytesCount": "{n} 字节",
   "tools.histClear": "清空历史",
+  "tools.histDelOne": "删除条目",
   "tools.treeLayout": "树形布局（自动）",
   "tools.lockPositions": "锁定位置",
   "tools.plot": "绘制函数",

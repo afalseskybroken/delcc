@@ -144,6 +144,7 @@ export const viVN: Dict = {
   "tools.bytesApply": "Áp dụng sửa",
   "tools.bytesCount": "{n} byte",
   "tools.histClear": "Xoá lịch sử",
+  "tools.histDelOne": "Xoá mục",
   "tools.treeLayout": "Bố trí cây (tự động)",
   "tools.lockPositions": "Cố định vị trí",
   "tools.plot": "Vẽ đồ thị hàm",

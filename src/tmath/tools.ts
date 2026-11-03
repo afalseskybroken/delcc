@@ -305,7 +305,26 @@ function wireCalc(root: HTMLElement): void {
   let deg = false;
   let ans = 0; // pass #114: the keypad's Ans — last finite result, decimal literal
   angle.onclick = () => { deg = !deg; angle.textContent = deg ? "DEG" : "RAD"; if (input.value.trim()) run(); };
-  const run = (): void => {
+  // pass #125 (He: "a little bit of buffering time before History is logged"): typing
+  // evals live but only LOGS once the expression has held for a beat (1.2 s without a
+  // further edit) — a keystroke walk (1, 12, 123…) leaves one entry, not four. The =
+  // key is a deliberate act and logs immediately.
+  let histTimer: ReturnType<typeof setTimeout> | null = null;
+  let histPending = "";
+  const pushHistory = (v: string, line: string): void => {
+    calcHistory.unshift(`${v} = ${line}`);
+    if (calcHistory.length > 30) calcHistory.pop();
+    renderHistory();
+  };
+  const scheduleHistory = (v: string, line: string): void => {
+    histPending = v;
+    if (histTimer) clearTimeout(histTimer);
+    histTimer = setTimeout(() => {
+      histTimer = null;
+      if (input.value.trim() === histPending) pushHistory(histPending, line);
+    }, 1200);
+  };
+  const run = (explicit = false): void => {
     const v = input.value.trim();
     if (!v) { out.textContent = "—"; return; }
     try {
@@ -315,26 +334,30 @@ function wireCalc(root: HTMLElement): void {
       if (Number.isFinite(r)) ans = r;
       if (input.dataset.last !== v && Number.isFinite(r)) {
         input.dataset.last = v;
-        calcHistory.unshift(`${v} = ${line}`);
-        if (calcHistory.length > 30) calcHistory.pop();
-        renderHistory();
+        if (explicit) pushHistory(v, line); else scheduleHistory(v, line);
       }
     } catch (e) { out.textContent = e instanceof Error ? e.message : String(e); out.classList.add("tm-error"); return; }
     out.classList.remove("tm-error");
   };
   // pass #116 (He: "What if we want to delete history?"): a clear chip heads the row —
-  // wipes the record (the results already on screen are just display state)
+  // wipes the record (the results already on screen are just display state).
+  // pass #125 (He): each entry grows its own × — restore and delete are separate
+  // targets, so a mis-tap on a chip can never erase it.
   const renderHistory = (): void => {
     const hist = root.querySelector<HTMLElement>("[data-calc-hist]")!;
     hist.innerHTML = (calcHistory.length
       ? `<button type="button" class="tm-tools-hist tm-tools-hist-clear" data-hist-clear>${esc(t("tools.histClear"))}</button>`
-      : "") + calcHistory.map(h => `<button type="button" class="tm-tools-hist">${esc(h)}</button>`).join("");
-    hist.querySelectorAll<HTMLButtonElement>(".tm-tools-hist:not(.tm-tools-hist-clear)").forEach(b => b.onclick = () => { input.value = b.textContent!.split(" = ")[0] ?? ""; input.focus(); });
+      : "") + calcHistory.map((h, i) => `<span class="tm-hist-item"><button type="button" class="tm-tools-hist" data-hist-i="${i}">${esc(h)}</button><button type="button" class="tm-hist-del" data-hist-del="${i}" title="${esc(t("tools.histDelOne"))}" aria-label="${esc(t("tools.histDelOne"))}">×</button></span>`).join("");
+    hist.querySelectorAll<HTMLButtonElement>(".tm-tools-hist[data-hist-i]").forEach(b => b.onclick = () => { input.value = b.textContent!.split(" = ")[0] ?? ""; input.focus(); });
+    hist.querySelectorAll<HTMLButtonElement>("[data-hist-del]").forEach(b => b.onclick = () => {
+      const i = Number(b.dataset.histDel);
+      if (Number.isInteger(i) && i >= 0 && i < calcHistory.length) { calcHistory.splice(i, 1); renderHistory(); }
+    });
     const clear = hist.querySelector<HTMLButtonElement>("[data-hist-clear]");
     if (clear) clear.onclick = () => { calcHistory.length = 0; renderHistory(); };
   };
-  input.oninput = run;
-  base.onchange = run;
+  input.oninput = () => run();
+  base.onchange = () => run();
   // pass #114: the button pad — He ("Calculator should have UI-rendered button for the
   // numbers and things"). Keys insert at the caret; Ans replays the last finite result;
   // ⌫ deletes the selection or one char; C clears; = runs the same eval as live typing.
@@ -394,7 +417,7 @@ function wireCalc(root: HTMLElement): void {
       input.value = "";
       input.focus();
       input.dispatchEvent(new Event("input"));
-    } else if (act === "eval") run();
+    } else if (act === "eval") run(true); // the = key: deliberate — log immediately
     else if (act === "ans") insertAtCaret(input, fmtNum(ans, "dec"));
   });
   // ---------- pass #118: the multigraph plot panel ----------

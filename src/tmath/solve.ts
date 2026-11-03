@@ -953,6 +953,18 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       document.addEventListener("keyup", (e: KeyboardEvent) => { if (e.key === "Control") runLabel(false); }, { signal: listeners.signal });
       window.addEventListener("blur", () => runLabel(false), { signal: listeners.signal });
       host.querySelectorAll<HTMLButtonElement>("[data-debug-step]").forEach(b => b.onclick = () => void debugStep(b.dataset.debugStep as "over" | "into" | "out" | "continue"));
+      // pass #125 (He, the stepping-experience pick): the universal debugger keys —
+      // F10 over, F11 into, Shift+F11 out, F5 continue — routed to the same handler
+      // as the panel buttons, live only while a session is open and not busy. F5's
+      // preventDefault is the point: in a session F5 means continue, never reload.
+      const stepKeys = (e: KeyboardEvent) => {
+        if (!debugging || debugBusy || debugExited) return;
+        const kind = e.key === "F10" ? "over" : e.key === "F11" && e.shiftKey ? "out" : e.key === "F11" ? "into" : e.key === "F5" ? "continue" : "";
+        if (!kind) return;
+        e.preventDefault();
+        void debugStep(kind);
+      };
+      document.addEventListener("keydown", stepKeys, { signal: listeners.signal });
       const debugStopBtn = host.querySelector<HTMLButtonElement>('[data-action="debug-stop"]');
       if (debugStopBtn) debugStopBtn.onclick = () => void stopDebug();
       splitter(); monoGrip(); void mountEditor();

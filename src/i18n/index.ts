@@ -117,6 +117,7 @@ export interface Dict {
   "tools.bytesApply": string;
   "tools.bytesCount": string;
   "tools.histClear": string;
+  "tools.histDelOne": string;
   "tools.treeLayout": string;
   "tools.lockPositions": string;
   "tools.plot": string;
