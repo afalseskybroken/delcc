@@ -112,22 +112,37 @@ stored session (secure-store blob and localStorage keys).
   `delcc-window-title` / `delcc-window-icon` in localStorage; the icon never
   leaves the device (canvas → RGBA → the window manager, no network)
 
-## Local process surface (as of 0.3.8-alpha)
+## Local process surface (as of 0.3.26-alpha)
 
 Everything that executes a program stays behind the pass-#78 binary allowlist
 (`validate_binary`): detector candidates ∪ live-detected toolchains ∪
 Settings-registered overrides, per language. Pass #106 adds one new face on
 that same posture — the **step-by-step debugger** (`debug_start`/`debug_step`/
-`debug_stop`, Shift+Run):
+`debug_stop`, Shift+Run — pass #124 adds Ctrl+Run with the Run label mutating
+while Ctrl is held):
 
-- it compiles your draft with the SAME allowlisted compiler, only with
-  `-g -O0`, into a per-session temp dir that dies with the session;
+- the compiled family (C/C++, Rust, Go, Pascal) compiles your draft with the
+  SAME allowlisted compiler, only with debug info (`-g -O0`, `-g`,
+  `-gcflags=all=-N -l`, `-g` respectively), into a per-session temp dir that
+  dies with the session;
 - the debugger binary (gdb) is chosen Rust-side — the compiler's sibling
   directory, then PATH — and gated at gdb ≥ 8 (7.6.1 probed broken on file
-  redirection); the webview cannot nominate a debugger path;
+  redirection); the webview cannot nominate a debugger path; since #123 the
+  session spawns gdb with `-nx` (no init-file injection path);
 - gdb executes only the binary delcc just compiled (same blast radius as a
   normal run); the whole gdb+inferior tree runs under a KILL_ON_JOB_CLOSE Job
   Object and `taskkill /T /F` on stop;
+- **Python (pass #124)** runs on its own lane: delcc generates a wrapper script
+  in the session temp dir that runs the draft under `pdb` with three separated
+  streams — the debuggee's stdin is swapped to the case file (`input()` reads
+  the case, never the command pipe), the program's stdout goes to the session
+  output file, and pdb's protocol stream rides stderr where it is parsed
+  Rust-side. The fixed command set is n/s/r/c plus one locals query per stop —
+  no raw passthrough, the same promise the gdb lane makes. The only binary
+  executed is the allowlisted Python itself; the wrapper is data, not code we
+  ship;
+- **Java and JavaScript are NOT wired yet** (pass #124): the honest error names
+  the queue (jdb lane / inspector CDP lane). Nothing pretends.
 - a debug session holds the single Job slot, so no second compile/run can
   start under it; session stdin/stdout are files in the session temp dir;
 - the version-tap and window-identity features open only the GitHub Releases

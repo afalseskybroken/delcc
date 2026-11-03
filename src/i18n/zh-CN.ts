@@ -196,7 +196,7 @@ export const zhCN: Dict = {
   "debug.noOutput": "尚无已刷新输出。",
   "debug.line": "第 {n} 行",
   "debug.exited": "程序已退出（代码 {n}）",
-  "debug.cppOnly": "逐步执行目前仅支持 C/C++（gdb）。",
+  "debug.runStep": "逐步执行",
   "debug.sessionNote": "会话运行草稿的已编译副本——修改将在下次 Shift+Run 时生效。",
   "cph.busy": "正在编译 / 运行…",
   "cph.stoppedTimeout": "已因超时停止。",

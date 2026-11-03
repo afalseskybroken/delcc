@@ -344,17 +344,24 @@ impl Drop for Session {
     }
 }
 
-static SESSION: Mutex<Option<Session>> = Mutex::new(None);
+/// One session slot, either engine. Dispatch lives in step()/stop_session().
+enum Engine {
+    Gdb(Session),
+    Pdb(PdbSession),
+}
 
-pub fn with_session<T>(f: impl FnOnce(&mut Session) -> Result<T, String>) -> Result<T, String> {
-    let mut slot = SESSION.lock().map_err(|_| "debug session lock poisoned")?;
-    match slot.as_mut() {
-        Some(s) => f(s),
-        None => Err("no debug session is running".into()),
+impl Engine {
+    fn child_mut(&mut self) -> &mut Child {
+        match self {
+            Engine::Gdb(s) => &mut s.child,
+            Engine::Pdb(s) => &mut s.child,
+        }
     }
 }
 
-/// Polite shutdown: -gdb-exit, then taskkill the tree if gdb lingers, then Drop cleans up.
+static SESSION: Mutex<Option<Engine>> = Mutex::new(None);
+
+/// Polite shutdown per engine, then Drop cleans up.
 /// Used by debug_stop, by debug_start's self-heal, and by the app's own job slot rules.
 pub fn stop_session() -> bool {
     let mut slot = match SESSION.lock() {
@@ -362,24 +369,36 @@ pub fn stop_session() -> bool {
         Err(_) => return false,
     };
     match slot.take() {
-        Some(mut s) => {
-            if let Some(stdin) = s.stdin.as_mut() {
-                let _ = writeln!(stdin, "0-gdb-exit");
-                let _ = stdin.flush();
+        Some(mut engine) => {
+            match &mut engine {
+                Engine::Gdb(s) => {
+                    if let Some(stdin) = s.stdin.as_mut() {
+                        let _ = writeln!(stdin, "0-gdb-exit");
+                        let _ = stdin.flush();
+                    }
+                }
+                Engine::Pdb(s) => {
+                    if let Some(stdin) = s.stdin.as_mut() {
+                        // pdb's quit — the wrapper then exits; the tree-kill below is the belt
+                        let _ = writeln!(stdin, "q");
+                        let _ = stdin.flush();
+                    }
+                }
             }
+            let child = engine.child_mut();
             let deadline = Instant::now() + Duration::from_millis(1500);
             while Instant::now() < deadline {
-                match s.child.try_wait() {
+                match child.try_wait() {
                     Ok(Some(_)) => break,
                     Ok(None) => std::thread::sleep(Duration::from_millis(50)),
                     Err(_) => break,
                 }
             }
-            let pid = s.child.id();
-            let _ = s.child.kill();
-            let _ = s.child.wait();
+            let pid = child.id();
+            let _ = child.kill();
+            let _ = child.wait();
             if pid != 0 {
-                crate::cph::kill_tree(pid); // belt and suspenders: the inferior, not just gdb
+                crate::cph::kill_tree(pid); // belt and suspenders: the inferior, not just the engine
             }
             true
         }
@@ -570,10 +589,13 @@ fn spawn_reader(child_stdout: std::process::ChildStdout, tx: mpsc::Sender<Reader
 }
 
 /// Compiles nothing here — the caller (cph.rs debug_start) has already built the artifact
-/// through the allowlist. Spawns gdb, breaks on main, runs with file redirection, and
-/// returns the first snapshot (stopped at main, or exited if main never hit).
+/// through the allowlist. Spawns the engine for the language (gdb for the compiled
+/// family, pdb for python), breaks on the language's entry, runs with file redirection,
+/// and returns the first snapshot (stopped, or exited if entry never hit).
 pub struct StartParams {
+    pub lang_key: String,
     pub exe: PathBuf,
+    pub source_path: PathBuf, // the draft inside the build dir (the pdb lane exec's THIS)
     pub dir: PathBuf,     // owns the build dir; removed on Drop
     pub stdin_text: String,
     pub compiler_binary: String,
@@ -583,6 +605,15 @@ pub struct StartParams {
 }
 
 pub fn start(params: StartParams) -> Result<DebugSnapshot, String> {
+    // pass #124: engine dispatch — python rides pdb (its own lane below); the compiled
+    // family rides gdb with per-language entry symbols.
+    if params.lang_key == "python" {
+        return start_pdb(params);
+    }
+    start_gdb(params)
+}
+
+fn start_gdb(params: StartParams) -> Result<DebugSnapshot, String> {
     // self-heal: one session at a time — an abandoned one is stopped first
     stop_session();
     let (gdb_path, ver) = find_gdb(&params.compiler_binary)?;
@@ -632,9 +663,26 @@ pub fn start(params: StartParams) -> Result<DebugSnapshot, String> {
     // handshake: first prompt, then the settings, the breakpoint, and the run
     s.transact("-gdb-set pagination off", STEP_TIMEOUT)?;
     s.transact("-gdb-set print elements 64", STEP_TIMEOUT)?;
-    if let Err(e) = s.transact("-break-insert main", STEP_TIMEOUT) {
+    // pass #124: the entry symbol is per language — plain `main` lands in std's
+    // lang_start shim on Rust, and Go's entry is main.main; each tries its table in
+    // order and an honest error names every symbol that missed.
+    let symbols: &[&str] = match params.lang_key.as_str() {
+        "rust" => &["main::main", "main"],
+        "go" => &["main.main"],
+        "pascal" => &["main", "PASCALMAIN"],
+        _ => &["main"],
+    };
+    let mut last_err: Option<String> = None;
+    let mut broke = false;
+    for sym in symbols {
+        match s.transact(&format!("-break-insert {sym}"), STEP_TIMEOUT) {
+            Ok(_) => { broke = true; break; }
+            Err(e) => last_err = Some(format!("no {sym}() to break on: {e}")),
+        }
+    }
+    if !broke {
         let _ = stop_inner(&mut s);
-        return Err(format!("no main() to break on: {e}"));
+        return Err(last_err.unwrap_or_else(|| "no entry symbol to break on".into()));
     }
     let run_cmd = build_run_command(&in_path, &s.out_path);
     s.transact(&format!("-interpreter-exec console \"{run_cmd}\""), STEP_TIMEOUT)?;
@@ -642,7 +690,7 @@ pub fn start(params: StartParams) -> Result<DebugSnapshot, String> {
     let snap = s.snapshot(&stop_raw)?;
 
     let mut slot = SESSION.lock().map_err(|_| "debug session lock poisoned")?;
-    *slot = Some(s);
+    *slot = Some(Engine::Gdb(s));
     Ok(snap)
 }
 
@@ -656,18 +704,305 @@ fn stop_inner(s: &mut Session) -> Result<(), String> {
 
 /// One debugging step. kind: over | into | out | continue.
 pub fn step(kind: &str) -> Result<DebugSnapshot, String> {
-    let exec = match kind {
-        "over" => "-exec-next",
-        "into" => "-exec-step",
-        "out" => "-exec-finish",
-        "continue" => "-exec-continue",
-        other => return Err(format!("unknown step kind '{other}'")),
+    if !matches!(kind, "over" | "into" | "out" | "continue") {
+        return Err(format!("unknown step kind '{kind}'"));
+    }
+    let mut slot = SESSION.lock().map_err(|_| "debug session lock poisoned")?;
+    match slot.as_mut() {
+        Some(Engine::Gdb(s)) => {
+            let exec = match kind {
+                "over" => "-exec-next",
+                "into" => "-exec-step",
+                "out" => "-exec-finish",
+                _ => "-exec-continue",
+            };
+            s.transact(exec, STEP_TIMEOUT)?;
+            let stop_raw = s.wait_stopped(STEP_TIMEOUT)?;
+            s.snapshot(&stop_raw)
+        }
+        Some(Engine::Pdb(s)) => s.step(kind),
+        None => Err("no debug session is running".into()),
+    }
+}
+
+// ---------- pass #124: the python lane (pdb) ----------
+// A generated wrapper runs the draft under pdb with THREE separated streams: the
+// debuggee's stdin is swapped to the case file (input() reads the case, never our
+// command pipe), the program's stdout goes to the session output file, and pdb's own
+// protocol stream (prompts, location lines, `p` results) rides stderr, which the
+// reader parses Rust-side — no raw passthrough, the same fixed-command promise the
+// gdb lane has (n/s/r/c plus one locals query per stop). _runscript parks on the
+// draft's first line, which is exactly the session's first snapshot.
+
+pub struct PdbSession {
+    child: Child,
+    stdin: Option<ChildStdin>,
+    rx: Receiver<String>,
+    dir: PathBuf,
+    out_path: PathBuf,
+    stderr_tail: std::collections::VecDeque<String>, // debuggee stderr (tracebacks…) — display, capped
+    #[cfg(windows)]
+    _job: Option<crate::cph::job::Job>,
+    _guard: crate::cph::JobGuard,
+}
+
+impl Drop for PdbSession {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// The wrapper: JSON string literals are valid Python string literals for every escape
+/// we emit, so paths ride without quoting hazards. `Pdb(stdin=sys.__stdin__)` is the
+/// load-bearing line — sys.stdin was already swapped to the case file, and the COMMAND
+/// pipe must stay the original process stdin.
+fn pdb_wrapper_script(source: &Path, stdin_file: &Path) -> String {
+    let src = serde_json::to_string(&source.to_string_lossy().replace('\\', "/")).unwrap_or_else(|_| "\"\"".into());
+    let inp = serde_json::to_string(&stdin_file.to_string_lossy().replace('\\', "/")).unwrap_or_else(|_| "\"\"".into());
+    format!(
+        "import sys, pdb\n_t = {src}\nsys.argv = [_t]\nsys.stdin = open({inp}, \"r\", encoding=\"utf-8\", errors=\"replace\")\n_d = pdb.Pdb(stdin=sys.__stdin__, stdout=sys.stderr)\n_d._runscript(_t)\n"
+    )
+}
+
+/// `> <path>(<line>)<func>()` — with the pdb prompt possibly still sitting at the head
+/// of the line (it prints without a newline, so the reader only sees it once the NEXT
+/// line completes). The path may contain parens itself; the function's trailing ()
+/// strips first, which anchors the (line) scan at the right paren.
+pub fn parse_pdb_location(line: &str) -> Option<(u32, Option<String>)> {
+    let rest = line.trim_start_matches("(Pdb) ").trim().strip_prefix("> ")?;
+    let body = rest.strip_suffix("()")?;
+    let open = body.rfind('(')?;
+    let close = body[open..].find(')')? + open;
+    let digits = &body[open + 1..close];
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let n = digits.parse::<u32>().ok()?;
+    let func = body[close + 1..].trim().to_string();
+    Some((n, if func.is_empty() { None } else { Some(func) }))
+}
+
+fn spawn_line_reader(child_stderr: std::process::ChildStderr, tx: mpsc::Sender<String>) {
+    std::thread::spawn(move || {
+        let reader = BufReader::new(child_stderr);
+        for line in reader.lines() {
+            let Ok(line) = line else { break };
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+        // EOF — the channel disconnects; wait_location maps that to "the program is gone"
+    });
+}
+
+const PDB_TAIL_LINES: usize = 60;
+
+impl PdbSession {
+    fn send(&mut self, cmd: &str) -> Result<(), String> {
+        let stdin = self.stdin.as_mut().ok_or("pdb stdin closed")?;
+        writeln!(stdin, "{cmd}").map_err(|e| format!("pdb write: {e}"))?;
+        stdin.flush().map_err(|e| format!("pdb flush: {e}"))
+    }
+
+    fn push_tail(&mut self, line: String) {
+        if self.stderr_tail.len() >= PDB_TAIL_LINES {
+            self.stderr_tail.pop_front();
+        }
+        self.stderr_tail.push_back(line);
+    }
+
+    /// Reads stderr lines until the next location line — a stop. Ok(None) = the stream
+    /// ended (the wrapper exited: the program finished, crashed past pdb, or quit).
+    fn wait_location(&mut self, timeout: Duration) -> Result<Option<(u32, Option<String>)>, String> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                return Err("the program did not stop in time — Stop the session and retry".into());
+            }
+            match self.rx.recv_timeout(deadline - now) {
+                Ok(raw) => {
+                    let line = raw.trim_end().to_string();
+                    if let Some((n, func)) = parse_pdb_location(&line) {
+                        return Ok(Some((n, func)));
+                    }
+                    if !line.trim_start_matches("(Pdb) ").trim().is_empty() {
+                        self.push_tail(line);
+                    }
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    return Err("the program did not stop in time — Stop the session and retry".into())
+                }
+                Err(RecvTimeoutError::Disconnected) => return Ok(None),
+            }
+        }
+    }
+
+    /// One line in, one line out: json.dumps keeps the answer single-line and repr()
+    /// pre-stringifies every value, so nothing but text crosses the protocol.
+    fn query_locals(&mut self) -> (Vec<DebugLocal>, bool) {
+        const EXPR: &str = "__import__('json').dumps([[str(k), type(v).__name__, repr(v)] for k, v in sorted(locals().items(), key=lambda i: str(i[0]))])";
+        if self.send(&format!("p {EXPR}")).is_err() {
+            return (Vec::new(), false);
+        }
+        let deadline = Instant::now() + STEP_TIMEOUT;
+        let mut locals = Vec::new();
+        let mut truncated = false;
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                return (locals, true);
+            }
+            match self.rx.recv_timeout(deadline - now) {
+                Ok(raw) => {
+                    let line = raw.trim_start_matches("(Pdb) ").trim_end().to_string();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    if let Ok(rows) = serde_json::from_str::<Vec<Vec<String>>>(&line) {
+                        for row in rows {
+                            if row.len() != 3 {
+                                continue;
+                            }
+                            if locals.iter().map(|l: &DebugLocal| l.name.len() + l.kind.len() + l.value.len() + 24).sum::<usize>() > LOCALS_JSON_CAP {
+                                truncated = true;
+                                break;
+                            }
+                            locals.push(DebugLocal { name: row[0].clone(), kind: row[1].clone(), value: row[2].clone() });
+                        }
+                        return (locals, truncated);
+                    }
+                    self.push_tail(line); // not the answer — keep for display
+                }
+                Err(RecvTimeoutError::Timeout) => return (locals, true),
+                Err(RecvTimeoutError::Disconnected) => return (locals, false),
+            }
+        }
+    }
+
+    fn read_output(&self) -> (String, bool) {
+        // same O(cap) shape as the gdb lane — the program's stdout file, first cap bytes
+        let len = match std::fs::metadata(&self.out_path) {
+            Ok(m) => m.len(),
+            Err(_) => return (String::new(), false),
+        };
+        if len == 0 {
+            return (String::new(), false);
+        }
+        let truncated = len > OUTPUT_SNAPSHOT_CAP as u64;
+        let want = if truncated { OUTPUT_SNAPSHOT_CAP } else { len as usize };
+        use std::io::Read;
+        let mut bytes = Vec::with_capacity(want);
+        match std::fs::File::open(&self.out_path) {
+            Ok(f) => {
+                if f.take(want as u64).read_to_end(&mut bytes).is_err() {
+                    return (String::new(), false);
+                }
+            }
+            Err(_) => return (String::new(), false),
+        }
+        (String::from_utf8_lossy(&bytes[..bytes.len().min(OUTPUT_SNAPSHOT_CAP)]).into_owned(), truncated)
+    }
+
+    fn snapshot(&mut self, line: Option<u32>, function: Option<String>) -> DebugSnapshot {
+        let (mut output, output_truncated) = self.read_output();
+        if !self.stderr_tail.is_empty() {
+            let tail: String = self.stderr_tail.drain(..).collect::<Vec<_>>().join("\n");
+            if !tail.is_empty() {
+                if !output.is_empty() {
+                    output.push('\n');
+                }
+                output.push_str(&tail);
+            }
+        }
+        let (locals, locals_truncated) = self.query_locals();
+        DebugSnapshot { line, function, locals, locals_truncated, output, output_truncated, exited: false, exit_code: None }
+    }
+
+    fn exited_snapshot(&mut self) -> DebugSnapshot {
+        let (mut output, output_truncated) = self.read_output();
+        if !self.stderr_tail.is_empty() {
+            let tail: String = self.stderr_tail.drain(..).collect::<Vec<_>>().join("\n");
+            if !tail.is_empty() {
+                if !output.is_empty() {
+                    output.push('\n');
+                }
+                output.push_str(&tail);
+            }
+        }
+        DebugSnapshot { line: None, function: None, locals: Vec::new(), locals_truncated: false, output, output_truncated, exited: true, exit_code: None }
+    }
+
+    fn step(&mut self, kind: &str) -> Result<DebugSnapshot, String> {
+        let cmd = match kind {
+            "over" => "n",
+            "into" => "s",
+            "out" => "r", // pdb's return = finish the current frame
+            _ => "c",
+        };
+        if self.send(cmd).is_err() {
+            return Ok(self.exited_snapshot());
+        }
+        match self.wait_location(STEP_TIMEOUT)? {
+            Some((line, function)) => Ok(self.snapshot(Some(line), function)),
+            None => Ok(self.exited_snapshot()), // the wrapper is gone — the program finished or quit
+        }
+    }
+}
+
+fn start_pdb(params: StartParams) -> Result<DebugSnapshot, String> {
+    // self-heal: one session at a time — an abandoned one is stopped first
+    stop_session();
+    let dir = params.dir.clone();
+    let in_path = dir.join("stdin.txt");
+    let out_path = dir.join("stdout.txt");
+    let cleanup = |e: String| { let _ = std::fs::remove_dir_all(&dir); e };
+    std::fs::write(&in_path, &params.stdin_text).map_err(|e| cleanup(format!("write stdin: {e}")))?;
+    let wrapper = dir.join("pdb-wrapper.py");
+    std::fs::write(&wrapper, pdb_wrapper_script(&params.source_path, &in_path))
+        .map_err(|e| cleanup(format!("write pdb wrapper: {e}")))?;
+    let out_file = std::fs::File::create(&out_path).map_err(|e| cleanup(format!("open output: {e}")))?;
+    let mut child = match crate::cph::new_cmd(&params.compiler_binary)
+        .arg("-u") // unbuffered — the protocol must never sit in a stdout buffer
+        .arg(wrapper.as_os_str())
+        .current_dir(&dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::from(out_file))
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return Err(cleanup(format!("spawn python: {e}"))),
     };
-    with_session(|s| {
-        s.transact(exec, STEP_TIMEOUT)?;
-        let stop_raw = s.wait_stopped(STEP_TIMEOUT)?;
-        s.snapshot(&stop_raw)
-    })
+    #[cfg(windows)]
+    let job = params.job.or_else(|| crate::cph::job::Job::track(&child));
+    let stderr = child.stderr.take().ok_or("python stderr")?;
+    let stdin = child.stdin.take().ok_or("python stdin")?;
+    let (tx, rx) = mpsc::channel();
+    spawn_line_reader(stderr, tx);
+    let mut s = PdbSession {
+        child,
+        stdin: Some(stdin),
+        rx,
+        dir,
+        out_path,
+        stderr_tail: std::collections::VecDeque::new(),
+        #[cfg(windows)]
+        _job: job,
+        _guard: params.guard,
+    };
+    // the initial stop: _runscript parks on the draft's first executable line
+    match s.wait_location(STEP_TIMEOUT)? {
+        Some((line, function)) => {
+            let snap = s.snapshot(Some(line), function);
+            let mut slot = SESSION.lock().map_err(|_| "debug session lock poisoned")?;
+            *slot = Some(Engine::Pdb(s));
+            Ok(snap)
+        }
+        None => Err("the wrapper exited before the first stop — the draft may fail on import".into()),
+    }
 }
 
 // ---------- tests (no gdb required) ----------
@@ -727,6 +1062,31 @@ mod tests {
             cmd,
             r#"run < "C:/Users/Son Vjp Pro/Temp/stdin.txt" > "C:/Users/Son Vjp Pro/Temp/stdout.txt""#
         );
+    }
+
+    #[test]
+    fn pdb_location_parses_prompts_parens_and_funcs() {
+        // verbatim shapes: the prompt can head the line (it prints without a newline),
+        // the temp path can contain parens itself, the func varies (<module>, main, …)
+        assert_eq!(parse_pdb_location("(Pdb) > D:/t/main.py(12)<module>()"), Some((12, Some("<module>".into()))));
+        assert_eq!(parse_pdb_location("> C:/Users/x (x86)/Temp/main.py(7)main()"), Some((7, Some("main".into()))));
+        assert_eq!(parse_pdb_location("> D:/t/main.py(3)main()"), Some((3, Some("main".into()))));
+        assert_eq!(parse_pdb_location("(Pdb) (Pdb) > D:/t/main.py(1)<module>()"), Some((1, Some("<module>".into()))));
+        assert_eq!(parse_pdb_location("garbage"), None);
+        assert_eq!(parse_pdb_location("> D:/t/main.py(main)<module>()"), None);
+    }
+
+    #[test]
+    fn pdb_wrapper_separates_the_three_streams() {
+        // the load-bearing lines: the case file becomes the debuggee's stdin, the
+        // COMMAND pipe stays the original process stdin, pdb's protocol rides stderr,
+        // and the draft is what _runscript executes
+        let script = pdb_wrapper_script(Path::new(r"D:\t\d\main.py"), Path::new(r"D:\t\d\stdin.txt"));
+        assert!(script.contains(r#"_t = "D:/t/d/main.py""#));
+        assert!(script.contains(r#"sys.stdin = open("D:/t/d/stdin.txt""#));
+        assert!(script.contains("pdb.Pdb(stdin=sys.__stdin__, stdout=sys.stderr)"));
+        assert!(script.contains("_d._runscript(_t)"));
+        assert!(script.contains("sys.argv = [_t]"));
     }
 
     #[test]

@@ -1256,12 +1256,18 @@ fn prepare(lang_key: &str, binary: &str, source: &str, tmp: &Path, check_scripts
         }
         "rust" => {
             let mut c = new_cmd(binary);
-            c.current_dir(tmp).arg("-O").arg("-o").arg(&bin).arg(&src);
+            // pass #124: the step-by-step lane builds with `-g` (debuginfo) — gdb maps
+            // the binary back to the draft's lines; there is no -O0 concept in rustc
+            // and unoptimized codegen is what stepping wants.
+            if debug { c.arg("-g"); } else { c.arg("-O"); }
+            c.arg("-o").arg(&bin).arg(&src);
             compile_step(c, binary, false, None, job)
         }
         "pascal" => {
             let mut c = new_cmd(binary);
-            c.current_dir(tmp).arg("-O2").arg(format!("-o{}", bin.to_string_lossy())).arg(&src);
+            // pass #124: `-g` (DWARF) for the step-by-step lane — gdb steps fpc output.
+            if debug { c.arg("-g"); } else { c.arg("-O2"); }
+            c.arg("-o").arg(&bin).arg(&src);
             compile_step(c, binary, true, Some(&bin), job)
         }
         "java" => {
@@ -1276,7 +1282,11 @@ fn prepare(lang_key: &str, binary: &str, source: &str, tmp: &Path, check_scripts
             // was `go run` per case (compile errors surfaced as per-case RE, and every case
             // recompiled). Building once gives a real compile step: CE state, faster cases.
             let mut c = new_cmd(binary);
-            c.current_dir(tmp).arg("build").arg("-o").arg(&bin).arg(&src);
+            c.current_dir(tmp);
+            // pass #124: the step-by-step lane disables optimizations and inlining —
+            // the standard gdb-on-Go recipe; without it every step lands in the runtime.
+            if debug { c.arg("-gcflags=all=-N -l"); }
+            c.arg("build").arg("-o").arg(&bin).arg(&src);
             compile_step(c, binary, false, Some(&bin), job)
         }
         "python" if check_scripts => {
@@ -1440,8 +1450,17 @@ pub struct DebugStartRequest {
 }
 
 fn debug_start_blocking(inner: Arc<Inner>, req: DebugStartRequest) -> Result<crate::debug::DebugSnapshot, String> {
-    if req.lang_key != "cpp" {
-        return Err("step-by-step is C/C++ only for now (gdb)".into());
+    // pass #124 (He: "port [Step-by-step execution] to non-C++ languages?"): the gdb
+    // lane now covers cpp/rust/go/pascal (per-language debug builds + entry symbols)
+    // and python runs on its own pdb lane (a generated wrapper — the debuggee's stdin
+    // stays the case file, pdb's own stream is parsed Rust-side). java (jdb) and
+    // javascript (the inspector's CDP) stay queued with honest errors — no silent
+    // pretending.
+    match req.lang_key.as_str() {
+        "cpp" | "rust" | "go" | "pascal" | "python" => {}
+        "java" => return Err("step-by-step for java is queued (jdb lane) — cpp/rust/go/pascal via gdb and python via pdb are wired today".into()),
+        "javascript" => return Err("step-by-step for javascript is queued (inspector/CDP lane) — cpp/rust/go/pascal via gdb and python via pdb are wired today".into()),
+        other => return Err(format!("step-by-step: unsupported language '{other}'")),
     }
     validate_binary(&inner, &req.lang_key, &req.binary)?;
     let guard = JobGuard::begin(&inner)?;
@@ -1456,7 +1475,9 @@ fn debug_start_blocking(inner: Arc<Inner>, req: DebugStartRequest) -> Result<cra
         return Err(format!("compile failed:\n{}", prep.log));
     }
     let params = crate::debug::StartParams {
+        lang_key: req.lang_key.clone(),
         exe: exe_path(&tmp),
+        source_path: tmp.join(source_name(&req.lang_key).unwrap_or("main")),
         dir: tmp,
         stdin_text: req.stdin_text,
         compiler_binary: req.binary,

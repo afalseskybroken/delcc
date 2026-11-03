@@ -45,7 +45,7 @@ export interface Dict {
   "debug.noOutput": string;
   "debug.line": string;
   "debug.exited": string;
-  "debug.cppOnly": string;
+  "debug.runStep": string;
   "debug.sessionNote": string;
   "cph.busy": string;
   "cph.stoppedTimeout": string;

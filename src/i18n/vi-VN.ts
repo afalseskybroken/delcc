@@ -196,7 +196,7 @@ export const viVN: Dict = {
   "debug.noOutput": "Chưa có gì được flush.",
   "debug.line": "Dòng {n}",
   "debug.exited": "Chương trình đã kết thúc (mã {n})",
-  "debug.cppOnly": "Chạy từng bước hiện chỉ hỗ trợ C/C++ (gdb).",
+  "debug.runStep": "Thực thi từng bước",
   "debug.sessionNote": "Phiên chạy bản đã biên dịch của draft — sửa mã sẽ áp dụng từ lần Shift+Run kế tiếp.",
   "cph.busy": "Đang biên dịch / chạy…",
   "cph.stoppedTimeout": "Đã dừng vì quá thời gian.",

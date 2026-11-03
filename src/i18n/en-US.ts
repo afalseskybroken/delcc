@@ -197,7 +197,7 @@ export const enUS: Dict = {
   "debug.noOutput": "Nothing flushed yet.",
   "debug.line": "Line {n}",
   "debug.exited": "Program exited (code {n})",
-  "debug.cppOnly": "Step-by-step is C/C++ only for now (gdb).",
+  "debug.runStep": "Execute step-by-step",
   "debug.sessionNote": "The session runs the compiled copy of your draft — edits apply on the next Shift+Run.",
   "cph.busy": "Compiling / running…",
   "cph.stoppedTimeout": "Stopped: time limit exceeded.",

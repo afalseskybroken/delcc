@@ -365,7 +365,9 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   async function startDebug(): Promise<void> {
     if (running || debugging || debugBusy || submitting || disposed || switchingLanguage) return;
     const lang = cph.cphLangKey(language);
-    if (lang !== "cpp") { note(t("debug.cppOnly"), "error"); return; }
+    // pass #124: the lane list lives Rust-side — cpp/rust/go/pascal (gdb) and python
+    // (pdb) run; java/javascript return an honest queued error from the shell, which
+    // surfaces right here through the catch below. No duplicated language table here.
     if (!cph.cphSupported(lang) || !cph.toolchainFor(lang)) { note(t("problem.runUnavailable"), "error"); return; }
     const src = source();
     if (!src.trim()) { note(t("problem.emptySource"), "error"); return; }
@@ -925,10 +927,31 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       wire('[data-action="save-now"]', () => saved());
       wire('[data-action="open-tools"]', () => openToolsPanel()); // pass #104: the offline tools panel
       host.querySelectorAll<HTMLButtonElement>("[data-run]").forEach(b=>b.onclick=(e)=>{
-        // pass #106: Shift+Run is the step-by-step entry (the stdin Run carries the tooltip)
-        if (e.shiftKey && b.dataset.run === "stdin") { void startDebug(); return; }
+        // pass #106/#124: Shift+Run or Ctrl+Run is the step-by-step entry (the stdin Run
+        // carries the tooltip; Ctrl live-mutates the label — see the listeners below)
+        if ((e.shiftKey || e.ctrlKey) && b.dataset.run === "stdin") { void startDebug(); return; }
         void run(b.dataset.run as "all" | "case" | "stdin");
       });
+      // pass #124 (He): holding Ctrl live-mutates Run to "Execute step-by-step" — the
+      // step affordance becomes discoverable without reading a tooltip. The mutation
+      // only lights for languages the debugger actually supports; keyup, blur and the
+      // view's own disposal (listeners.abort) restore the original label.
+      const dbgLangs = new Set(["cpp", "rust", "go", "pascal", "python"]);
+      const runLabel = (on: boolean) => {
+        const want = on && dbgLangs.has(cph.cphLangKey(language));
+        for (const b of host.querySelectorAll<HTMLButtonElement>('[data-run="stdin"]')) {
+          if (want) {
+            if (b.dataset.origLabel == null) b.dataset.origLabel = b.innerHTML;
+            b.innerHTML = `<span>${esc(t("debug.runStep"))}</span>`;
+          } else if (b.dataset.origLabel != null) {
+            b.innerHTML = b.dataset.origLabel;
+            delete b.dataset.origLabel;
+          }
+        }
+      };
+      document.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Control" && !e.repeat) runLabel(true); }, { signal: listeners.signal });
+      document.addEventListener("keyup", (e: KeyboardEvent) => { if (e.key === "Control") runLabel(false); }, { signal: listeners.signal });
+      window.addEventListener("blur", () => runLabel(false), { signal: listeners.signal });
       host.querySelectorAll<HTMLButtonElement>("[data-debug-step]").forEach(b => b.onclick = () => void debugStep(b.dataset.debugStep as "over" | "into" | "out" | "continue"));
       const debugStopBtn = host.querySelector<HTMLButtonElement>('[data-action="debug-stop"]');
       if (debugStopBtn) debugStopBtn.onclick = () => void stopDebug();
