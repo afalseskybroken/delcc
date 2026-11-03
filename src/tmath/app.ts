@@ -303,7 +303,9 @@ export class TmathApp {
     void (async () => {
       try {
         const feed = await api.release("windows-x64");
-        await syncClientVersion();
+        // pass #123 (attack-surface P3): the manifest is already in hand — one fetch
+        // per boot, not two identical GETs back-to-back.
+        await syncClientVersion("windows-x64", feed);
         if (this.stopped) return;
         // Only trips when the masqueraded X-Client-Version disagrees with what
         // the server requires — delcc's own package version is irrelevant here.

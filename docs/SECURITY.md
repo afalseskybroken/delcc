@@ -6,11 +6,12 @@ delcc's promise is simple: **you can read everything it does.** This file is the
 auditable summary. If the code and this file disagree, one of them is a bug —
 file it, and fix whichever is wrong.
 
-## The complete network surface (as of 0.2.27-alpha)
+## The complete network surface (as of 0.3.26-alpha)
 
 | Destination | When | Why |
 |---|---|---|
 | `oj.tmathcoding.vn/api/v3/*` | all API traffic | the judge itself: auth, contests, problems, submissions, leaderboard, client-release manifest |
+| `oj.tmathcoding.vn/api/v3/client-releases/downloads` POST | only when you click the update banner's "open official installer" button | the official feed's own download counter — the same call the official client makes; carries the channel, platform and release id, nothing about you |
 | `oj.tmathcoding.vn/<user profile pages>` | only when viewing another user's profile | reads the site's **public** profile page — the exact bytes any anonymous browser gets, CORS-open — to pick up the gravatar hash the site itself publishes there. Validated (the site's empty-string hash placeholder is rejected), cached locally (FIFO-capped); one *successful* GET per user, retried on the next view if it missed. Fetched by the Rust shell (`site_fetch`) — these pages carry no CORS header for the webview. See `src/tmath/avatars.ts` for the honesty notes. |
 | `www.gravatar.com/avatar/<sha256>` | only when the server delivers your own gravatar hash (self-view, gravatar-registered account) | your avatar image, requested with `referrerpolicy="no-referrer"`, `d=404` so nothing else is fetched |
 
@@ -26,7 +27,11 @@ the shim.
 
 That is all. Concretely absent:
 
-- no analytics, metrics, or usage reporting
+- no analytics, metrics, or usage reporting — with the single exception in the table
+  above: the release feed's own download counter, fired only by your click on the
+  banner's installer button (added to this table in pass #123; before that the call
+  existed in code without a row here, which was exactly the disagreement this file's
+  opening rule exists to catch)
 - no crash reporting or error upload
 - no update auto-download (the release manifest is *read*; binaries are fetched
   by you, the human, from the release page)

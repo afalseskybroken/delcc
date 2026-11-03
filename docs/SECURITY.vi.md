@@ -4,11 +4,12 @@ Lời hứa của delcc đơn giản: **bạn đọc được mọi thứ nó l�
 tắt có thể kiểm toán. Nếu code và file này mâu thuẫn thì một trong hai là bug —
 report, và sửa cái sai. Bản gốc tiếng Anh: [SECURITY.md](SECURITY.md).
 
-## Toàn bộ bề mặt mạng (tính từ 0.2.27-alpha)
+## Toàn bộ bề mặt mạng (tính từ 0.3.26-alpha)
 
 | Điểm đến | Khi nào | Vì sao |
 |---|---|---|
 | `oj.tmathcoding.vn/api/v3/*` | toàn bộ traffic API | sàn thi đấu: auth, contests, problems, submissions, leaderboard, manifest client-release |
+| `oj.tmathcoding.vn/api/v3/client-releases/downloads` POST | chỉ khi bạn bấm nút "open official installer" trên banner cập nhật | bộ đếm tải của chính feed release — cùng lệnh gọi mà client chính thức thực hiện; chỉ mang channel, platform và release id, không có gì về bạn |
 | `oj.tmathcoding.vn/<trang profile người dùng>` | chỉ khi xem profile của người dùng khác | đọc trang profile **công khai** của site — đúng những byte mà bất kỳ browser ẩn danh nào cũng nhận được, CORS mở — để lấy hash gravatar mà chính site công bố ở đó. Được validate, cache tại máy (giới hạn FIFO); một GET *thành công* mỗi người dùng, trượt thì thử lại ở lần xem sau. Do shell Rust (`site_fetch`) thực hiện — các trang này không có header CORS cho webview. Xem `src/tmath/avatars.ts`. |
 | `www.gravatar.com/avatar/<sha256>` | chỉ khi server giao hash gravatar của chính bạn (self-view, tài khoản có email đăng ký Gravatar) | ảnh avatar của bạn, gọi với `referrerpolicy="no-referrer"`, `d=404` nên không thứ gì khác được fetch |
 
@@ -22,7 +23,11 @@ quyết của maintainer 2026-10-29: sàn không công bố ToS nào, và shim �
 
 Hết. Cụ thể là KHÔNG có:
 
-- không analytics, metrics hay usage reporting
+- không analytics, metrics hay usage reporting — với đúng một ngoại lệ trong bảng
+  phía trên: bộ đếm tải của feed release, chỉ chạy khi bạn bấm nút installer trên
+  banner (được thêm vào bảng này ở pass #123; trước đó lệnh gọi đã tồn tại trong mã
+  mà không có hàng nào ở đây — đúng kiểu mâu thuẫn mà quy tắc mở đầu của file này
+  sinh ra để bắt)
 - không crash reporting hay upload lỗi
 - không tự động tải update (manifest release chỉ được *đọc*; binary là bạn —
   con người — tự tải từ trang release)

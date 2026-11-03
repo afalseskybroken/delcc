@@ -457,25 +457,43 @@ impl Session {
     }
 
     fn read_output(&self) -> (String, bool) {
-        match std::fs::read(&self.out_path) {
-            Ok(bytes) => {
-                let truncated = bytes.len() > OUTPUT_SNAPSHOT_CAP;
-                let mut end = bytes.len().min(OUTPUT_SNAPSHOT_CAP);
-                // don't split a UTF-8 codepoint
-                while end > 0 && (bytes[end - 1] & 0xC0) == 0x80 {
-                    end -= 1;
-                }
-                if truncated && end > 0 && (bytes[end - 1] & 0x80) != 0 {
-                    end -= 1;
-                }
-                let mut s = String::from_utf8_lossy(&bytes[..end]).into_owned();
-                if truncated {
-                    s.push_str("\n…(output so far, truncated)");
-                }
-                (s, truncated)
-            }
-            Err(_) => (String::new(), false), // nothing flushed yet — honest empty
+        // pass #123 (attack-surface P2): O(cap) read — a debug session is exactly where
+        // a program prints in a loop, and this used to `std::fs::read` the ENTIRE file
+        // on every step/continue/next before throwing away all but the first cap bytes.
+        // Display semantics preserved exactly: the file's FIRST cap bytes (what the
+        // old code showed after truncation), same UTF-8 boundary handling, same flag.
+        let len = match std::fs::metadata(&self.out_path) {
+            Ok(m) => m.len(),
+            Err(_) => return (String::new(), false), // nothing flushed yet — honest empty
+        };
+        if len == 0 {
+            return (String::new(), false);
         }
+        let truncated = len > OUTPUT_SNAPSHOT_CAP as u64;
+        let want = if truncated { OUTPUT_SNAPSHOT_CAP } else { len as usize };
+        use std::io::Read;
+        let mut bytes = Vec::with_capacity(want);
+        match std::fs::File::open(&self.out_path) {
+            Ok(f) => {
+                if f.take(want as u64).read_to_end(&mut bytes).is_err() {
+                    return (String::new(), false);
+                }
+            }
+            Err(_) => return (String::new(), false),
+        }
+        let mut end = bytes.len().min(OUTPUT_SNAPSHOT_CAP);
+        // don't split a UTF-8 codepoint
+        while end > 0 && (bytes[end - 1] & 0xC0) == 0x80 {
+            end -= 1;
+        }
+        if truncated && end > 0 && (bytes[end - 1] & 0x80) != 0 {
+            end -= 1;
+        }
+        let mut s = String::from_utf8_lossy(&bytes[..end]).into_owned();
+        if truncated {
+            s.push_str("\n…(output so far, truncated)");
+        }
+        (s, truncated)
     }
 
     fn snapshot(&mut self, stop_raw: &str) -> Result<DebugSnapshot, String> {
@@ -576,7 +594,10 @@ pub fn start(params: StartParams) -> Result<DebugSnapshot, String> {
 
     let gdb_str = gdb_path.to_string_lossy().into_owned();
     let mut child = match crate::cph::new_cmd(&gdb_str)
-        .args(["--quiet", "--interpreter=mi2"])
+        // pass #123 (attack-surface A3): `-nx` skips user/system .gdbinit — MI needs no
+        // init-file conveniences, and an init file is one more thing the plant-a-file
+        // adversary (the A2 class) could inject into every debug session.
+        .args(["--quiet", "-nx", "--interpreter=mi2"])
         .arg(&params.exe)
         .current_dir(&dir)
         .stdin(Stdio::piped())

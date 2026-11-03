@@ -196,6 +196,7 @@ struct AllowedBinaries {
     detected: HashMap<String, HashSet<String>>, // lang_key -> binaries the detector answered with
     overrides: HashMap<String, String>,         // lang_key -> Settings-registered path
     confirmed_fixed: HashSet<String>,           // pass #101: planted-root/extension candidates the user confirmed
+    refused_fixed: HashSet<String>,             // pass #123 (wave-4 N6b): sticky refusal — the path is never re-asked and never re-run; Settings' explicit override is the way to change one's mind
 }
 
 #[derive(Default, Clone)]
@@ -252,7 +253,7 @@ impl CphState {
             }
         };
         match v.as_object() {
-            Some(o) if o.contains_key("overrides") || o.contains_key("confirmed_fixed") => {
+            Some(o) if o.contains_key("overrides") || o.contains_key("confirmed_fixed") || o.contains_key("refused_fixed") => {
                 if let Some(m) = o.get("overrides").and_then(|m| m.as_object()) {
                     fill(m, &mut allowed);
                 }
@@ -260,6 +261,13 @@ impl CphState {
                     for p in list {
                         if let Some(s) = p.as_str() {
                             allowed.confirmed_fixed.insert(s.to_string());
+                        }
+                    }
+                }
+                if let Some(list) = o.get("refused_fixed").and_then(|l| l.as_array()) {
+                    for p in list {
+                        if let Some(s) = p.as_str() {
+                            allowed.refused_fixed.insert(s.to_string());
                         }
                     }
                 }
@@ -273,9 +281,9 @@ impl CphState {
     /// must never leave a half file that silently loses the user's confirmations).
     fn save_persisted_overrides(&self) {
         let Some(dir) = lock(&self.0.persist_dir).clone() else { return; };
-        let (map, fixed) = { let a = lock(&self.0.allowed); (a.overrides.clone(), a.confirmed_fixed.clone()) };
+        let (map, fixed, refused) = { let a = lock(&self.0.allowed); (a.overrides.clone(), a.confirmed_fixed.clone(), a.refused_fixed.clone()) };
         if fs::create_dir_all(&dir).is_err() { return; }
-        let doc = serde_json::json!({ "overrides": map, "confirmed_fixed": fixed });
+        let doc = serde_json::json!({ "overrides": map, "confirmed_fixed": fixed, "refused_fixed": refused });
         let Ok(json) = serde_json::to_string_pretty(&doc) else { return; };
         let tmp = dir.join("cph-overrides.json.tmp");
         if fs::write(&tmp, json).is_ok() {
@@ -387,23 +395,40 @@ fn have(out: &[Toolchain], lang_key: &str) -> bool {
 // pass #100 (He: "more probing locations — standard default installation paths of
 // common compilers/interpreters, if non-PATH'd"): after the PATH probes fail for a
 // language, try the well-known fixed install locations. is_file() gates every
-// candidate, so nothing spawns unless the binary is actually there; PATH keeps
-// priority (a fixed path is only probed when the language has no answer yet).
-// pass #101 (wave-3 N6): candidates from locations a standard user can CREATE —
-// C:\-root dirs and VS Code extension bundles — land in the `planted` list and are
-// never executed-or-admitted silently; cph_detect gates each one behind the same
-// native confirmation as a Settings override, persisted once to the registry.
-fn push_fixed(out: &mut Vec<Toolchain>, planted: &mut Vec<Toolchain>, plant: bool, lang_key: &str, label: &str, candidates: Vec<std::path::PathBuf>, version_args: &[&str]) {
-    if have(out, lang_key) || have(planted, lang_key) {
+// pass #123 (wave-4 N6b, audit- + adjudication-confirmed): a PLANTED candidate is a
+// PATH, not a toolchain. The version probe EXECUTES the file, and execution now
+// happens only AFTER the native confirmation in cph_detect accepts the path
+// (existence-checked only here — `is_file` runs no code). Refusals persist too, so
+// a path is asked exactly once, ever. The comment this replaces claimed planted
+// candidates were "never executed-or-admitted silently" while push_fixed ran
+// `<candidate> --version` before anyone was asked — the exact gap N6b names; this
+// restructure makes the claim true.
+struct PlantedCandidate {
+    lang_key: String,
+    label: String,
+    path: std::path::PathBuf,
+    version_args: &'static [&'static str],
+}
+
+fn have_planted(planted: &[PlantedCandidate], lang_key: &str) -> bool {
+    planted.iter().any(|c| c.lang_key == lang_key)
+}
+
+fn push_fixed(out: &mut Vec<Toolchain>, planted: &mut Vec<PlantedCandidate>, plant: bool, lang_key: &str, label: &str, candidates: Vec<std::path::PathBuf>, version_args: &'static [&'static str]) {
+    if have(out, lang_key) || have_planted(planted, lang_key) {
         return;
     }
     for c in candidates {
         if !c.is_file() {
             continue;
         }
+        if plant {
+            // existence check only — the probe (an execution) is gated by consent in cph_detect
+            planted.push(PlantedCandidate { lang_key: lang_key.into(), label: label.into(), path: c, version_args });
+            return;
+        }
         if let Some((binary, version)) = probe_one(&[c.to_string_lossy().as_ref()], version_args) {
-            let tc = Toolchain { lang_key: lang_key.into(), label: label.into(), binary, version };
-            if plant { planted.push(tc); } else { out.push(tc); }
+            out.push(Toolchain { lang_key: lang_key.into(), label: label.into(), binary, version });
             return;
         }
     }
@@ -488,9 +513,9 @@ fn vscode_extension_toolchains(profile: &std::path::Path) -> (Vec<std::path::Pat
 // attacker can already execute code, so there is nothing to gate); planted = C:\-root
 // dirs (a standard user can create those on default Windows) and VS Code extension
 // bundles — each gated by the native confirmation in cph_detect before any use.
-fn detect_all() -> (Vec<Toolchain>, Vec<Toolchain>) {
+fn detect_all() -> (Vec<Toolchain>, Vec<PlantedCandidate>) {
     let mut out = Vec::new();
-    let mut planted: Vec<Toolchain> = Vec::new();
+    let mut planted: Vec<PlantedCandidate> = Vec::new();
     // PATH probes first — a toolchain the user put on PATH always wins.
     push(&mut out, "cpp", "C++", probe_one(&["g++", "clang++"], &["--version"]));
     push(&mut out, "python", "Python", probe_one(&["python3", "python"], &["--version"]));
@@ -581,10 +606,10 @@ fn detect_all() -> (Vec<Toolchain>, Vec<Toolchain>) {
         std::path::PathBuf::from(r"C:\msys64\ucrt64\bin\g++.exe"),
         std::path::PathBuf::from(r"C:\Dev-Cpp\MinGW64\bin\g++.exe"),
     ], &["--version"]);
-    if !have(&out, "python") && !have(&planted, "python") {
+    if !have(&out, "python") && !have_planted(&planted, "python") {
         for d in glob_dirs(std::path::Path::new(r"C:\"), "Python3") {
             push_fixed(&mut out, &mut planted, true, "python", "Python", pf(d.join("python.exe")), &["--version"]);
-            if have(&out, "python") || have(&planted, "python") {
+            if have(&out, "python") || have_planted(&planted, "python") {
                 break;
             }
         }
@@ -593,14 +618,14 @@ fn detect_all() -> (Vec<Toolchain>, Vec<Toolchain>) {
         std::path::PathBuf::from(r"C:\Go\bin\go.exe"),
     ], &["version"]);
     // FPC ships versioned (C:\FPC\3.2.2\bin\...); Lazarus bundles its own at C:\lazarus
-    if !have(&out, "pascal") && !have(&planted, "pascal") {
+    if !have(&out, "pascal") && !have_planted(&planted, "pascal") {
         'fpc: for root in [std::path::PathBuf::from(r"C:\FPC"), std::path::PathBuf::from(r"C:\lazarus\fpc")] {
             for d in glob_dirs(&root, "") {
                 for arch in ["i386-win32", "x86_64-win64"] {
                     let exe = d.join("bin").join(arch).join("fpc.exe");
                     if exe.is_file() {
                         push_fixed(&mut out, &mut planted, true, "pascal", "Pascal", pf(exe), &["-iV"]);
-                        if have(&out, "pascal") || have(&planted, "pascal") {
+                        if have(&out, "pascal") || have_planted(&planted, "pascal") {
                             break 'fpc;
                         }
                     }
@@ -614,13 +639,13 @@ fn detect_all() -> (Vec<Toolchain>, Vec<Toolchain>) {
         let (gpp, py) = vscode_extension_toolchains(prof);
         for p in gpp {
             push_fixed(&mut out, &mut planted, true, "cpp", "C++", pf(p), &["--version"]);
-            if have(&out, "cpp") || have(&planted, "cpp") {
+            if have(&out, "cpp") || have_planted(&planted, "cpp") {
                 break;
             }
         }
         for p in py {
             push_fixed(&mut out, &mut planted, true, "python", "Python", pf(p), &["--version"]);
-            if have(&out, "python") || have(&planted, "python") {
+            if have(&out, "python") || have_planted(&planted, "python") {
                 break;
             }
         }
@@ -633,25 +658,41 @@ fn detect_all() -> (Vec<Toolchain>, Vec<Toolchain>) {
 #[tauri::command]
 pub async fn cph_detect(state: tauri::State<'_, CphState>) -> Result<Vec<Toolchain>, String> {
     let (mut found, planted) = tauri::async_runtime::spawn_blocking(detect_all).await.unwrap_or_default();
-    // pass #101 (wave-3 N6): planted candidates (C:\-root dirs, VS Code extension
-    // bundles) are NEVER executed-or-admitted silently — each one is gated behind the
-    // same native confirmation as a Settings override, and an acceptance persists to
-    // the registry so it is asked exactly once per path. Refusal just drops the hit.
-    for tc in planted {
-        let already = { lock(&state.0.allowed).confirmed_fixed.contains(&tc.binary) };
-        let accept = already || {
-            let ok = confirm_override(&tc.lang_key, &tc.binary);
-            if ok {
-                let mut allowed = lock(&state.0.allowed);
-                if allowed.confirmed_fixed.insert(tc.binary.clone()) {
-                    drop(allowed);
-                    state.save_persisted_overrides();
-                }
-            }
-            ok
+    // pass #101/#123 (wave-4 N6b): planted candidates (C:\-root dirs, VS Code extension
+    // bundles) NEVER execute until the native confirmation accepts the path — the
+    // version probe IS an execution, so consent now comes strictly FIRST (the old
+    // order probed and then asked, running a planted file before anyone was asked;
+    // the dialog also no longer shows a version string obtained by running the very
+    // thing it asks about). An acceptance persists and probes here; a refusal
+    // persists too (pass #123), so the path is never re-asked and never re-run —
+    // Settings' explicit override is the way to change one's mind.
+    for cand in planted {
+        let path_str = cand.path.to_string_lossy().to_string();
+        let (confirmed, refused) = {
+            let allowed = lock(&state.0.allowed);
+            (allowed.confirmed_fixed.contains(&path_str), allowed.refused_fixed.contains(&path_str))
         };
-        if accept {
-            found.push(tc);
+        if refused {
+            continue; // sticky refusal — do not ask again, do not run
+        }
+        if !confirmed && !confirm_override(&cand.lang_key, &path_str) {
+            let mut allowed = lock(&state.0.allowed);
+            if allowed.refused_fixed.insert(path_str) {
+                drop(allowed);
+                state.save_persisted_overrides();
+            }
+            continue;
+        }
+        if !confirmed {
+            let mut allowed = lock(&state.0.allowed);
+            if allowed.confirmed_fixed.insert(path_str.clone()) {
+                drop(allowed);
+                state.save_persisted_overrides();
+            }
+        }
+        // consent (or a prior acceptance) is on record — only NOW does the candidate run
+        if let Some((binary, version)) = probe_one(&[path_str.as_str()], cand.version_args) {
+            found.push(Toolchain { lang_key: cand.lang_key, label: cand.label, binary, version });
         }
     }
     {
@@ -1139,7 +1180,15 @@ fn run_command(lang_key: &str, binary: &str, tmp: &Path) -> Result<Command, Stri
     match lang_key {
         "cpp" | "rust" | "pascal" | "go" => Ok(new_cmd(exe_path(tmp).to_string_lossy().as_ref())),
         "java" => {
-            let mut c = new_cmd("java");
+            // pass #123 (attack-surface A4): the allowlist validates a specific javac
+            // path — run ITS SIBLING java so the runtime is the same JDK the detector
+            // answered with and Settings displays. Bare "javac" has no sibling dir to
+            // speak of → honest PATH fallback, exactly the pre-#123 behavior.
+            let sibling = Path::new(binary).parent().map(|d| d.join("java.exe")).filter(|p| p.is_file());
+            let mut c = match sibling {
+                Some(j) => new_cmd(j.to_string_lossy().as_ref()),
+                None => new_cmd("java"),
+            };
             c.current_dir(tmp).arg("-cp").arg(tmp).arg("Main");
             Ok(c)
         }
@@ -1216,9 +1265,12 @@ fn prepare(lang_key: &str, binary: &str, source: &str, tmp: &Path, check_scripts
             compile_step(c, binary, true, Some(&bin), job)
         }
         "java" => {
-            let mut c = new_cmd("javac");
+            // pass #123 (attack-surface A4): compile with the VALIDATED javac — the
+            // #78 gate validated a specific binary; running bare PATH javac instead
+            // meant the gate's promise wasn't the whole truth for java.
+            let mut c = new_cmd(binary);
             c.current_dir(tmp).arg("-d").arg(tmp).arg(&src);
-            compile_step(c, "javac", false, None, job)
+            compile_step(c, binary, false, None, job)
         }
         "go" => {
             // was `go run` per case (compile errors surfaced as per-case RE, and every case
@@ -1434,6 +1486,46 @@ pub async fn debug_stop() -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refusal_persists_across_reload() {
+        // pass #123 (wave-4 N6b): a refusal must be STICKY — persisted with the
+        // registry and reloaded, so a planted path is asked exactly once and a
+        // refused candidate is never re-run on a later detection cycle.
+        let dir = std::env::temp_dir().join(format!("delcc-cph-refusal-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("temp dir");
+        let state = CphState::default();
+        state.set_persist_dir(dir.clone());
+        {
+            let mut allowed = lock(&state.0.allowed);
+            allowed.refused_fixed.insert(r"C:\MinGW\bin\g++.exe".to_string());
+        }
+        state.save_persisted_overrides();
+        let fresh = CphState::default();
+        fresh.set_persist_dir(dir.clone());
+        fresh.load_persisted_overrides();
+        let refused = { lock(&fresh.0.allowed).refused_fixed.contains(r"C:\MinGW\bin\g++.exe") };
+        let confirmed = { lock(&fresh.0.allowed).confirmed_fixed.contains(r"C:\MinGW\bin\g++.exe") };
+        let _ = fs::remove_dir_all(&dir);
+        assert!(refused, "a refusal must survive a reload");
+        assert!(!confirmed, "a refusal must never masquerade as an acceptance");
+    }
+
+    #[test]
+    fn planted_candidate_carries_no_version() {
+        // pass #123 (wave-4 N6b): the structural half of the fix — a PlantedCandidate
+        // has no version field at all, so detection literally cannot execute-and-fill
+        // a toolchain for a planted path; only cph_detect's post-consent probe can.
+        let c = PlantedCandidate {
+            lang_key: "cpp".into(),
+            label: "C++".into(),
+            path: std::path::PathBuf::from(r"C:\MinGW\bin\g++.exe"),
+            version_args: &["--version"],
+        };
+        assert_eq!(c.lang_key, "cpp");
+        assert!(c.path.is_absolute());
+    }
 
     #[test]
     fn override_dialog_rc_mapping() {

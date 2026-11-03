@@ -1,7 +1,7 @@
 {
   "name": "delcc-app",
   "private": true,
-  "version": "0.3.25-alpha",
+  "version": "0.3.26-alpha",
   "type": "module",
   "license": "PolyForm-Noncommercial-1.0.0",
   "scripts": {
@@ -21,8 +21,8 @@
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.18.1",
-    "@hexcanvas/core": "^0.2.0",
-    "@hexcanvas/element": "^0.2.0",
+    "@hexcanvas/core": "0.2.0",
+    "@hexcanvas/element": "0.2.0",
     "@tauri-apps/api": "^2.12.4",
     "dompurify": "^3.1.0",
     "katex": "^0.16.47",

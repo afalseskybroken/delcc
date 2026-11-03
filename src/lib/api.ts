@@ -18,9 +18,12 @@ export const API_BASE = "https://oj.tmathcoding.vn/api/v3";
 let _clientVersion = "1.0.8";
 export const clientVersion = () => _clientVersion;
 
-export async function syncClientVersion(platform = "windows-x64"): Promise<string> {
+export async function syncClientVersion(platform = "windows-x64", manifest?: unknown): Promise<string> {
   try {
-    const m: any = await raw(
+    // pass #123 (attack-surface P3): callers holding a freshly fetched release
+    // manifest pass it in — the boot path used to fetch the IDENTICAL URL twice
+    // back-to-back (api.release then syncClientVersion's own GET).
+    const m: any = manifest ?? await raw(
       `/client-releases/current?channel=internal&platform=${encodeURIComponent(platform)}`,
     );
     const v = m?.required_version ?? m?.version ?? m?.latest_version
