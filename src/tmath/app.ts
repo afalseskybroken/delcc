@@ -1124,7 +1124,18 @@ export class TmathApp {
     const serverScope = scopeRaw === "public" ? "public_practice" : ""; // /submissions scope enum: null | public_practice
     const detailScope = isContestScope ? scopeRaw : serverScope; // contest detail/source use the scoped endpoints
     const mine = !isContestScope && value("mine") === "1";
-    const problem = value("problem"), user = value("user");
+    // pass #127 (He: "Submissions -> Scope to Public Problems returns No results"): the
+    // problem sub-select belongs to its scope — each scope feeds it from its OWN problem
+    // list. Switching scopes used to carry the old scope's pick across (params on a form
+    // submit, else the shared filter memory): scope=public_practice + the contest's
+    // problem code filtered the public feed to exactly nothing. A scope switch now drops
+    // the pick unless the URL EXPLICITLY carries a problem for the new scope.
+    const problem = (typeof remembered.scope === "string"
+      && (remembered.scope === "public_practice" ? "public" : remembered.scope) !== scopeRaw
+      && !params.has("problem"))
+      ? "" // old scope's pick — not meaningful in the new scope
+      : value("problem");
+    const user = value("user");
     const result = SUBS_RESULTS.includes(value("result")) ? value("result") : "";
     const size = value("pageSize","100"), pageSize = [10,20,50,100].includes(Number(size)) ? Number(size) : 100;
     const sizeOptions = [10,20,50,100];
@@ -1336,6 +1347,11 @@ export class TmathApp {
     // SUBS_FILTERS_KEY, so an empty-params go() alone just re-applied the old filter
     if (clearFilter) clearFilter.onclick = () => { try { localStorage.removeItem(SUBS_FILTERS_KEY); } catch { /* storage off */ } this.go("submissions",{}); };
     host.querySelector<HTMLFormElement>("form")!.onsubmit = e => { e.preventDefault(); this.go("submissions",Object.fromEntries(new FormData(e.currentTarget as HTMLFormElement)) as Record<string,string>); };
+    // pass #127: the scope select re-renders immediately on change — the problem field is
+    // rebuilt for the new scope, so the previous scope's pick can never ride along in a
+    // subsequent Search submit.
+    const scopeSelect = host.querySelector<HTMLSelectElement>("#tm-subs-scope");
+    if (scopeSelect) scopeSelect.onchange = () => { this.go("submissions", { scope: scopeSelect.value }); };
     wireRows();
     // official polls this view — refresh quietly in place (audit: Refresh did nothing)
     const refine = (fresh: any[]): any[] => fresh.filter(s =>

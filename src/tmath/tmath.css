@@ -75,6 +75,31 @@ body[data-persona="tmath"] #app textarea { min-height: 112px; font: 12px/1.6 var
 /* native select arrows draw inside the right edge — keep option text clear of them */
 body[data-persona="tmath"] #app select { padding-right: 30px; }
 body[data-persona="tmath"] #app button:disabled { cursor: not-allowed; opacity: .5; }
+/* pass #127: Monaco paints its own chrome — but the #app form rules above carry ID
+   specificity, which beats EVERY class-based monaco rule. The find/replace inputs are
+   real <textarea class="input"> elements (monaco 0.47), so they inherited the app form
+   chrome — min-height 38px from the :is rule and 112px from the textarea rule inside
+   25px widget rows: the overlapping Ctrl+H replace widget (He's screenshot 2026-11-04).
+   The editor's own inputarea already needed this class of repair (solve.css); the
+   widget surfaces get the same treatment here. Values restate monaco's own effective
+   metrics (inputBox.css + findWidget.css) at id-beating specificity. */
+body[data-persona="tmath"] #app .monaco-editor :is(input, textarea) {
+  font: inherit;
+  font-size: 13px;
+  line-height: inherit;
+  min-height: 0;
+  height: 100%;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  outline: none;
+}
+body[data-persona="tmath"] #app .monaco-editor :is(input, textarea)::placeholder {
+  color: var(--vscode-input-placeholderForeground, var(--tmath-muted-foreground));
+  opacity: 1;
+}
 /* component metrics outrank the #app font:inherit blanket (id specificity) */
 body[data-persona="tmath"] #app .tm-button { font-size: 13px; }
 body[data-persona="tmath"] #app .tm-login-tools .tm-button { font: 12px/1 var(--tmath-font); }
@@ -800,6 +825,13 @@ body[data-persona="tmath"] .tm-lb-table tbody th,
 body[data-persona="tmath"] .tm-lb-table tbody td { height: 64px; padding-top: 7px; padding-bottom: 7px; }
 body[data-persona="tmath"] .tm-lb-table th:nth-child(n+3),
 body[data-persona="tmath"] .tm-lb-table td:nth-child(n+3) { text-align: center; }
+/* pass #127 (He: Problem 1/2's columns sit left while Problem 3 centers): the
+   nth-child(n+3) rule above was written for the LEFT info pane's four columns — on the
+   right tile pane it misses children 1-2, so the first two problem columns rendered
+   left-aligned. The tile pane (and its [You]-ghost twin) centers every column. */
+body[data-persona="tmath"] .tm-lb-right th,
+body[data-persona="tmath"] .tm-lb-right td,
+body[data-persona="tmath"] .tm-lb-ghost-right td { text-align: center; }
 /* the left pane never scrolls itself: its thead is static but elevated above the
    transform-shifted tbody, killing the one-frame sticky lag a programmatic scrollTop
    showed under stress; wheel input is forwarded to the right pane by paint() */
