@@ -211,6 +211,16 @@ fn get_layout() -> String {
     DELCC_LAYOUT.to_string()
 }
 
+// pass #127 (a friend's suggestion via He): F11 toggles the window fullscreen — the
+// shell owns the window API, so the webview asks through this command instead of a
+// new capability grant. Returns the resulting state for honest logging.
+#[tauri::command]
+fn toggle_fullscreen(window: tauri::WebviewWindow) -> Result<bool, String> {
+    let fs = window.is_fullscreen().map_err(|e| format!("fullscreen: {e}"))?;
+    window.set_fullscreen(!fs).map_err(|e| format!("fullscreen: {e}"))?;
+    Ok(!fs)
+}
+
 // System-browser opener for the Google PKCE step. https only; the URL is a single
 // argv entry for the OS opener, never passed through a shell.
 // pass #78 (Sonnet S6): host allowlist — open_url is the only path from webview
@@ -299,7 +309,7 @@ fn identity_apply(window: tauri::WebviewWindow, title: Option<String>, icon: Opt
 fn main() {
     tauri::Builder::default()
         .manage(CphState::default())
-        .invoke_handler(tauri::generate_handler![api_fetch, site_fetch, asset_fetch, get_layout, open_url, fonts_list, cph_detect, cph_set_override, cph_run, cph_compile, cph_stop, debug_start, debug_step, debug_stop, identity_apply, secure_put, secure_get, secure_del])
+        .invoke_handler(tauri::generate_handler![api_fetch, site_fetch, asset_fetch, get_layout, toggle_fullscreen, open_url, fonts_list, cph_detect, cph_set_override, cph_run, cph_compile, cph_stop, debug_start, debug_step, debug_stop, identity_apply, secure_put, secure_get, secure_del])
         .setup(move |app| {
             {
                 use tauri::Manager;

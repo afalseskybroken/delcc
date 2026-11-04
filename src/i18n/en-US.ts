@@ -376,6 +376,8 @@ export const enUS: Dict = {
   "settings.winIcon": "Window icon",
   "settings.winIconHint": "PNG / ICO / JPEG / WebP up to 512 KB, downscaled to 256 px. Applies to the window and taskbar.",
   "settings.identityReset": "Reset title and icon",
+  "settings.footerNote": "Custom footer text",
+  "settings.footerNoteHint": "Shown in the sidebar footer. Empty restores the default line.",
   "settings.identityApplied": "Icon applied.",
   "settings.identityCleared": "Identity reset to the default.",
   "settings.identityBadIcon": "That file could not be decoded as an image.",

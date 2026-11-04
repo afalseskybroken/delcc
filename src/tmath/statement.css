@@ -17,17 +17,21 @@ body[data-persona="tmath"] .tm-copy-button:disabled { cursor: default; }
 body[data-persona="tmath"] .tm-copy-button:hover { background: var(--tmath-accent, var(--tm-soft, #88888812)); }
 body[data-persona="tmath"] .tm-copy-button:focus-visible { outline: 2px solid var(--tm-primary, #2563eb); outline-offset: 2px; }
 body[data-persona="tmath"] .tm-samples { margin: 1.25em 0; }
-body[data-persona="tmath"] .tm-sample-tabs { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
-body[data-persona="tmath"] .tm-sample-tabs button { padding: 6px 13px; border: 1px solid var(--tm-border, #88888838); border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
-body[data-persona="tmath"] .tm-sample-tabs button[aria-selected="true"] { background: var(--tm-primary, #2563eb); border-color: var(--tm-primary, #2563eb); color: #fff; }
 body[data-persona="tmath"] .tm-statement :is(button, [tabindex]):focus-visible { outline: 2px solid var(--tm-primary, #2563eb); outline-offset: 3px; }
-/* pass #58 (He's side-by-side shots): Official stacks each example's Input ABOVE its
-   Output at full width — the old side-by-side grid (and its ≤640px fallback) is gone */
-body[data-persona="tmath"] .tm-sample-panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
-body[data-persona="tmath"] .tm-sample-panel[hidden] { display: none; }
-body[data-persona="tmath"] .tm-sample-panel > div { min-width: 0; }
-body[data-persona="tmath"] .tm-sample-label { font-weight: 650; font-size: 13px; }
-body[data-persona="tmath"] .tm-sample-panel .tm-code-copy-wrapper { margin-top: 6px; }
+/* pass #127 (He: "Inaccurate I/O block compared to official. Rip from it"): the tabbed
+   panels are replaced by official's stacked presentation — a labeled, bordered box per
+   Input/Output with the Copy chip floating inside the top-right corner, every sample
+   visible at once (a slim Sample-N tag separates pairs only when there are several) */
+body[data-persona="tmath"] .tm-sample-block { margin: 0 0 1.25em; }
+body[data-persona="tmath"] .tm-sample-block:last-child { margin-bottom: 0; }
+body[data-persona="tmath"] .tm-sample-tag { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.65; margin-bottom: 6px; }
+body[data-persona="tmath"] .tm-sample-cell { margin-bottom: 12px; }
+body[data-persona="tmath"] .tm-sample-cell:last-child { margin-bottom: 0; }
+body[data-persona="tmath"] .tm-sample-label { font-weight: 650; font-size: 13px; margin-bottom: 6px; }
+body[data-persona="tmath"] .tm-sample-box { position: relative; border: 1px solid var(--tm-border, #88888838); border-radius: 8px; background: var(--tm-soft, #8888880b); }
+body[data-persona="tmath"] .tm-sample-copy { position: absolute; top: 8px; right: 8px; z-index: 1; padding: 4px 11px; font: inherit; font-size: 12px; border: 1px solid var(--tm-border, #88888838); border-radius: 6px; background: var(--tm-card, #1a2233); color: inherit; cursor: pointer; }
+body[data-persona="tmath"] .tm-sample-copy:hover { border-color: var(--tm-primary, #2563eb); }
+body[data-persona="tmath"] .tm-sample-pre { padding: 12px 96px 12px 12px; font-family: var(--tmath-font-mono, monospace); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 42px; }
 body[data-persona="tmath"] .tm-statement-table { overflow: auto; margin: 1em 0; }
 body[data-persona="tmath"] .tm-statement table { border-collapse: collapse; min-width: 50%; }
 body[data-persona="tmath"] .tm-statement :is(th, td) { border: 1px solid var(--tm-border); padding: .75em 1em; text-align: left; vertical-align: top; }

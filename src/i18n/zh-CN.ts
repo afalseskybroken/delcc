@@ -375,6 +375,8 @@ export const zhCN: Dict = {
   "settings.winIcon": "窗口图标",
   "settings.winIconHint": "PNG / ICO / JPEG / WebP，最大 512 KB，缩至 256 px。应用于窗口和任务栏。",
   "settings.identityReset": "重置标题和图标",
+  "settings.footerNote": "自定义页脚文字",
+  "settings.footerNoteHint": "显示在侧栏页脚。留空恢复默认文字。",
   "settings.identityApplied": "图标已应用。",
   "settings.identityCleared": "身份已恢复默认。",
   "settings.identityBadIcon": "无法将该文件解码为图片。",

@@ -375,6 +375,8 @@ export const viVN: Dict = {
   "settings.winIcon": "Icon cửa sổ",
   "settings.winIconHint": "PNG / ICO / JPEG / WebP tới 512 KB, thu về 256 px. Áp dụng cho cửa sổ và taskbar.",
   "settings.identityReset": "Đặt lại tiêu đề và icon",
+  "settings.footerNote": "Chữ chân trang tuỳ chỉnh",
+  "settings.footerNoteHint": "Hiện ở chân sidebar. Để trống khôi phục dòng mặc định.",
   "settings.identityApplied": "Đã áp dụng icon.",
   "settings.identityCleared": "Danh tính đã về mặc định.",
   "settings.identityBadIcon": "Không giải mã được file đó thành ảnh.",

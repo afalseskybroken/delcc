@@ -1,9 +1,29 @@
 import { ApiError, clientVersion } from "../lib/api";
 import { getLocale, t, type DictKey } from "../i18n";
+import DOMPurify from "dompurify";
 
 export const esc = (value: unknown): string => String(value ?? "").replace(/[&<>"']/g,
   c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 export const text = (key: DictKey, vars?: Record<string, string | number>) => esc(t(key, vars));
+
+// pass #128 (He: "HTML on footnote (and well, DOMPurify it)"): the one user-HTML surface
+// outside the statement. Formatting-only allowlist — NO links/images/iframes/attrs: an
+// <a href> in the sidebar would navigate the webview (links must ride the open_url
+// round trip to stay honest, which a 120-char footnote does not need). Fails CLOSED
+// like the About sanitizer: a sanitizer crash renders the default plain text, never
+// unsanitized markup.
+export function sanitizeFooterNote(html: string): string {
+  const purify = (DOMPurify as any).default ?? DOMPurify;
+  try {
+    return String(purify.sanitize(html, {
+      ALLOWED_TAGS: ["b", "strong", "i", "em", "u", "s", "code", "br", "span"],
+      ALLOWED_ATTR: [],
+      KEEP_CONTENT: true,
+    }));
+  } catch {
+    return "";
+  }
+}
 /** dict strings may carry \n break markers (esc-neutralized markup is never re-parsed) */
 export const textBr = (key: DictKey) => esc(t(key)).replace(/\n/g, "<br>");
 export const list = <T = any>(value: any): T[] => Array.isArray(value) ? value : Array.isArray(value?.results) ? value.results : Array.isArray(value?.items) ? value.items : [];

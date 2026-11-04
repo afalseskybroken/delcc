@@ -80,6 +80,9 @@ export async function applyUiScale(scale: number): Promise<void> {
 // few hundred KB of data URL and must not ride the object every save re-serializes.
 export const WINDOW_TITLE_KEY = "delcc-window-title";
 export const WINDOW_ICON_KEY = "delcc-window-icon";
+// pass #127 (He): the sidebar footnote is user-customizable — empty falls back to the
+// default "independent client" line; Settings → identity owns the field.
+export const FOOTER_NOTE_KEY = "delcc-footer-note";
 const IDENTITY_TITLE_MAX = 120;
 const IDENTITY_FILE_MAX = 512 * 1024;
 

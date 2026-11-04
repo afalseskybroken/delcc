@@ -153,53 +153,61 @@ export function renderStatement(host: HTMLElement, source: string, options: Stat
     if (!parsed) continue;
     samples.push(...parsed);
     component.classList.add("tm-samples");
-    const rows = Array.from(component.children) as HTMLElement[];
-    const tabs: HTMLButtonElement[] = [];
-    const id = `tm-samples-${++sequence}`;
-    const tablist = document.createElement("div");
-    tablist.className = "tm-sample-tabs";
-    tablist.setAttribute("role", "tablist");
-    tablist.setAttribute("aria-label", t("problem.samples"));
-    const select = (selected: number) => {
-      rows.forEach((row, index) => {
-        row.hidden = index !== selected;
-        tabs[index]?.setAttribute("aria-selected", String(index === selected));
-        if (tabs[index]) tabs[index].tabIndex = index === selected ? 0 : -1;
-      });
-    };
-    rows.forEach((row, index) => {
-      row.classList.add("tm-sample-panel");
-      Array.from(row.children).forEach((cell, cellIndex) => {
+    // pass #127 (He: "Inaccurate I/O block compared to official. Rip from it"): the
+    // tabbed panels are GONE — official's own presentation is stacked labeled blocks
+    // with a floating Copy chip inside each box, every sample visible at once (a
+    // contestant should never have to click to see the second case). The boxes are
+    // DIVs (not pre) so the generic code-copy wrapper below cannot double-wrap them;
+    // the Copy chip mirrors the statement's own copy-button feedback keys.
+    component.replaceChildren(...parsed.map((s, i) => {
+      const block = document.createElement("div");
+      block.className = "tm-sample-block";
+      if (parsed.length > 1) {
+        const tag = document.createElement("div");
+        tag.className = "tm-sample-tag";
+        tag.textContent = t("problem.sample", { number: i + 1 });
+        block.append(tag);
+      }
+      for (const [cellIndex, content] of [s.input, s.output].entries()) {
+        const cell = document.createElement("div");
+        cell.className = "tm-sample-cell";
         const label = document.createElement("div");
         label.className = "tm-sample-label";
         label.textContent = t(cellIndex === 0 ? "problem.input" : "problem.output");
-        cell.prepend(label);
-      });
-      if (rows.length === 1) return;
-      row.id = `${id}-panel-${index}`;
-      row.setAttribute("role", "tabpanel");
-      row.setAttribute("aria-labelledby", `${id}-tab-${index}`);
-      row.tabIndex = 0;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.id = `${id}-tab-${index}`;
-      button.setAttribute("role", "tab");
-      button.setAttribute("aria-controls", row.id);
-      button.textContent = t("problem.sample", { number: index + 1 });
-      on(button, "click", () => select(index));
-      on(button, "keydown", event => {
-        const selected = event.key === "ArrowRight" ? (index + 1) % rows.length
-          : event.key === "ArrowLeft" ? (index + rows.length - 1) % rows.length
-          : event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1 : -1;
-        if (selected < 0) return;
-        event.preventDefault();
-        select(selected);
-        tabs[selected].focus();
-      });
-      tabs.push(button);
-      tablist.append(button);
-    });
-    if (tabs.length) { component.prepend(tablist); select(0); }
+        const box = document.createElement("div");
+        box.className = "tm-sample-box";
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.className = "tm-sample-copy";
+        copy.textContent = t("common.copy");
+        copy.setAttribute("aria-label", t("common.copy"));
+        copy.setAttribute("aria-live", "polite");
+        on(copy, "click", async () => {
+          copy.disabled = true;
+          try {
+            await navigator.clipboard.writeText(content);
+            if (disposed) return;
+            copy.textContent = t("common.copied");
+          } catch {
+            if (disposed) return;
+            copy.textContent = t("common.copyFailed");
+          }
+          const timer = setTimeout(() => {
+            copy.disabled = false;
+            copy.textContent = t("common.copy");
+            timers.delete(timer);
+          }, 1000);
+          timers.add(timer);
+        });
+        const body = document.createElement("div");
+        body.className = "tm-sample-pre";
+        body.textContent = content;
+        box.append(copy, body);
+        cell.append(label, box);
+        block.append(cell);
+      }
+      return block;
+    }));
   }
 
   const limited = source.length > MATH_SIZE_LIMIT || protectedMath.formulas.length > MATH_COUNT_LIMIT;

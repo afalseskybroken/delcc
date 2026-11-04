@@ -397,6 +397,8 @@ export interface Dict {
   "settings.winIcon": string;
   "settings.winIconHint": string;
   "settings.identityReset": string;
+  "settings.footerNote": string,
+  "settings.footerNoteHint": string;
   "settings.identityApplied": string;
   "settings.identityCleared": string;
   "settings.identityBadIcon": string;

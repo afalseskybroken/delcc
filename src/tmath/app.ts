@@ -6,8 +6,8 @@ import { googleLogin, GoogleAbort } from "../lib/google";
 import { openExternal, fetchAsset } from "../lib/transport";
 import DOMPurify from "dompurify";
 import { getLocale, t, type DictKey } from "../i18n";
-import { applyPreferences, hour12Opt, loadPreferences, savePreferences, read, write, applyIdentity, type Preferences } from "./preferences";
-import { button, date, empty, errorBox, errorText, esc, list, loading, text, textBr } from "./ui";
+import { applyPreferences, hour12Opt, loadPreferences, savePreferences, read, write, applyIdentity, FOOTER_NOTE_KEY, type Preferences } from "./preferences";
+import { button, date, empty, errorBox, errorText, esc, list, loading, text, textBr, sanitizeFooterNote } from "./ui";
 import { mdInline as mdInlineRender } from "./md";
 import { cachedAvatar, hydrateAvatars } from "./avatars";
 import { logError, logInfo } from "../lib/applog";
@@ -279,6 +279,23 @@ export class TmathApp {
     // failed auto-login is REPORTABLE instead of a mystery (He's regression reports).
     logInfo(`boot: active profile=${profile?.username ?? "none"} locked=${String(profile?.locked ?? false)} needsReauth=${String(profile?.needsReauth ?? false)}`);
     if (profile?.locked || profile?.needsReauth) auth.seed(null);
+    // pass #127 (a friend's suggestion via He): F11 toggles the window fullscreen —
+    // the shell answers Rust-side (the window API needs no capability grant), and
+    // plain-browser dev falls back to the document fullscreen API. Bound ONCE at
+    // boot, capture phase so no view can swallow it.
+    document.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key !== "F11") return;
+      e.preventDefault();
+      void (async () => {
+        try {
+          const { shellInvoke } = await import("../lib/transport");
+          const inv = await shellInvoke();
+          if (inv) { await inv("toggle_fullscreen", {}); return; }
+        } catch { /* fall through to the browser path */ }
+        if (document.fullscreenElement) { void document.exitFullscreen().catch(() => {}); }
+        else { void document.documentElement.requestFullscreen().catch(() => {}); }
+      })();
+    }, true);
     auth.onTokenChange(token => {
       // pass #60-#63: this listener REPLACED the baseplate one (onTokenChange is a
       // single slot). The tmath shell has no profile switcher — the active unlocked
@@ -464,7 +481,7 @@ export class TmathApp {
     const nav = (r: Route) => `<button type="button" data-route="${r}" class="${this.route === r ? "tm-current" : ""}" title="${text(titles[r])}" aria-label="${text(titles[r])}"${this.route === r ? ' aria-current="page"' : ""}>${phIcon(navIcons[r], 20)}<span>${text(titles[r])}</span></button>`;
     const displayName = this.user?.display_name ?? this.user?.username ?? "?";
     this.host.innerHTML = `<div class="tm-shell${this.collapsed ? " collapsed" : ""}">
-      <aside class="tm-sidebar"><div class="tm-sidebar-header">${brand()}<button type="button" class="tm-sidebar-toggle" data-action="collapse" aria-controls="tm-navigation" aria-expanded="${!this.collapsed}" aria-label="${text(this.collapsed ? "app.expandSidebar" : "app.collapseSidebar")}">${phIcon("sidebar-simple", 22)}</button></div><div class="tm-nav-label">${text("app.navigation")}</div><nav class="tm-nav" id="tm-navigation">${loggedIn ? (this.contest ? nav("workspace") : nav("contests") + nav("problems")) + nav("submissions") + nav("rankings") + nav("account") : ""}${nav("settings")}</nav><div class="tm-sidebar-footer"><b>delcc</b><p>${text("app.independent")}</p><button type="button" class="tm-sidebar-gh" data-action="open-github" title="github.com/afalseskybroken/delcc" aria-label="GitHub"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55v-2.15c-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.28-5.23-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.25 5.67.41.35.78 1.05.78 2.12v3.14c0 .3.21.66.8.55A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"/></svg></button>${loggedIn ? "" : button("auth.login","login")}</div></aside>
+      <aside class="tm-sidebar"><div class="tm-sidebar-header">${brand()}<button type="button" class="tm-sidebar-toggle" data-action="collapse" aria-controls="tm-navigation" aria-expanded="${!this.collapsed}" aria-label="${text(this.collapsed ? "app.expandSidebar" : "app.collapseSidebar")}">${phIcon("sidebar-simple", 22)}</button></div><div class="tm-nav-label">${text("app.navigation")}</div><nav class="tm-nav" id="tm-navigation">${loggedIn ? (this.contest ? nav("workspace") : nav("contests") + nav("problems")) + nav("submissions") + nav("rankings") + nav("account") : ""}${nav("settings")}</nav><div class="tm-sidebar-footer"><b>delcc</b><p class="tm-sidebar-note">${sanitizeFooterNote(read(FOOTER_NOTE_KEY) || text("app.independent"))}</p>${loggedIn ? "" : button("auth.login","login")}</div></aside>
       <div class="tm-main"><header class="tm-topbar"><div class="tm-topbar-page"><span class="tm-topbar-page-icon" aria-hidden="true">${phIcon(navIcons[this.route] ?? "user-circle", 22)}</span><div class="tm-topbar-page-copy"><span class="tm-topbar-eyebrow">TMATH / STUDENT</span><strong class="tm-topbar-title">${text(titles[this.route])}</strong></div></div><div class="tm-topbar-actions">${themeMenuHtml(this.prefs.theme)}${loggedIn ? `<button type="button" class="tm-topbar-account" data-route="account">${avatarHtml(displayName, this.user?.gravatarHash ?? this.user?.gravatar_hash ?? cachedAvatar(String(this.user?.username ?? "")), 34)}<span class="tm-topbar-account-name"${ratingStyle(this.user?.rating)}>${esc(displayName)}</span></button><button type="button" class="tm-topbar-logout" data-action="logout" aria-label="${text("app.topbar.logout")}" title="${text("app.topbar.logout")}">${phIcon("sign-out", 18, "regular")}<span>${text("app.topbar.logout")}</span></button>` : button("auth.login","login")}</div></header>${this.versionNotice && !this.bannerDismissed ? this.bannerHtml() : ""}<main class="tm-content" id="tm-content"></main></div></div>`;
     this.host.querySelectorAll<HTMLElement>("[data-route]").forEach(b => b.onclick = () => this.go(b.dataset.route as Route, b.dataset.route === "workspace" && this.contest ? {contest:this.contest.key} : {}));
     this.host.querySelector<HTMLButtonElement>('[data-action="collapse"]')!.onclick = () => {
@@ -1024,7 +1041,10 @@ export class TmathApp {
     const tab = (p: any, i: number) => {
       const active = params.get("code") === p.code ? " active" : "";
       const score = this.scoreClass(p.score_status);
-      return `<button type="button" class="tm-contest-tab${active}${score ? " " + score : ""}" data-code="${esc(p.code)}">${this.probLabel(p, i)}<span class="sr-only">${this.scoreText(p.score_status)}</span></button>`;
+      // pass #127 (He): the problem title + identifier code ride the tab as a tooltip —
+      // the statement pane no longer repeats them as a heading
+      const tip = `${String(p.name ?? "")}${p.name ? " · " : ""}${String(p.code).toUpperCase()}`;
+      return `<button type="button" class="tm-contest-tab${active}${score ? " " + score : ""}" data-code="${esc(p.code)}" title="${esc(tip)}" aria-label="${esc(tip)}">${this.probLabel(p, i)}<span class="sr-only">${this.scoreText(p.score_status)}</span></button>`;
     };
     host.innerHTML = `<div class="tm-workspace"><div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("contests.workspaceEyebrow")}</div><h1>${esc(contest?.name ?? key)}</h1><p class="tm-contest-meta">${esc(modeTxt)}${dlText ? ` · ${text("contests.deadlineAt")}: ${esc(dlText)}` : ""}</p></div><div class="tm-contest-side"><aside class="tm-contest-clock" aria-label="${text("contests.clockLabel")}"><div class="tm-clock-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span data-clock-label>${text("contests.timeUnknown")}</span></div><div class="tm-clock-value" role="timer" aria-label="${text("contests.ariaTimeLeft")}" data-clock>--:--:--</div></aside><button type="button" class="tm-button destructive" data-action="leave">${text("contests.leave")}</button></div></div><div class="tm-contest-strip"><div class="tm-contest-scroll"><nav class="tm-contest-tabs" aria-label="${text("contests.problemsListAria")}">${rows.map(tab).join("")}</nav></div><button type="button" class="tm-icon-button" data-action="refresh-problems" aria-label="${text("contests.refreshList")}" title="${text("contests.refreshList")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button></div>${workspace?.next_problem_requirement != null ? `<p class="tm-ac-banner" role="status">${t("contests.acBanner", { n: workspace.accepted_problem_count ?? 0, r: workspace.next_problem_requirement })}</p>` : ""}<div id="tm-workspace-message" role="status"></div><div id="tm-solve-host"></div></div>`;
     // Live countdown per the carve: ceil(deadline - now), padded HH:MM:SS, destructive tint at <=300s.
