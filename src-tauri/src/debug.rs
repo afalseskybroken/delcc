@@ -20,7 +20,7 @@
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -249,7 +249,7 @@ pub fn find_gdb(compiler: &str) -> Result<(PathBuf, String), String> {
         if !cand.is_file() {
             continue;
         }
-        let out = match Command::new(&cand).arg("--version").output() {
+        let out = match crate::cph::new_cmd(cand.to_string_lossy().as_ref()).arg("--version").output() {
             Ok(o) => o,
             Err(_) => continue,
         };
@@ -261,7 +261,7 @@ pub fn find_gdb(compiler: &str) -> Result<(PathBuf, String), String> {
         }
     }
     Err(if probed.is_empty() {
-        "no gdb found next to the compiler or on PATH — step-by-step needs gdb 8+ (C/C++)".into()
+        "no gdb found next to the compiler or on PATH — step-by-step needs gdb 8+ (the compiled family)".into()
     } else {
         format!("step-by-step needs gdb 8+; probed: {}", probed.join("; "))
     })
@@ -684,7 +684,11 @@ fn start_gdb(params: StartParams) -> Result<DebugSnapshot, String> {
         let _ = stop_inner(&mut s);
         return Err(last_err.unwrap_or_else(|| "no entry symbol to break on".into()));
     }
-    let run_cmd = build_run_command(&in_path, &s.out_path);
+    // pass #126 (He, live: `gdb: msg="Problem parsing arguments: …"`): the console
+    // command's OWN quotes terminate the MI string — gdb parsed `run < ` and choked
+    // (reproduced live on Strawberry gdb: unescaped = parse error, escaped = runs).
+    // The inner quotes are MI-escaped so the console parser sees `run < "…" > "…"` whole.
+    let run_cmd = mi_escape_console(&build_run_command(&in_path, &s.out_path));
     s.transact(&format!("-interpreter-exec console \"{run_cmd}\""), STEP_TIMEOUT)?;
     let stop_raw = s.wait_stopped(STEP_TIMEOUT)?;
     let snap = s.snapshot(&stop_raw)?;
@@ -692,6 +696,12 @@ fn start_gdb(params: StartParams) -> Result<DebugSnapshot, String> {
     let mut slot = SESSION.lock().map_err(|_| "debug session lock poisoned")?;
     *slot = Some(Engine::Gdb(s));
     Ok(snap)
+}
+
+/// MI string escaping for `-interpreter-exec console "…"` — the inner quotes of the
+/// console command must not terminate the MI string (pass #126, reproduced live).
+fn mi_escape_console(cmd: &str) -> String {
+    cmd.replace('"', "\\\"")
 }
 
 fn stop_inner(s: &mut Session) -> Result<(), String> {
@@ -731,8 +741,8 @@ pub fn step(kind: &str) -> Result<DebugSnapshot, String> {
 // command pipe), the program's stdout goes to the session output file, and pdb's own
 // protocol stream (prompts, location lines, `p` results) rides stderr, which the
 // reader parses Rust-side — no raw passthrough, the same fixed-command promise the
-// gdb lane has (n/s/r/c plus one locals query per stop). _runscript parks on the
-// draft's first line, which is exactly the session's first snapshot.
+// gdb lane has (n/s/r/c plus one locals query per stop). set_step parks on the
+// draft's first EXECUTABLE line, which is exactly the session's first snapshot.
 
 pub struct PdbSession {
     child: Child,
@@ -758,11 +768,18 @@ impl Drop for PdbSession {
 /// we emit, so paths ride without quoting hazards. `Pdb(stdin=sys.__stdin__)` is the
 /// load-bearing line — sys.stdin was already swapped to the case file, and the COMMAND
 /// pipe must stay the original process stdin.
+/// pass #126 (He, live: "the wrapper exited before the first stop" on a valid draft):
+/// the old script called the PRIVATE `Pdb._runscript`, which does not exist in the
+/// 3.12.6/3.14.3 Windows builds at all (reproduced live — AttributeError on both).
+/// The rewrite uses the public bdb surface only: reset + set_step stops at the first
+/// EXECUTABLE line (comments/shebangs included in the file don't matter), and
+/// `Pdb.run(code, main-globals)` executes the draft with __name__ == "__main__".
+/// Verified live on 3.12.6 and 3.14.3: initial stop line 1 → n → line 2 → c → output.
 fn pdb_wrapper_script(source: &Path, stdin_file: &Path) -> String {
     let src = serde_json::to_string(&source.to_string_lossy().replace('\\', "/")).unwrap_or_else(|_| "\"\"".into());
     let inp = serde_json::to_string(&stdin_file.to_string_lossy().replace('\\', "/")).unwrap_or_else(|_| "\"\"".into());
     format!(
-        "import sys, pdb\n_t = {src}\nsys.argv = [_t]\nsys.stdin = open({inp}, \"r\", encoding=\"utf-8\", errors=\"replace\")\n_d = pdb.Pdb(stdin=sys.__stdin__, stdout=sys.stderr)\n_d._runscript(_t)\n"
+        "import sys, pdb\n_t = {src}\nsys.argv = [_t]\nsys.stdin = open({inp}, \"r\", encoding=\"utf-8\", errors=\"replace\")\n_d = pdb.Pdb(stdin=sys.__stdin__, stdout=sys.stderr)\n_d.reset()\n_d.set_step()\n_g = {{\"__name__\": \"__main__\", \"__file__\": _t, \"__builtins__\": __builtins__}}\n_d.run(compile(open(_t, \"rb\").read(), _t, \"exec\"), _g)\n"
     )
 }
 
@@ -993,7 +1010,7 @@ fn start_pdb(params: StartParams) -> Result<DebugSnapshot, String> {
         _job: job,
         _guard: params.guard,
     };
-    // the initial stop: _runscript parks on the draft's first executable line
+    // the initial stop: set_step parks on the draft's first executable line
     match s.wait_location(STEP_TIMEOUT)? {
         Some((line, function)) => {
             let snap = s.snapshot(Some(line), function);
@@ -1001,7 +1018,16 @@ fn start_pdb(params: StartParams) -> Result<DebugSnapshot, String> {
             *slot = Some(Engine::Pdb(s));
             Ok(snap)
         }
-        None => Err("the wrapper exited before the first stop — the draft may fail on import".into()),
+        // pass #126: diagnose-on-fail — the wrapper's stderr (the real traceback) rides
+        // in the tail; the error carries it instead of a blind "may fail on import"
+        None => {
+            let tail: String = s.stderr_tail.drain(..).collect::<Vec<_>>().join("\n");
+            Err(if tail.is_empty() {
+                "the wrapper exited before the first stop — the draft may fail on import".into()
+            } else {
+                format!("the wrapper exited before the first stop:\n{tail}")
+            })
+        }
     }
 }
 
@@ -1080,13 +1106,29 @@ mod tests {
     fn pdb_wrapper_separates_the_three_streams() {
         // the load-bearing lines: the case file becomes the debuggee's stdin, the
         // COMMAND pipe stays the original process stdin, pdb's protocol rides stderr,
-        // and the draft is what _runscript executes
+        // and the draft runs via the PUBLIC bdb surface (reset + set_step + run) —
+        // the private _runscript does not exist in the 3.12/3.14 Windows builds
+        // (reproduced live, pass #126)
         let script = pdb_wrapper_script(Path::new(r"D:\t\d\main.py"), Path::new(r"D:\t\d\stdin.txt"));
         assert!(script.contains(r#"_t = "D:/t/d/main.py""#));
         assert!(script.contains(r#"sys.stdin = open("D:/t/d/stdin.txt""#));
         assert!(script.contains("pdb.Pdb(stdin=sys.__stdin__, stdout=sys.stderr)"));
-        assert!(script.contains("_d._runscript(_t)"));
-        assert!(script.contains("sys.argv = [_t]"));
+        assert!(script.contains("_d.reset()\n_d.set_step()"));
+        assert!(script.contains(r#""__name__": "__main__""#));
+        assert!(!script.contains("_runscript"));
+    }
+
+    #[test]
+    fn mi_console_escape_keeps_the_string_whole() {
+        // pass #126: the console command's inner quotes ended the MI string early —
+        // gdb parsed `run < ` and answered "Problem parsing arguments" (live repro);
+        // escaped, the whole `run < "…" > "…"` reaches gdb's console parser intact
+        let cmd = build_run_command(Path::new(r"D:\t\d\stdin.txt"), Path::new(r"D:\t\d\stdout.txt"));
+        assert_eq!(cmd, r#"run < "D:/t/d/stdin.txt" > "D:/t/d/stdout.txt""#);
+        let escaped = mi_escape_console(&cmd);
+        assert_eq!(escaped, r#"run < \"D:/t/d/stdin.txt\" > \"D:/t/d/stdout.txt\""#);
+        let line = format!("-interpreter-exec console \"{escaped}\"");
+        assert_eq!(line.matches('"').count() % 2, 0, "the MI string must stay balanced");
     }
 
     #[test]
