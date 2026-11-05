@@ -329,6 +329,23 @@ fn version_gt(candidate: &str, current: &str) -> bool {
     }
 }
 
+// pass #136 (wave-5 audit H1, HIGH): the raw-string gate for open_url. The #131b
+// handoff claimed the URL "cannot contain a quote itself" — FALSE: a WHATWG parser
+// accepts `https://github.com/a" & calc.exe & "b` and keeps `github.com` as the host,
+// so the allowlist (which runs on the PARSED copy) passes while the RAW string carries
+// the quote into `cmd /C start "" "<url>"` — the quote closes start's argument and the
+// rest runs as a command. Server-controlled strings reach this command
+// (st.authorization_url on Google sign-in, m.installer_url on the download click), so
+// a compromised judge or a TLS-intercepting proxy could drive it. Two layers here:
+// (1) this gate — the RAW string must be free of quotes and C0/C1 control characters
+// before anything proceeds (belt), and (2) the Windows handoff below calls
+// ShellExecuteW DIRECTLY — cmd /C start is gone entirely, so no cmd parser exists to
+// reinterpret & | ^ %VAR% even in the worst case (suspenders). Percent-encoding stays
+// legal (a plain %XX in a query string is normal); it is inert without cmd.
+fn open_url_has_hostile_chars(raw: &str) -> bool {
+    raw.bytes().any(|b| b == b'"' || b < 0x20 || b == 0x7f)
+}
+
 // System-browser opener for the Google PKCE step. https only; the URL is a single
 // argv entry for the OS opener, never passed through a shell.
 // pass #78 (Sonnet S6): host allowlist — open_url is the only path from webview
@@ -353,23 +370,42 @@ fn open_url(url: String) -> Result<(), String> {
     if !ALLOWED.contains(&host) {
         return Err(format!("open_url: host '{host}' is not on the allowlist"));
     }
-    // pass #131b (He's File-Explorer hop — the real "OAUTH BROKEN" root cause): explorer.exe
-    // is a flaky URL handoff — it treats its argument as a filesystem path first, and probe-
-    // verified on this box (probes/pass-129): a begin-shaped URL opens NOTHING (explorer
-    // exits 1, no window, no browser) while .spawn() still reports success — the webview is
-    // told the browser opened and the poll loop waits on a sign-in the user can never reach
-    // (on other URL shapes an Explorer window opens instead — He's report). ShellExecute is
-    // the canonical default-browser handoff: `cmd /C start "" "<url>"`, where the empty ""
-    // is start's title placeholder and the explicit quotes keep `&` in query strings
-    // literal. raw_arg because Command's own MSVC quoting leaves an &-bearing arg unquoted;
-    // the URL is https + allowlist-checked above and cannot contain a quote itself.
-    // CREATE_NO_WINDOW rides cph::new_cmd — else every open flashes a console.
+    // pass #136 (wave-5 H1): the gate runs on the RAW string — the parsed copy has
+    // already normalized hostile bytes away, which is exactly how the quote survived
+    // to the handoff in the first place. Rejected here, before any handoff.
+    if open_url_has_hostile_chars(&url) {
+        return Err("open_url: the url carries quote or control characters this handoff refuses".into());
+    }
+    // The handoff receives the PARSED copy (parsed.as_str()) — the canonical form of
+    // the same URL the allowlist judged — never the raw string.
+    // pass #136: Windows dials ShellExecuteW directly. The #131b `cmd /C start` hop is
+    // GONE: with no cmd process there is no command parser to reinterpret & | ^ %VAR%
+    // at all, which retires the whole injection class this gate belts against. The
+    // canonical default-browser handoff also keeps the #131b property that mattered
+    // (explorer.exe treated the argument as a filesystem path and silently opened
+    // nothing; ShellExecuteW's "open" verb on an https URL reaches the registered
+    // browser, and a return value > 32 proves it dispatched).
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
-        let mut cmd = cph::new_cmd("cmd");
-        cmd.raw_arg(format!("/C start \"\" \"{}\"", url));
-        cmd.spawn().map(|_| ()).map_err(|e| format!("open: {e}"))
+        use windows_sys::Win32::UI::Shell::ShellExecuteW;
+        let verb: Vec<u16> = "open\u{0}".encode_utf16().collect();
+        let file: Vec<u16> = parsed.as_str().encode_utf16().chain(std::iter::once(0)).collect();
+        // SW_SHOWNORMAL = 1 (Win32_UI_WindowsAndMessaging's constant, inlined raw so the
+        // shell feature stays the only new one). Success is an HINSTANCE > 32.
+        let res = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                verb.as_ptr(),
+                file.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                1,
+            )
+        };
+        if (res as isize) <= 32 {
+            return Err(format!("open: ShellExecuteW failed ({})", res as isize));
+        }
+        Ok(())
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -377,7 +413,7 @@ fn open_url(url: String) -> Result<(), String> {
         let mut cmd = std::process::Command::new("open");
         #[cfg(all(unix, not(target_os = "macos")))]
         let mut cmd = std::process::Command::new("xdg-open");
-        cmd.arg(&url).spawn().map(|_| ()).map_err(|e| format!("open: {e}"))
+        cmd.arg(parsed.as_str()).spawn().map(|_| ()).map_err(|e| format!("open: {e}"))
     }
 }
 
@@ -490,6 +526,29 @@ mod asset_tests {
         assert!(!version_gt("v0.3.37a-alpha", ""), "unparseable current never claims an update");
         assert_eq!(version_triple("v0.3.31a-alpha"), Some((0, 3, 31)));
         assert_eq!(version_triple("0.3.36-alpha"), Some((0, 3, 36)));
+    }
+
+    #[test]
+    fn open_url_gate_rejects_what_the_parser_normalizes() {
+        // pass #136 (wave-5 H1): the audit's exact payload — the WHATWG parser keeps
+        // `github.com` as the host (allowlist PASSES on the parsed copy) while the RAW
+        // string carries the quote that would close start's argument and split the
+        // command. The gate must run on the raw string and reject it.
+        let payload = "https://github.com/a\" & calc.exe & \"b";
+        let parsed = reqwest::Url::parse(payload).unwrap();
+        assert_eq!(parsed.host_str(), Some("github.com"), "the audit's premise: the host allowlist would pass this");
+        assert!(open_url_has_hostile_chars(payload), "the raw string carries the quote");
+        // the same URL, percent-encoded — the form the parser normalizes TO — is inert
+        // and must pass (a plain %XX is legal; it is cmd that is gone, not percent).
+        assert!(!open_url_has_hostile_chars(parsed.as_str()), "the canonical percent-encoded form passes");
+        // control characters are refused in the raw string too
+        assert!(open_url_has_hostile_chars("https://github.com/\u{1f}"));
+        assert!(open_url_has_hostile_chars("https://github.com/a\u{7f}b"));
+        assert!(open_url_has_hostile_chars("https://github.com/a\nb"));
+        // clean URLs — including the real call sites' shapes — pass untouched
+        assert!(!open_url_has_hostile_chars("https://accounts.google.com/o/oauth2/v2/auth?client_id=x&redirect_uri=y&response_type=code"));
+        assert!(!open_url_has_hostile_chars("https://github.com/afalseskybroken/delcc/releases"));
+        assert!(!open_url_has_hostile_chars("https://downloads.tmathcoding.vn/releases/1.1.0-pilot-1/TMATH-Code-Client_1.1.0_windows-x64.exe"));
     }
 
     #[test]
