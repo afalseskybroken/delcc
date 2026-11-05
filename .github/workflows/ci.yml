@@ -54,6 +54,8 @@ jobs:
       - run: npm ci
       - name: statement renderer (browser, offline fixture, system Chrome)
         run: node scripts/test-tmath-statement.mjs
+      - name: CSP boot-gate (browser, real boot path, system Chrome)
+        run: node scripts/test-tmath-boot.mjs
 
   rust:
     runs-on: windows-latest

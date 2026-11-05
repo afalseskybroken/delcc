@@ -48,7 +48,7 @@ Frontend-only mode covers login and lists; the desktop shell adds custom
 headers, submissions, and the local CPH runner. Per-platform details,
 prerequisites, and caveats: [BUILDING.md](docs/BUILDING.md).
 
-## What works (v0.3.39a-alpha)
+## What works (v0.3.40a-alpha)
 
 Login (+ Google flow) → contests → workspace → problem → submit → verdict
 poll; rankings, submissions filters, account, settings; local CPH
@@ -82,17 +82,16 @@ Unthemed on purpose. `src/app.css` is the guest-themer lane
 - **Sketch credit (pass #112).** The sketch tab mounts **[Excalidraw](https://github.com/excalidraw/excalidraw)** (MIT) — the library the official client’s Vẽ nháp loads — as a lazy React component inside the tools panel; the scene persists locally. Credited in [docs/THIRD-PARTY-NOTICES.md](docs/THIRD-PARTY-NOTICES.md).
 - **Not TMATH's work.** delcc is an independent community client; "TMATH" and
   the official client belong to their respective owners. delcc ships no official
-  code and no official assets (the API it calls is documented and public) — with
-  one disclosed exception: **the window/taskbar icon (pass #135)** is the official
-  client's own mark, extracted from its public installer so the titlebar matches at
-  a glance (the window title already reads "TMATH Code Client" under the same
-  persona posture). Everything else in the tree is delcc's own or credited.
+  code or assets (the API it calls is documented and public). The pass #135 window
+  icon was briefly the official client's own mark and was REVERTED in pass #137
+  (wave-5 M2): delcc's own icon is back, and the extracted set survives only as a
+  private archive outside the repository.
 - **Design parity, stated plainly.** delcc is essentially 100% free of
   closed-source code. The `tmath` UI layout deliberately follows the official
   client's design language — under a ported-honesty rule: our own
   implementation, carved observations consulted for parity questions, no
-  official source anywhere in the tree — the sole asset exception is the window
-  icon, disclosed above (pass #135).
+  official source or asset anywhere in the tree (the brief pass #135 icon exception
+  was reverted in pass #137 per wave-5 M2).
 - **The X-Client-Version shim — disclosed, and load-bearing.** The judge
   426-gates any client whose version string is older than the official release
   feed's `required_version`, and delcc is not on that feed: reporting its own
