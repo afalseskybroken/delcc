@@ -16,22 +16,35 @@ body[data-persona="tmath"] .tm-copy-button { position: absolute; top: 8px; right
 body[data-persona="tmath"] .tm-copy-button:disabled { cursor: default; }
 body[data-persona="tmath"] .tm-copy-button:hover { background: var(--tmath-accent, var(--tm-soft, #88888812)); }
 body[data-persona="tmath"] .tm-copy-button:focus-visible { outline: 2px solid var(--tm-primary, #2563eb); outline-offset: 2px; }
-body[data-persona="tmath"] .tm-samples { margin: 1.25em 0; }
+body[data-persona="tmath"] .tm-samples { margin: 1rem 0; }
 body[data-persona="tmath"] .tm-statement :is(button, [tabindex]):focus-visible { outline: 2px solid var(--tm-primary, #2563eb); outline-offset: 3px; }
-/* pass #127 (He: "Inaccurate I/O block compared to official. Rip from it"): the tabbed
-   panels are replaced by official's stacked presentation — a labeled, bordered box per
-   Input/Output with the Copy chip floating inside the top-right corner, every sample
-   visible at once (a slim Sample-N tag separates pairs only when there are several) */
-body[data-persona="tmath"] .tm-sample-block { margin: 0 0 1.25em; }
+/* pass #128 (He: "Inaccurate I/O block compared to official. Rip from it"): the tabbed
+   panels are replaced by official's stacked presentation — a labeled box per Input/Output
+   with the Copy chip floating inside the top-right corner, every sample visible at once
+   (a slim Sample-N tag separates pairs only when there are several).
+   pass #132 (He: "still a mysterious gap on top due to [Copy] not being able to be in line
+   like Official" — the carve retry): the rules below are now the official CLIENT's exact
+   sample-block recipe, extracted from the v1.0.9 bundle (assets__index-*.js + .css). What
+   the #128 approximation got wrong: the label was a small fixed 13px row; the BORDER and a
+   tinted background lived on a wrapper box while the inner pre carried its own padding,
+   min-height 42px and a 96px right padding for the chip — that stack is the dead space He
+   saw on top of the code. Official instead: label = inherited-size semibold with mb-1
+   (4px); the wrapper is .code-copy-wrapper (position:relative, margin-block-start = the
+   1.25em typeset-flow gap — official shows this exact label→box gap); the border lives ON
+   the pre (.statement-content pre: 1px solid, padding 1rem, font-weight 500, radius .5em,
+   no min-height, no reserved chip space — the chip simply overlays the top-right like the
+   generic .tm-copy-button already does); the chip is .copy-button (absolute 8px/8px,
+   radius .75rem, 12px/600, card background + the subtle shadow). */
+body[data-persona="tmath"] .tm-sample-block { margin: 0 0 12px; }
 body[data-persona="tmath"] .tm-sample-block:last-child { margin-bottom: 0; }
 body[data-persona="tmath"] .tm-sample-tag { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.65; margin-bottom: 6px; }
 body[data-persona="tmath"] .tm-sample-cell { margin-bottom: 12px; }
 body[data-persona="tmath"] .tm-sample-cell:last-child { margin-bottom: 0; }
-body[data-persona="tmath"] .tm-sample-label { font-weight: 650; font-size: 13px; margin-bottom: 6px; }
-body[data-persona="tmath"] .tm-sample-box { position: relative; border: 1px solid var(--tm-border, #88888838); border-radius: 8px; background: var(--tm-soft, #8888880b); }
-body[data-persona="tmath"] .tm-sample-copy { position: absolute; top: 8px; right: 8px; z-index: 1; padding: 4px 11px; font: inherit; font-size: 12px; border: 1px solid var(--tm-border, #88888838); border-radius: 6px; background: var(--tm-card, #1a2233); color: inherit; cursor: pointer; }
+body[data-persona="tmath"] .tm-sample-label { font-weight: 600; margin-bottom: 4px; }
+body[data-persona="tmath"] .tm-sample-box { position: relative; margin-top: 1.25em; }
+body[data-persona="tmath"] .tm-sample-copy { position: absolute; top: 8px; right: 8px; z-index: 10; padding: 6px 12px; font-size: 12px; font-weight: 600; line-height: 16px; border: 1px solid var(--tm-border, #88888838); border-radius: .75rem; background: var(--tm-panel, var(--tm-bg, #fff)); color: var(--tmath-foreground, inherit); cursor: pointer; box-shadow: 0 1px 3px #0000001a, 0 1px 2px -1px #0000001a; }
 body[data-persona="tmath"] .tm-sample-copy:hover { border-color: var(--tm-primary, #2563eb); }
-body[data-persona="tmath"] .tm-sample-pre { padding: 12px 96px 12px 12px; font-family: var(--tmath-font-mono, monospace); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 42px; }
+body[data-persona="tmath"] .tm-sample-pre { margin: 0; border: 1px solid var(--tm-border, #88888838); border-radius: 8px; padding: 1rem; font-family: var(--tmath-font-mono, monospace); font-weight: 500; white-space: pre-wrap; overflow-wrap: anywhere; }
 body[data-persona="tmath"] .tm-statement-table { overflow: auto; margin: 1em 0; }
 body[data-persona="tmath"] .tm-statement table { border-collapse: collapse; min-width: 50%; }
 body[data-persona="tmath"] .tm-statement :is(th, td) { border: 1px solid var(--tm-border); padding: .75em 1em; text-align: left; vertical-align: top; }

@@ -1,7 +1,7 @@
 {
   "name": "delcc-app",
   "private": true,
-  "version": "0.3.35-alpha",
+  "version": "0.3.36-alpha",
   "type": "module",
   "license": "PolyForm-Noncommercial-1.0.0",
   "scripts": {
@@ -25,7 +25,7 @@
     "@hexcanvas/element": "0.2.0",
     "@tauri-apps/api": "^2.12.4",
     "dompurify": "^3.1.0",
-    "katex": "^0.16.47",
+    "katex": "^0.19.1",
     "monaco-editor": "0.47.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
