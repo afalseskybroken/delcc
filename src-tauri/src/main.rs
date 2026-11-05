@@ -280,7 +280,11 @@ fn toggle_fullscreen(window: tauri::WebviewWindow) -> Result<bool, String> {
 // The URL is pinned to exactly one host:path — webview content cannot aim it elsewhere.
 #[tauri::command]
 async fn update_check() -> Result<String, String> {
-    const ENDPOINT: &str = "https://api.github.com/repos/afalseskybroken/delcc/releases/latest";
+    // /releases?per_page=1, NOT /releases/latest: every delcc release ships as a
+    // PRERELEASE (the alpha train), and GitHub's latest endpoint excludes prereleases —
+    // it 404'd on the live oracle (0.3.37 first boot, element "Update check unavailable").
+    // The newest release entry is exactly what "a newer delcc exists" means here.
+    const ENDPOINT: &str = "https://api.github.com/repos/afalseskybroken/delcc/releases?per_page=1";
     let current = env!("CARGO_PKG_VERSION").to_string();
     let resp = http().get(ENDPOINT)
         .header("Accept", "application/vnd.github+json")
@@ -290,9 +294,9 @@ async fn update_check() -> Result<String, String> {
     let status = resp.status().as_u16();
     if !(200..300).contains(&status) { return Err(format!("API_ERROR {status}")); }
     let body = read_capped_text(resp).await?;
-    let tag = serde_json::from_str::<serde_json::Value>(&body)
-        .map_err(|e| format!("parse: {e}"))?
-        .get("tag_name").and_then(|t| t.as_str()).unwrap_or("").to_string();
+    let list = serde_json::from_str::<serde_json::Value>(&body).map_err(|e| format!("parse: {e}"))?;
+    let tag = list.as_array().and_then(|a| a.first())
+        .and_then(|r| r.get("tag_name")).and_then(|t| t.as_str()).unwrap_or("").to_string();
     Ok(serde_json::to_string(&serde_json::json!({
         "current": current,
         "latest": tag,
