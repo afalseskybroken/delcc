@@ -183,6 +183,7 @@ pub(crate) struct Inner {
     cache: Mutex<Option<Build>>,
     allowed: Mutex<AllowedBinaries>, // pass #78: the exec allowlist, see validate_binary
     persist_dir: Mutex<Option<PathBuf>>, // pass #96: where the override registry lives
+    detect_cache: Mutex<Option<(std::time::Instant, Vec<Toolchain>)>>, // pass #129 (A5): the 60 s detection TTL
 }
 
 // pass #78 (Sonnet S1 leg 2): what `cph_run`/`cph_compile` may execute.
@@ -349,7 +350,7 @@ fn new_tmp_dir(job_id: u64) -> Result<PathBuf, String> {
 
 // ---------- detect ----------
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct Toolchain {
     lang_key: String, // matches lib/langmap.ts buckets: cpp/python/java/rust/go/pascal/javascript
     label: String,
@@ -656,7 +657,24 @@ fn detect_all() -> (Vec<Toolchain>, Vec<PlantedCandidate>) {
 // Async + spawn_blocking: a plain `fn` command runs on the main thread in Tauri 2 and the
 // probes (java -version in particular) would freeze the window while they run.
 #[tauri::command]
-pub async fn cph_detect(state: tauri::State<'_, CphState>) -> Result<Vec<Toolchain>, String> {
+pub async fn cph_detect(state: tauri::State<'_, CphState>, force: Option<bool>) -> Result<Vec<Toolchain>, String> {
+    // pass #129 (attack-surface A5/P5): the full probe set spawns 10–30 short-lived
+    // processes per call, and the command is reachable by any page JS — the pinned CSP
+    // was the only wall between a compromised page and a spawn loop running for the
+    // app's lifetime. A 60 s TTL cache turns "unbounded spawn loop" into "one spawn set
+    // per minute"; the cached answer is the POST-consent result (confirmed planted
+    // entries included), and the Settings button passes force=true for a real re-scan —
+    // the change-of-mind path that also refreshes the cache.
+    const DETECT_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+    let force = force.unwrap_or(false);
+    if !force {
+        let cached = lock(&state.0.detect_cache);
+        if let Some((at, tcs)) = cached.as_ref() {
+            if at.elapsed() < DETECT_TTL {
+                return Ok(tcs.clone());
+            }
+        }
+    }
     let (mut found, planted) = tauri::async_runtime::spawn_blocking(detect_all).await.unwrap_or_default();
     // pass #101/#123 (wave-4 N6b): planted candidates (C:\-root dirs, VS Code extension
     // bundles) NEVER execute until the native confirmation accepts the path — the
@@ -702,6 +720,7 @@ pub async fn cph_detect(state: tauri::State<'_, CphState>) -> Result<Vec<Toolcha
             m
         });
     }
+    *lock(&state.0.detect_cache) = Some((std::time::Instant::now(), found.clone()));
     Ok(found)
 }
 
@@ -784,16 +803,32 @@ const OVERRIDE_DIALOG_FLAGS: u32 = 0x4 | 0x20 | 0x10000 | 0x40000;
 
 #[cfg(all(windows, not(test)))]
 fn confirm_override(lang_key: &str, bin: &str) -> bool {
-    use windows_sys::Win32::UI::WindowsAndMessaging::MessageBoxW;
-    let text: Vec<u16> = format!(
-        "Allow \u{201c}{bin}\u{201d} to be used as the {lang_key} toolchain?\r\n\r\nOnly confirm a path you chose yourself in delcc Settings. Refuse anything else."
+    confirm_dialog(
+        "delcc \u{2014} toolchain override",
+        &format!(
+            "Allow \u{201c}{bin}\u{201d} to be used as the {lang_key} toolchain?\r\n\r\nOnly confirm a path you chose yourself in delcc Settings. Refuse anything else."
+        ),
     )
-    .encode_utf16()
-    .chain(std::iter::once(0))
-    .collect();
-    let title: Vec<u16> = "delcc \u{2014} toolchain override\u{0}"
-        .encode_utf16()
-        .collect();
+}
+// pass #129 (attack-surface A3 symmetry): the debugger consent uses the same native-dialog
+// machinery with its own wording — a PATH gdb is probed automatically, not chosen in
+// Settings, so the "a path you chose yourself" line would be wrong here.
+#[cfg(all(windows, not(test)))]
+fn confirm_debugger(bin: &str) -> bool {
+    confirm_dialog(
+        "delcc \u{2014} debugger consent",
+        &format!(
+            "Allow \u{201c}{bin}\u{201d} to run as the step-by-step debugger?\r\n\r\ndelcc prefers the gdb shipped next to the compiler; this candidate came off PATH. Refuse it if you did not install it."
+        ),
+    )
+}
+// pass #129: the MessageBoxW body both consent dialogs share (the button set, flags, and
+// rc mapping stay exactly the ones pinned by #101/#102).
+#[cfg(all(windows, not(test)))]
+fn confirm_dialog(title: &str, message: &str) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::MessageBoxW;
+    let text: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
+    let title: Vec<u16> = format!("{title}\u{0}").encode_utf16().collect();
     unsafe {
         confirm_rc_is_yes(MessageBoxW(
             std::ptr::null_mut(),
@@ -806,6 +841,45 @@ fn confirm_override(lang_key: &str, bin: &str) -> bool {
 #[cfg(any(not(windows), test))]
 fn confirm_override(_lang_key: &str, _bin: &str) -> bool {
     true // test builds and non-Windows builds have no dialog to show
+}
+#[cfg(any(not(windows), test))]
+fn confirm_debugger(_bin: &str) -> bool {
+    true // test builds and non-Windows builds have no dialog to show
+}
+
+// pass #129 (attack-surface A3 symmetry): the planted-class confirm-once pattern (#123's
+// A2 fix) applied to the debug lane's gdb selection. A PATH-derived gdb is not the
+// compiler's own toolchain — the version gate alone admits any gdb.exe that prints a
+// plausible number (audit A3.2), and probing it IS an execution. Consent comes strictly
+// BEFORE the probe; refusals are sticky and persisted (never re-asked, never re-run);
+// acceptances are persisted too, so the dialog fires once per path, ever. Sibling-of-
+// compiler candidates never reach here (they inherit the allowlist's trust in the
+// compiler — see debug.rs find_gdb_candidates).
+pub(crate) fn consent_debugger(state: &CphState, bin: &str) -> bool {
+    let (confirmed, refused) = {
+        let allowed = lock(&state.0.allowed);
+        (allowed.confirmed_fixed.contains(bin), allowed.refused_fixed.contains(bin))
+    };
+    if refused {
+        return false; // sticky refusal — do not ask again, do not run
+    }
+    if confirmed {
+        return true;
+    }
+    if !confirm_debugger(bin) {
+        let mut allowed = lock(&state.0.allowed);
+        if allowed.refused_fixed.insert(bin.to_string()) {
+            drop(allowed);
+            state.save_persisted_overrides();
+        }
+        return false;
+    }
+    let mut allowed = lock(&state.0.allowed);
+    if allowed.confirmed_fixed.insert(bin.to_string()) {
+        drop(allowed);
+        state.save_persisted_overrides();
+    }
+    true
 }
 
 #[tauri::command]
@@ -1485,7 +1559,11 @@ fn debug_start_blocking(inner: Arc<Inner>, req: DebugStartRequest) -> Result<cra
         #[cfg(windows)]
         job: None,
     };
-    crate::debug::start(params)
+    // pass #129 (attack-surface A3 symmetry): PATH-derived gdb candidates ride the
+    // confirm-once consent gate before their version probe may execute them.
+    let consent_state = CphState(inner.clone());
+    let consent = |bin: &str| consent_debugger(&consent_state, bin);
+    crate::debug::start(params, &consent)
 }
 
 #[tauri::command]

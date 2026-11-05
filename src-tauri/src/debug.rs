@@ -224,32 +224,52 @@ pub fn build_run_command(input: &Path, output: &Path) -> String {
     format!("run < \"{inp}\" > \"{outp}\"")
 }
 
-fn find_gdb_candidates(compiler: &str) -> Vec<PathBuf> {
+/// pass #129 (attack-surface A3 symmetry): candidates carry a trust class. The sibling
+/// pair inherits the allowlist's trust in the compiler itself (same directory — probing
+/// them is the same execution class as running the compiler). Every PATH-derived
+/// candidate is the UNTRUSTED class: same-user-writable, and the version gate alone
+/// admits any binary that prints a plausible number — those ride the confirm-once
+/// consent gate in find_gdb before their `--version` may execute. A bare compiler name
+/// has no real sibling directory (parent is ""), and a CWD-relative "gdb.exe" is not
+/// the toolchain's own gdb — skipped rather than probed.
+fn find_gdb_candidates(compiler: &str) -> Vec<(PathBuf, bool)> {
     let mut out = Vec::new();
     // sibling first: the toolchain's own gdb understands its own binaries
     if let Some(dir) = Path::new(compiler).parent() {
-        out.push(dir.join("gdb.exe"));
-        out.push(dir.join("gdb"));
+        if !dir.as_os_str().is_empty() {
+            out.push((dir.join("gdb.exe"), true));
+            out.push((dir.join("gdb"), true));
+        }
     }
     if let Some(paths) = std::env::var_os("PATH") {
         for p in std::env::split_paths(&paths) {
-            out.push(p.join("gdb.exe"));
-            out.push(p.join("gdb"));
+            if p.as_os_str().is_empty() {
+                continue;
+            }
+            out.push((p.join("gdb.exe"), false));
+            out.push((p.join("gdb"), false));
         }
     }
     out
 }
 
 /// Sibling-of-compiler first, then PATH; both gated at gdb >= 8 (7.6.1 verified broken:
-/// no file redirection). Returns (path, version string) or an honest error naming what
-/// was probed.
-pub fn find_gdb(compiler: &str) -> Result<(PathBuf, String), String> {
+/// no file redirection). PATH-class candidates additionally ride the confirm-once
+/// consent gate (A3 symmetry) BEFORE the version probe — probing is an execution.
+/// Returns (path, version string) or an honest error naming what was probed and what
+/// was refused.
+pub fn find_gdb(compiler: &str, consent: &dyn Fn(&str) -> bool) -> Result<(PathBuf, String), String> {
     let mut probed: Vec<String> = Vec::new();
-    for cand in find_gdb_candidates(compiler) {
+    for (cand, trusted) in find_gdb_candidates(compiler) {
         if !cand.is_file() {
             continue;
         }
-        let out = match crate::cph::new_cmd(cand.to_string_lossy().as_ref()).arg("--version").output() {
+        let path_str = cand.to_string_lossy().to_string();
+        if !trusted && !consent(&path_str) {
+            probed.push(format!("{path_str} (refused by the user)"));
+            continue;
+        }
+        let out = match crate::cph::new_cmd(&path_str).arg("--version").output() {
             Ok(o) => o,
             Err(_) => continue,
         };
@@ -604,19 +624,20 @@ pub struct StartParams {
     pub job: Option<crate::cph::job::Job>,
 }
 
-pub fn start(params: StartParams) -> Result<DebugSnapshot, String> {
+pub fn start(params: StartParams, consent: &dyn Fn(&str) -> bool) -> Result<DebugSnapshot, String> {
     // pass #124: engine dispatch — python rides pdb (its own lane below); the compiled
-    // family rides gdb with per-language entry symbols.
+    // family rides gdb with per-language entry symbols. The consent gate (A3 symmetry,
+    // pass #129) only concerns the gdb lane's PATH-class debugger candidates.
     if params.lang_key == "python" {
         return start_pdb(params);
     }
-    start_gdb(params)
+    start_gdb(params, consent)
 }
 
-fn start_gdb(params: StartParams) -> Result<DebugSnapshot, String> {
+fn start_gdb(params: StartParams, consent: &dyn Fn(&str) -> bool) -> Result<DebugSnapshot, String> {
     // self-heal: one session at a time — an abandoned one is stopped first
     stop_session();
-    let (gdb_path, ver) = find_gdb(&params.compiler_binary)?;
+    let (gdb_path, ver) = find_gdb(&params.compiler_binary, consent)?;
     let dir = params.dir.clone();
     let in_path = dir.join("stdin.txt");
     let out_path = dir.join("stdout.txt");
@@ -1036,6 +1057,30 @@ fn start_pdb(params: StartParams) -> Result<DebugSnapshot, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gdb_candidates_mark_path_entries_untrusted() {
+        // pass #129 (attack-surface A3 symmetry): sibling-of-compiler candidates carry
+        // the compiler's own trust; every PATH-derived candidate is the untrusted class
+        // that rides the consent gate before its version probe may execute it.
+        let cands = find_gdb_candidates("/opt/tc/bin/g++");
+        assert!(cands.len() >= 4, "two sibling candidates plus at least one PATH pair");
+        assert!(cands[0].1 && cands[1].1, "the sibling pair is the trusted class");
+        assert!(
+            cands.iter().skip(2).all(|(_, trusted)| !*trusted),
+            "everything after the sibling pair is PATH-derived and untrusted"
+        );
+        // a bare compiler name has no real sibling dir — the CWD-relative pair is skipped
+        let bare = find_gdb_candidates("g++");
+        assert!(
+            bare.iter().all(|(_, trusted)| !*trusted),
+            "no trusted candidates without a real compiler directory"
+        );
+        // (the refusal naming itself rides find_gdb's existing probed-list error — same
+        // channel as the version failures; the consent gate deciding BEFORE any probe is
+        // the property that matters here, and it is structural: consent is consulted
+        // before new_cmd in find_gdb's loop)
+    }
 
     #[test]
     fn mi_parses_breakpoint_stop_with_nested_frame() {

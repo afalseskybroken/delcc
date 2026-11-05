@@ -133,10 +133,12 @@ export interface CphRunResponse { compile_ok: boolean; compile_log: string; resu
 export interface CphCompileResponse { compile_ok: boolean; compile_log: string; exit_code: number | null; time_ms: number; cancelled: boolean }
 
 // browser-dev (no Tauri bridge) has no process access at all -> empty list, feature stays hidden.
-export async function cphDetect(): Promise<CphToolchain[]> {
+// pass #129 (attack-surface A5): force=true skips the shell's 60 s detection TTL cache —
+// the Settings button's explicit re-scan; the default rides the cache.
+export async function cphDetect(force = false): Promise<CphToolchain[]> {
   const inv = await invoke();
   if (!inv) return [];
-  try { return (await inv("cph_detect", {})) as unknown as CphToolchain[]; } catch { return []; }
+  try { return (await inv("cph_detect", { force })) as unknown as CphToolchain[]; } catch { return []; }
 }
 
 // pass #78: mirror the Settings toolchain override into the shell's execution allowlist

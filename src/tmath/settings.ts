@@ -1,7 +1,7 @@
 import { t, LOCALES } from "../i18n";
 import { clientVersion } from "../lib/api";
-import { cphDetect, systemFonts, openExternal } from "../lib/transport";
-import { cphSupported, toolchainOverride, setToolchainOverride, CPH_LANGS, detectOnce, type CphToolchain } from "../lib/cph";
+import { systemFonts, openExternal } from "../lib/transport";
+import { cphSupported, toolchainOverride, setToolchainOverride, CPH_LANGS, detectOnce, forceRedetect, type CphToolchain } from "../lib/cph";
 import { LANG_DISPLAY } from "../lib/langmap";
 import { logSnapshot, clearLog, onLog, formatEntries } from "../lib/applog";
 import { esc, text, button, errorBox, empty, copyText, sanitizeFooterNote } from "./ui";
@@ -197,7 +197,9 @@ export function renderSettings(host: HTMLElement, prefs: Preferences, onChange: 
     const out = host.querySelector<HTMLElement>("#tm-tools")!;
     out.textContent = t("common.loading");
     try {
-      const tools = await cphDetect(); if (disposed) return;
+      // pass #129 (attack-surface A5): the button IS the explicit re-scan — force=true
+      // skips the shell's 60 s detection cache and refreshes the frontend cache too.
+      const tools = await forceRedetect(); if (disposed) return;
       out.innerHTML = tools.length ? tools.map(tool => `<p><b>${esc(tool.label)}</b> <code>${esc(tool.binary)}</code><br><span class="tm-muted">${esc(tool.version)}</span></p>`).join("") : empty("settings.noTools");
     } catch (e) { if (!disposed) out.innerHTML = errorBox(e); }
     finally { if (!disposed) btn.disabled = false; }

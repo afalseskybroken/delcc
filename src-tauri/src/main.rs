@@ -5,7 +5,7 @@
 #![windows_subsystem = "windows"]
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 mod fonts;
 mod cph;
@@ -42,6 +42,39 @@ fn http() -> &'static reqwest::Client {
             .expect("delcc http client")
     })
 }
+// pass #129 (attack-surface P1): asset_fetch built a fresh reqwest client per call — a
+// fresh TLS handshake + pool teardown for every About-pane image. Clients are cached per
+// host; each still carries its resolve-pin, so a cache hit reuses the address that was
+// verified public when the client was built and never re-resolves — a STRICTER posture
+// than the old per-call re-resolve (the rebind window stays closed, the handshake cost
+// drops to once per host). Map capped at 16 hosts; overflow clears it (About panes touch
+// a handful of hosts at most).
+fn asset_clients() -> &'static Mutex<HashMap<String, reqwest::Client>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, reqwest::Client>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+// pass #129 (attack-surface A6): every other byte path in the tree is capped (asset_fetch
+// 2 MiB, worker 1 MiB/stream, debug snapshot 64 KiB, secure store 256 KiB) — site_fetch and
+// api_fetch were the two widest doors without a bound. The judge is the trusted origin, but
+// a hostile-or-broken response (or a redirect loop inside the allowed host) must not grow
+// RSS without limit. 8 MiB sits far above any real judge page (list/rankings pages are tens
+// of KB) and errors honestly at the cap. Chunk-streamed (content-length checked first, the
+// running size checked per chunk — chunked encoding has no length header to pre-check);
+// UTF-8 lossy matches reqwest text()'s default-charset behavior for the judge's UTF-8.
+const BODY_CAP: usize = 8 * 1024 * 1024;
+async fn read_capped_text(mut resp: reqwest::Response) -> Result<String, String> {
+    if let Some(len) = resp.content_length() {
+        if len as usize > BODY_CAP { return Err(format!("TOO_LARGE {len}")); }
+    }
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("body: {e}"))? {
+        if buf.len() + chunk.len() > BODY_CAP { return Err("TOO_LARGE".into()); }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(String::from_utf8_lossy(&buf).into_owned())
+}
+
 // pass #18: same-origin HTML GET for the public site (avatar harvest). The webview
 // fetch is CORS-blocked on profile pages; the shell talks, the page renders.
 #[tauri::command]
@@ -50,7 +83,7 @@ async fn site_fetch(path: String) -> Result<String, String> {
     if !path.starts_with('/') || path.contains("..") { return Err("bad path".into()); }
     let resp = http().get(format!("{BASE}{path}")).timeout(std::time::Duration::from_secs(15)).send().await.map_err(|e| format!("send: {e}"))?;
     let status = resp.status().as_u16();
-    let text = resp.text().await.map_err(|e| format!("body: {e}"))?;
+    let text = read_capped_text(resp).await?;
     serde_json::to_string(&serde_json::json!({ "status": status, "body": text }))
         .map_err(|e| format!("encode: {e}"))
 }
@@ -114,37 +147,50 @@ async fn asset_fetch(url: String) -> Result<String, String> {
     const MAX: usize = 2 * 1024 * 1024;
     let parsed: reqwest::Url = url.parse().map_err(|_| "INVALID_ARGUMENT".to_string())?;
     if !public_https_host(&parsed) { return Err("FORBIDDEN".to_string()); }
-    // pass #96: resolve once, verify every answer, pin. A hostname resolving to ANY
-    // non-public address is refused outright (round-robin rebinding included).
-    let mut builder = reqwest::Client::builder()
-        .http1_only()
-        .user_agent(concat!("delcc/", env!("CARGO_PKG_VERSION")))
-        .timeout(std::time::Duration::from_secs(10));
     let host = parsed.host_str().ok_or("FORBIDDEN")?.to_string();
-    let host_is_literal = host.trim_matches(|c| c == '[' || c == ']').parse::<std::net::IpAddr>().is_ok();
-    if !host_is_literal {
-        let target = format!("{host}:{}", parsed.port_or_known_default().unwrap_or(443));
-        let addrs: Vec<std::net::SocketAddr> = tauri::async_runtime::spawn_blocking(move || {
-            use std::net::ToSocketAddrs;
-            target.to_socket_addrs().map(|it| it.collect()).map_err(|e| e.to_string())
-        })
-        .await
-        .map_err(|e| format!("join: {e}"))?
-        .map_err(|e| format!("DNS_RESOLUTION_FAILED {e}"))?;
-        if addrs.is_empty() { return Err("DNS_RESOLUTION_FAILED empty".into()); }
-        if let Some(bad) = addrs.iter().find(|a| !is_public_ip(a.ip())) {
-            return Err(format!("FORBIDDEN non-public address {bad}"));
+    // pass #129 (P1): cache hit skips the DNS round-trip entirely — the pinned client
+    // inside is the one whose address was verified public when it was built. The guard
+    // is scoped OUT of the if/else (it must not live across the build branch's awaits).
+    let cached = asset_clients().lock().unwrap_or_else(|e| e.into_inner()).get(&host.to_lowercase()).cloned();
+    let client = if let Some(c) = cached {
+        c
+    } else {
+        // pass #96: resolve once, verify every answer, pin. A hostname resolving to ANY
+        // non-public address is refused outright (round-robin rebinding included).
+        let mut builder = reqwest::Client::builder()
+            .http1_only()
+            .user_agent(concat!("delcc/", env!("CARGO_PKG_VERSION")))
+            .timeout(std::time::Duration::from_secs(10));
+        let host_is_literal = host.trim_matches(|c| c == '[' || c == ']').parse::<std::net::IpAddr>().is_ok();
+        if !host_is_literal {
+            let target = format!("{host}:{}", parsed.port_or_known_default().unwrap_or(443));
+            let addrs: Vec<std::net::SocketAddr> = tauri::async_runtime::spawn_blocking(move || {
+                use std::net::ToSocketAddrs;
+                target.to_socket_addrs().map(|it| it.collect()).map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|e| format!("join: {e}"))?
+            .map_err(|e| format!("DNS_RESOLUTION_FAILED {e}"))?;
+            if addrs.is_empty() { return Err("DNS_RESOLUTION_FAILED empty".into()); }
+            if let Some(bad) = addrs.iter().find(|a| !is_public_ip(a.ip())) {
+                return Err(format!("FORBIDDEN non-public address {bad}"));
+            }
+            builder = builder.resolve(&host, addrs[0]);
         }
-        builder = builder.resolve(&host, addrs[0]);
-    }
-    let client = builder
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() >= 3 { return attempt.error("too many redirects"); }
-            if !public_https_host(attempt.url()) { return attempt.error("redirect to a non-public host"); }
-            attempt.follow()
-        }))
-        .build()
-        .map_err(|e| format!("client: {e}"))?;
+        let client = builder
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                if attempt.previous().len() >= 3 { return attempt.error("too many redirects"); }
+                if !public_https_host(attempt.url()) { return attempt.error("redirect to a non-public host"); }
+                attempt.follow()
+            }))
+            .build()
+            .map_err(|e| format!("client: {e}"))?;
+        let mut cache = asset_clients().lock().unwrap_or_else(|e| e.into_inner());
+        if cache.len() >= 16 { cache.clear(); }
+        cache.insert(host.to_lowercase(), client.clone());
+        drop(cache);
+        client
+    };
     let resp = client.get(parsed).header("Accept", "image/*").send().await.map_err(|e| format!("send: {e}"))?;
     let status = resp.status().as_u16();
     if !(200..300).contains(&status) { return Err(format!("API_ERROR {status}")); }
@@ -196,7 +242,7 @@ async fn api_fetch(
     }
     let resp = req.timeout(std::time::Duration::from_secs(30)).send().await.map_err(|e| format!("send: {e}"))?;
     let status = resp.status().as_u16();
-    let text = resp.text().await.map_err(|e| format!("body: {e}"))?;
+    let text = read_capped_text(resp).await?;
     serde_json::to_string(&serde_json::json!({ "status": status, "body": text }))
         .map_err(|e| format!("encode: {e}"))
 }

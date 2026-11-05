@@ -9,7 +9,7 @@ import "monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution"
 import "monaco-editor/esm/vs/basic-languages/kotlin/kotlin.contribution";
 import "monaco-editor/esm/vs/basic-languages/pascal/pascal.contribution";
 import "monaco-editor/esm/vs/basic-languages/csharp/csharp.contribution";
-import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
+import EditorWorker from "../lib/editor-worker"; // pass #129 (P4): one worker-import owner — see editor-worker.ts for the audit misread
 import { monacoLang } from "../lib/langmap";
 import { resolveEditorFont, type Preferences } from "./preferences";
 

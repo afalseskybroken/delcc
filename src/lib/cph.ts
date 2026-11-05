@@ -37,29 +37,40 @@ export const CPH_LANGS: { key: string; label: string }[] = [
 
 let toolchains: CphToolchain[] | null = null;
 let detectInFlight: Promise<CphToolchain[]> | null = null;
+// shared post-detection bookkeeping: log the answered binaries + mirror overrides
+const absorb = async (tcs: CphToolchain[]): Promise<CphToolchain[]> => {
+  toolchains = tcs;
+  // QoL (pass #52): auto-detection prints the exact binary each language will run —
+  // surfaces in Settings → Diagnostics, so "why is Run disabled" is answerable
+  // without pressing Detect tools manually.
+  for (const tc of tcs) logInfo(`toolchain ${tc.lang_key}: ${tc.binary} (${tc.version})`);
+  if (!tcs.length) logInfo("toolchain detect: none found");
+  // pass #78: mirror pre-existing Settings overrides into the shell's execution
+  // allowlist (migration for overrides saved before the registry existed). A path
+  // that no longer exists is surfaced by the awaited mirror in runAll/compileOnly.
+  await Promise.allSettled(CPH_LANGS.map(l => {
+    const o = toolchainOverride(l.key);
+    return o ? cphSetOverride(l.key, o) : null;
+  }));
+  return tcs;
+};
 export function detectOnce(): Promise<CphToolchain[]> {
   if (toolchains) return Promise.resolve(toolchains);
   // pass #56: dedupe the IN-FLIGHT probe too — Settings calls this once per language
   // (7 concurrent calls raced the null cache and ran the whole probe set 7×)
   if (!detectInFlight) {
-    detectInFlight = cphDetect().then(async tcs => {
-      toolchains = tcs;
-      // QoL (pass #52): auto-detection prints the exact binary each language will run —
-      // surfaces in Settings → Diagnostics, so "why is Run disabled" is answerable
-      // without pressing Detect tools manually.
-      for (const tc of tcs) logInfo(`toolchain ${tc.lang_key}: ${tc.binary} (${tc.version})`);
-      if (!tcs.length) logInfo("toolchain detect: none found");
-      // pass #78: mirror pre-existing Settings overrides into the shell's execution
-      // allowlist (migration for overrides saved before the registry existed). A path
-      // that no longer exists is surfaced by the awaited mirror in runAll/compileOnly.
-      await Promise.allSettled(CPH_LANGS.map(l => {
-        const o = toolchainOverride(l.key);
-        return o ? cphSetOverride(l.key, o) : null;
-      }));
-      return tcs;
-    }).catch(e => { detectInFlight = null; throw e; });
+    detectInFlight = cphDetect().then(absorb).catch(e => { detectInFlight = null; throw e; });
   }
   return detectInFlight;
+}
+// pass #129 (attack-surface A5): the Settings "Detect tools" button is the change-of-mind
+// path — force=true skips the shell's 60 s TTL cache for a REAL re-scan, and the fresh
+// answer replaces the frontend cache (detectOnce would otherwise keep serving the old
+// list for the rest of the session).
+export async function forceRedetect(): Promise<CphToolchain[]> {
+  const tcs = await absorb(await cphDetect(true));
+  detectInFlight = null;
+  return tcs;
 }
 export const toolchainFor = (langKey: string): CphToolchain | undefined => {
   const override = toolchainOverride(langKey);
