@@ -297,11 +297,12 @@ async fn update_check() -> Result<String, String> {
     let list = serde_json::from_str::<serde_json::Value>(&body).map_err(|e| format!("parse: {e}"))?;
     let tag = list.as_array().and_then(|a| a.first())
         .and_then(|r| r.get("tag_name")).and_then(|t| t.as_str()).unwrap_or("").to_string();
-    Ok(serde_json::to_string(&serde_json::json!({
+    serde_json::to_string(&serde_json::json!({
         "current": current,
         "latest": tag,
         "update_available": version_gt(&tag, &current),
-    })).map_err(|e| format!("encode: {e}"))?)
+    }))
+    .map_err(|e| format!("encode: {e}"))
 }
 
 // Numeric-triple comparison for delcc's version spellings: "v0.3.31a-alpha" and
