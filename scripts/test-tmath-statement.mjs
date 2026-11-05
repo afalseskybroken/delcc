@@ -71,18 +71,17 @@ try {
   const row = (index, input, output) => `<div class="tmath-sample" data-sample-index="${index}"><div class="tmath-sample-input"><pre><code>${input}</code></pre></div><div class="tmath-sample-output"><pre><code>${output}</code></pre></div></div>`;
   const samples = `<div class="tmath-samples" data-tmath-component="samples" data-tmath-version="1">${row(0, "2 3\n", "5\n")}${row(1, " 7 8\n", "15\n")}</div>`;
   assert.deepEqual(await render(samples), [{ input: "2 3\n", output: "5\n" }, { input: " 7 8\n", output: "15\n" }]);
-  assert.equal(await page.getByRole("tab").count(), 2);
-  assert.equal(await page.getByRole("tabpanel").count(), 1, "only active sample is visible");
-  await page.getByRole("tab").first().focus();
-  await page.keyboard.press("End");
-  assert.equal(await page.getByRole("tab").last().getAttribute("aria-selected"), "true");
-  await page.keyboard.press("Home");
-  assert.equal(await page.getByRole("tab").first().getAttribute("aria-selected"), "true");
-  await page.getByRole("tab").last().click();
-  await page.getByRole("tabpanel").locator(".tm-code-copy-button").first().click();
+  // pass #128: official-rip presentation — every sample visible at once, labeled boxes
+  // with a floating Copy chip; no tabs to click through
+  assert.equal(await page.locator(".tm-sample-block").count(), 2);
+  assert.equal(await page.locator(".tm-sample-copy").count(), 4, "Input + Output each carry a Copy chip");
+  assert.equal(await page.locator(".tm-sample-tag").count(), 2, "multi-sample sets carry Sample-N tags");
+  assert.equal(await page.locator(".tm-sample-pre").first().textContent(), "2 3\n");
+  await page.locator(".tm-sample-block").last().locator(".tm-sample-copy").first().click();
   assert.equal(await page.evaluate(() => window.copiedText), " 7 8\n");
+  assert.equal(await page.locator(".tm-sample-block").last().locator(".tm-sample-copy").first().textContent(), "Copied");
   assert.deepEqual(await render(samples.replace('data-tmath-version="1"', 'data-tmath-version="2"')), []);
-  assert.equal(await page.getByRole("tab").count(), 0);
+  assert.equal(await page.locator(".tm-sample-block").count(), 0);
   assert.deepEqual(await render(samples.replace('data-sample-index="1"', 'data-sample-index="7"')), []);
 
   await render('<script>window.attacked=true</script><img src="https://invalid.example/x" onerror="window.attacked=true"><a href="javascript:alert(1)">link</a><div onclick="alert(1)" style="display:none" class="rogue">Text</div> $\\href{javascript:alert(1)}{x}$');
@@ -109,7 +108,7 @@ try {
 
   await page.evaluate(() => window.locale.setLocale("vi-VN"));
   await render(samples);
-  assert.equal(await page.getByRole("tab").first().textContent(), "Ví dụ 1");
+  assert.equal(await page.locator(".tm-sample-tag").first().textContent(), "Ví dụ 1");
   await page.evaluate(() => {
     const old = window.rendered;
     window.rendered = window.statement.renderStatement(document.getElementById("host"), "New render");
