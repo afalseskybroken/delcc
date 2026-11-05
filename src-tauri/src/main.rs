@@ -291,13 +291,32 @@ fn open_url(url: String) -> Result<(), String> {
     if !ALLOWED.contains(&host) {
         return Err(format!("open_url: host '{host}' is not on the allowlist"));
     }
+    // pass #131b (He's File-Explorer hop — the real "OAUTH BROKEN" root cause): explorer.exe
+    // is a flaky URL handoff — it treats its argument as a filesystem path first, and probe-
+    // verified on this box (probes/pass-129): a begin-shaped URL opens NOTHING (explorer
+    // exits 1, no window, no browser) while .spawn() still reports success — the webview is
+    // told the browser opened and the poll loop waits on a sign-in the user can never reach
+    // (on other URL shapes an Explorer window opens instead — He's report). ShellExecute is
+    // the canonical default-browser handoff: `cmd /C start "" "<url>"`, where the empty ""
+    // is start's title placeholder and the explicit quotes keep `&` in query strings
+    // literal. raw_arg because Command's own MSVC quoting leaves an &-bearing arg unquoted;
+    // the URL is https + allowlist-checked above and cannot contain a quote itself.
+    // CREATE_NO_WINDOW rides cph::new_cmd — else every open flashes a console.
     #[cfg(target_os = "windows")]
-    let mut cmd = std::process::Command::new("explorer");
-    #[cfg(target_os = "macos")]
-    let mut cmd = std::process::Command::new("open");
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let mut cmd = std::process::Command::new("xdg-open");
-    cmd.arg(&url).spawn().map(|_| ()).map_err(|e| format!("open: {e}"))
+    {
+        use std::os::windows::process::CommandExt;
+        let mut cmd = cph::new_cmd("cmd");
+        cmd.raw_arg(format!("/C start \"\" \"{}\"", url));
+        cmd.spawn().map(|_| ()).map_err(|e| format!("open: {e}"))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        #[cfg(target_os = "macos")]
+        let mut cmd = std::process::Command::new("open");
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let mut cmd = std::process::Command::new("xdg-open");
+        cmd.arg(&url).spawn().map(|_| ()).map_err(|e| format!("open: {e}"))
+    }
 }
 
 // The window title follows the layout's official client (tmath exe version resource:
