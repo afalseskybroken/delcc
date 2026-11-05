@@ -211,6 +211,15 @@ export async function debugStop(): Promise<boolean> {
   try { return (await inv("debug_stop", {})) as unknown as boolean; } catch { return false; }
 }
 
+// pass #134 (He: the footnote update dot): one read-only GET of delcc's own GitHub
+// latest-release endpoint (Rust-side, pinned host, capped body — see main.rs). Returns
+// the JSON text {current, latest, update_available}; browser-dev has no bridge -> null.
+export async function updateCheck(): Promise<string | null> {
+  const inv = await invoke();
+  if (!inv) return null;
+  return (await inv("update_check", {})) as unknown as string;
+}
+
 // pass #106: window identity (custom title + taskbar/window icon), applied live and on
 // launch. reset_icon restores the bundle icon. Plain-browser dev: nothing to retitle.
 export async function applyIdentity(title: string | null, icon: { width: number; height: number; rgba: string } | null, resetIcon = false): Promise<void> {

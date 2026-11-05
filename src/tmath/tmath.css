@@ -154,6 +154,16 @@ body[data-persona="tmath"] .tm-nav button:is(.tm-current, [aria-current="page"])
 body[data-persona="tmath"] .tm-nav button:hover:not(:disabled) { background: var(--tmath-muted); color: var(--tmath-foreground); }
 body[data-persona="tmath"] .tm-sidebar-footer { margin-top: auto; padding: 18px 10px 0; border-top: 1px solid var(--tmath-border); color: var(--tmath-muted-foreground); font-size: 10px; }
 body[data-persona="tmath"] .tm-sidebar-footer > * + * { margin-top: 8px; }
+/* pass #134 (He): the footnote update dot — Official's [Connected] dot repurposed for
+   [Up to date] / [Update available]; lives next to the brand so it stays visible even
+   with the tools panel minimized. Green = latest, red = a newer release exists (click
+   opens the releases page), neutral grey = no evidence (offline / no bridge). */
+body[data-persona="tmath"] .tm-sidebar-brand { display: flex; align-items: center; gap: 7px; }
+body[data-persona="tmath"] .tm-update-dot { width: 9px; height: 9px; flex: 0 0 auto; padding: 0; border: 0; border-radius: 999px; background: var(--tmath-muted-foreground); opacity: .55; cursor: default; }
+body[data-persona="tmath"] .tm-update-dot[data-state="ok"] { background: #22c55e; opacity: .9; }
+body[data-persona="tmath"] .tm-update-dot[data-state="stale"] { background: #e5484d; opacity: 1; cursor: pointer; animation: tm-dot-pulse 2.4s ease-in-out infinite; }
+body[data-persona="tmath"] .tm-update-dot[data-state="stale"]:hover { transform: scale(1.25); }
+@keyframes tm-dot-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(229, 72, 77, .45); } 50% { box-shadow: 0 0 0 5px rgba(229, 72, 77, 0); } }
 body[data-persona="tmath"] .tm-sidebar-gh { display: grid; place-items: center; width: 34px; height: 30px; padding: 0; border: 1px solid var(--tmath-border); border-radius: 8px; background: transparent; color: var(--tmath-muted-foreground); cursor: pointer; }
 body[data-persona="tmath"] .tm-sidebar-gh:hover { color: var(--tmath-foreground); background: var(--tmath-accent); }
 /* pass #48: diagnostics log viewer */
@@ -199,6 +209,14 @@ body[data-persona="tmath"] .tm-login-brand::after { position: absolute; right: -
 body[data-persona="tmath"] .tm-login-brand .tm-wordmark { color: white; }
 body[data-persona="tmath"] .tm-login-brand .tm-eyebrow { color: #9bc1ff; }
 body[data-persona="tmath"] #app .tm-login-brand h1 { margin: 22px 0; color: white; font-size: 42px; line-height: 1.22; letter-spacing: -1.7px; }
+/* pass #134 (T6b): the typewriter tagline — official's title page types its two-liner
+   with a blinking caret; pre-line keeps the \n break, the reserved height stops the
+   layout jumping while empty, reduced-motion renders it static (caret off). */
+body[data-persona="tmath"] #app .tm-login-brand h1[data-tagline] { min-height: calc(2 * 1.22em); white-space: pre-line; }
+body[data-persona="tmath"] #app .tm-login-brand h1[data-tagline]::after { content: ""; display: inline-block; width: 3px; height: .82em; margin-left: 6px; vertical-align: -0.06em; background: #bcd4fa; animation: tm-tagline-caret 1.1s steps(1) infinite; }
+body[data-persona="tmath"] #app .tm-login-brand h1[data-tagline].tm-tagline-done::after { background: #ffffff55; }
+@keyframes tm-tagline-caret { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { body[data-persona="tmath"] #app .tm-login-brand h1[data-tagline]::after { display: none; } }
 body[data-persona="tmath"] #app .tm-login-brand p { color: #bcd4fa; font-size: 15px; }
 body[data-persona="tmath"] .tm-login-foot { color: #abc8ef; font-size: 10px; letter-spacing: 1.5px; }
 body[data-persona="tmath"] .tm-login-panel { display: grid; place-items: center; padding: 35px; }

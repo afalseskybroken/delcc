@@ -3,7 +3,7 @@ import { recordDownload } from "../lib/updater";
 import * as auth from "../lib/auth";
 import { activeId, initProfiles, loadProfiles, saveProfiles, setActiveId, upsertProfile } from "../lib/profiles";
 import { googleLogin, GoogleAbort } from "../lib/google";
-import { openExternal, fetchAsset } from "../lib/transport";
+import { openExternal, fetchAsset, updateCheck } from "../lib/transport";
 import DOMPurify from "dompurify";
 import { getLocale, t, type DictKey } from "../i18n";
 import { applyPreferences, hour12Opt, loadPreferences, savePreferences, read, write, applyIdentity, FOOTER_NOTE_KEY, type Preferences } from "./preferences";
@@ -97,7 +97,7 @@ const routes = Object.keys(titles) as Route[];
 const PAGE_SIZE = 20;
 const SUBS_FILTERS_KEY = "delcc-subs-filters";
 const SUBS_RESULTS = ["QU","W","P","G","J","AC","WA","TLE","MLE","OLE","RTE","CE","IR","IE","AB","PD","SC","D"];
-interface SubsFilterPrefs { scope: string; mine: string; user: string; problem: string; result: string; pageSize: string }
+interface SubsFilterPrefs { scope: string; mine: string; user: string; problem: string; result: string; pageSize: string; contestScopes?: Record<string, string> }
 const brand = () => `<div class="tm-wordmark">TMATH<span>STUDENT</span></div>`;
 
 // official rating tier table (carve Zg/Qg + carved css --color-*-500 values, pass #19):
@@ -256,6 +256,8 @@ export class TmathApp {
   // informational update notice (honest-client: tells, never forces)
   private versionNotice: { client: string; required: string } | null = null;
   private bannerDismissed = false;
+  private updateState: "unknown" | "ok" | "stale" = "unknown"; // pass #134: the footnote dot
+  private updateChecked = false;
   private hashChange = () => void this.render();
   private themeChange = () => { if (this.prefs.theme === "system") applyPreferences(this.prefs); };
   private media = matchMedia("(prefers-color-scheme: dark)");
@@ -363,6 +365,8 @@ export class TmathApp {
     await this.render();
     // pass #63 (Official behavior, He): a live participation lands back in Contest View.
     void this.syncContestState();
+    // pass #134 (He): the footnote update dot — one boot-time check, the shell is up.
+    void this.checkUpdates();
   }
 
   destroy(): void {
@@ -481,7 +485,7 @@ export class TmathApp {
     const nav = (r: Route) => `<button type="button" data-route="${r}" class="${this.route === r ? "tm-current" : ""}" title="${text(titles[r])}" aria-label="${text(titles[r])}"${this.route === r ? ' aria-current="page"' : ""}>${phIcon(navIcons[r], 20)}<span>${text(titles[r])}</span></button>`;
     const displayName = this.user?.display_name ?? this.user?.username ?? "?";
     this.host.innerHTML = `<div class="tm-shell${this.collapsed ? " collapsed" : ""}">
-      <aside class="tm-sidebar"><div class="tm-sidebar-header">${brand()}<button type="button" class="tm-sidebar-toggle" data-action="collapse" aria-controls="tm-navigation" aria-expanded="${!this.collapsed}" aria-label="${text(this.collapsed ? "app.expandSidebar" : "app.collapseSidebar")}">${phIcon("sidebar-simple", 22)}</button></div><div class="tm-nav-label">${text("app.navigation")}</div><nav class="tm-nav" id="tm-navigation">${loggedIn ? (this.contest ? nav("workspace") : nav("contests") + nav("problems")) + nav("submissions") + nav("rankings") + nav("account") : ""}${nav("settings")}</nav><div class="tm-sidebar-footer"><b>delcc</b><p class="tm-sidebar-note">${sanitizeFooterNote(read(FOOTER_NOTE_KEY) || text("app.independent"))}</p>${loggedIn ? "" : button("auth.login","login")}</div></aside>
+      <aside class="tm-sidebar"><div class="tm-sidebar-header">${brand()}<button type="button" class="tm-sidebar-toggle" data-action="collapse" aria-controls="tm-navigation" aria-expanded="${!this.collapsed}" aria-label="${text(this.collapsed ? "app.expandSidebar" : "app.collapseSidebar")}">${phIcon("sidebar-simple", 22)}</button></div><div class="tm-nav-label">${text("app.navigation")}</div><nav class="tm-nav" id="tm-navigation">${loggedIn ? (this.contest ? nav("workspace") : nav("contests") + nav("problems")) + nav("submissions") + nav("rankings") + nav("account") : ""}${nav("settings")}</nav><div class="tm-sidebar-footer"><div class="tm-sidebar-brand"><b>delcc</b><button type="button" class="tm-update-dot" data-update-dot data-state="unknown" aria-label="${esc(text("app.updateUnknown"))}" title="${esc(text("app.updateUnknown"))}"></button></div><p class="tm-sidebar-note">${sanitizeFooterNote(read(FOOTER_NOTE_KEY) || text("app.independent"))}</p>${loggedIn ? "" : button("auth.login","login")}</div></aside>
       <div class="tm-main"><header class="tm-topbar"><div class="tm-topbar-page"><span class="tm-topbar-page-icon" aria-hidden="true">${phIcon(navIcons[this.route] ?? "user-circle", 22)}</span><div class="tm-topbar-page-copy"><span class="tm-topbar-eyebrow">TMATH / STUDENT</span><strong class="tm-topbar-title">${text(titles[this.route])}</strong></div></div><div class="tm-topbar-actions">${themeMenuHtml(this.prefs.theme)}${loggedIn ? `<button type="button" class="tm-topbar-account" data-route="account">${avatarHtml(displayName, this.user?.gravatarHash ?? this.user?.gravatar_hash ?? cachedAvatar(String(this.user?.username ?? "")), 34)}<span class="tm-topbar-account-name"${ratingStyle(this.user?.rating)}>${esc(displayName)}</span></button><button type="button" class="tm-topbar-logout" data-action="logout" aria-label="${text("app.topbar.logout")}" title="${text("app.topbar.logout")}">${phIcon("sign-out", 18, "regular")}<span>${text("app.topbar.logout")}</span></button>` : button("auth.login","login")}</div></header>${this.versionNotice && !this.bannerDismissed ? this.bannerHtml() : ""}<main class="tm-content" id="tm-content"></main></div></div>`;
     this.host.querySelectorAll<HTMLElement>("[data-route]").forEach(b => b.onclick = () => this.go(b.dataset.route as Route, b.dataset.route === "workspace" && this.contest ? {contest:this.contest.key} : {}));
     this.host.querySelector<HTMLButtonElement>('[data-action="collapse"]')!.onclick = () => {
@@ -497,6 +501,44 @@ export class TmathApp {
     this.wireThemeMenus(this.host);
     this.host.querySelectorAll<HTMLImageElement>(".tm-avatar-img").forEach(img => img.onerror = () => img.remove());
     this.bindBanner();
+    this.paintUpdateDot();
+  }
+
+  // pass #134 (He: the footnote update dot, visible even with the tools panel minimized):
+  // ONE check per boot against delcc's own GitHub releases (the honest source — the
+  // judge's client-releases feed is the version SHIM's input and can never say "a newer
+  // delcc exists"). States: ok (green) / stale (red — the dot opens the releases page) /
+  // unknown (neutral: offline, rate-limited, or an unparseable tag — no evidence, no
+  // claim). Re-renders stamp the cached state; the fetch itself never re-runs.
+  private async checkUpdates(): Promise<void> {
+    if (this.updateChecked) return;
+    this.updateChecked = true;
+    try {
+      const raw = await updateCheck();
+      if (!raw) { // browser-dev: no bridge, no evidence — neutral dot, no claim
+        this.updateState = "unknown";
+      } else {
+        const parsed = JSON.parse(raw) as { update_available?: boolean };
+        this.updateState = parsed.update_available === true ? "stale" : "ok";
+        logInfo(`update check: ${this.updateState === "stale" ? "a newer release exists" : "up to date"}`);
+      }
+    } catch (e) {
+      this.updateState = "unknown";
+      logInfo(`update check unavailable: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    if (!this.stopped) this.paintUpdateDot();
+  }
+  private paintUpdateDot(): void {
+    const dot = this.host.querySelector<HTMLButtonElement>("[data-update-dot]");
+    if (!dot) return;
+    dot.dataset.state = this.updateState;
+    const key = this.updateState === "ok" ? "app.upToDate" : this.updateState === "stale" ? "app.updateAvailable" : "app.updateUnknown";
+    const label = text(key);
+    dot.title = label;
+    dot.setAttribute("aria-label", label);
+    dot.onclick = this.updateState === "stale"
+      ? () => void openExternal("https://github.com/afalseskybroken/delcc/releases")
+      : null;
   }
 
   // informational server-version banner — internal to the persona, never the leaked baseplate strip
@@ -529,14 +571,35 @@ export class TmathApp {
     // delcc foot, login card with tools row (settings button + theme select), label-wrapped inputs
     // with official placeholders, primary full-width "Đăng nhập →". The eye toggle stays removed —
     // official has none.
-    this.host.innerHTML = `<main class="tm-login-page"><section class="tm-login-brand">${brand()}<div><div class="tm-eyebrow">${text("auth.brandEyebrow")}</div><h1>${textBr("auth.introTitle")}</h1><p>${textBr("auth.introSubtitle")}</p></div><footer class="tm-login-foot">delcc · ${text("app.independent")}</footer></section><section class="tm-login-panel"><div class="tm-login-card"><div class="tm-login-tools"><button type="button" class="tm-button" data-action="settings">${phIcon("gear", 16, "regular")}<span>${text("app.settings")}</span></button>${themeMenuHtml(this.prefs.theme)}</div><div class="tm-eyebrow">${text("auth.welcome")}</div><h2>${text("auth.login")}</h2><p class="tm-muted">${text("auth.subtitle")}</p><form id="tm-login" class="tm-login-form"><label>${text("auth.username")}<input id="tm-username" name="username" autocomplete="username" required maxlength="150" placeholder="${text("auth.usernamePlaceholder")}"></label><label>${text("auth.password")}<span class="tm-pw-wrap"><input id="tm-password" name="password" type="password" autocomplete="current-password" required maxlength="1024" placeholder="${text("auth.passwordPlaceholder")}"><button type="button" class="tm-reveal" data-reveal aria-pressed="false" aria-label="${text("auth.showPassword")}" title="${text("auth.showPassword")}"></button></span></label><button type="submit" class="tm-button primary full">${text("auth.login")} →</button></form><div class="tm-divider"><span>${text("auth.or")}</span></div><button type="button" class="tm-button full" data-action="google"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M21.6 12.2c0-.7-.1-1.4-.2-2.1H12v4h5.4a4.6 4.6 0 0 1-2 3v2.5h3.3c1.9-1.8 2.9-4.3 2.9-7.4Z"/><path fill="#34A853" d="M12 22c2.7 0 5-.9 6.7-2.4L15.4 17c-.9.6-2 .9-3.4.9-2.6 0-4.8-1.8-5.6-4.1H3v2.6A10 10 0 0 0 12 22Z"/><path fill="#FBBC05" d="M6.4 13.8a6 6 0 0 1 0-3.6V7.6H3a10 10 0 0 0 0 8.8l3.4-2.6Z"/><path fill="#EA4335" d="M12 6.1c1.5 0 2.8.5 3.8 1.5l2.9-2.9A9.6 9.6 0 0 0 12 2a10 10 0 0 0-9 5.6l3.4 2.6C7.2 7.9 9.4 6.1 12 6.1Z"/></svg> ${text("auth.google")}</button><div id="tm-auth-message" role="status" aria-live="polite"></div><button class="tm-button" data-action="cancel" hidden>${text("auth.cancel")}</button><p class="tm-muted tm-login-foot">${text("auth.footer")}</p></div></section></main>`;
+    this.host.innerHTML = `<main class="tm-login-page"><section class="tm-login-brand">${brand()}<div><div class="tm-eyebrow">${text("auth.brandEyebrow")}</div><h1 data-tagline aria-label="${esc(text("auth.introTitle"))}"></h1><p>${textBr("auth.introSubtitle")}</p></div><footer class="tm-login-foot">delcc · ${text("app.independent")}</footer></section><section class="tm-login-panel"><div class="tm-login-card"><div class="tm-login-tools"><button type="button" class="tm-button" data-action="settings">${phIcon("gear", 16, "regular")}<span>${text("app.settings")}</span></button>${themeMenuHtml(this.prefs.theme)}</div><div class="tm-eyebrow">${text("auth.welcome")}</div><h2>${text("auth.login")}</h2><p class="tm-muted">${text("auth.subtitle")}</p><form id="tm-login" class="tm-login-form"><label>${text("auth.username")}<input id="tm-username" name="username" autocomplete="username" required maxlength="150" placeholder="${text("auth.usernamePlaceholder")}"></label><label>${text("auth.password")}<span class="tm-pw-wrap"><input id="tm-password" name="password" type="password" autocomplete="current-password" required maxlength="1024" placeholder="${text("auth.passwordPlaceholder")}"><button type="button" class="tm-reveal" data-reveal aria-pressed="false" aria-label="${text("auth.showPassword")}" title="${text("auth.showPassword")}"></button></span></label><button type="submit" class="tm-button primary full">${text("auth.login")} →</button></form><div class="tm-divider"><span>${text("auth.or")}</span></div><button type="button" class="tm-button full" data-action="google"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M21.6 12.2c0-.7-.1-1.4-.2-2.1H12v4h5.4a4.6 4.6 0 0 1-2 3v2.5h3.3c1.9-1.8 2.9-4.3 2.9-7.4Z"/><path fill="#34A853" d="M12 22c2.7 0 5-.9 6.7-2.4L15.4 17c-.9.6-2 .9-3.4.9-2.6 0-4.8-1.8-5.6-4.1H3v2.6A10 10 0 0 0 12 22Z"/><path fill="#FBBC05" d="M6.4 13.8a6 6 0 0 1 0-3.6V7.6H3a10 10 0 0 0 0 8.8l3.4-2.6Z"/><path fill="#EA4335" d="M12 6.1c1.5 0 2.8.5 3.8 1.5l2.9-2.9A9.6 9.6 0 0 0 12 2a10 10 0 0 0-9 5.6l3.4 2.6C7.2 7.9 9.4 6.1 12 6.1Z"/></svg> ${text("auth.google")}</button><div id="tm-auth-message" role="status" aria-live="polite"></div><button class="tm-button" data-action="cancel" hidden>${text("auth.cancel")}</button><p class="tm-muted tm-login-foot">${text("auth.footer")}</p></div></section></main>`;
     const gen = this.generation;
     const alive = () => gen === this.generation;
     const form = this.host.querySelector<HTMLFormElement>("form")!;
     const pass = this.host.querySelector<HTMLInputElement>("#tm-password")!;
     const message = this.host.querySelector<HTMLElement>("#tm-auth-message")!;
     const reveal = this.host.querySelector<HTMLButtonElement>("[data-reveal]")!;
-    const revealKey = () => pass.type === "text" ? "auth.hidePassword" : "auth.showPassword";
+    // pass #134 (T6b, He: "Official redesigned the title page" — the carve probe): the
+    // live 1.1.0 title page TYPES its brand-pane tagline with a blinking caret ("Từng
+    // dòng code." → the full two-liner) — the redesign's one signature the initial carve
+    // (@908856) left static. The typewriter rides the view's generation guard (an
+    // interval never survives the view) and prefers-reduced-motion gets the full text
+    // immediately; the aria-label carries the whole tagline for screen readers either way.
+    const tagline = this.host.querySelector<HTMLElement>("[data-tagline]");
+    if (tagline) {
+      const full = text("auth.introTitle");
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        tagline.textContent = full;
+        tagline.classList.add("tm-tagline-done");
+      } else {
+        let i = 0;
+        const tick = window.setInterval(() => {
+          if (!alive()) { window.clearInterval(tick); return; }
+          i += 1;
+          tagline.textContent = full.slice(0, i);
+          if (i >= full.length) { window.clearInterval(tick); tagline.classList.add("tm-tagline-done"); }
+        }, 45);
+      }
+    }    const revealKey = () => pass.type === "text" ? "auth.hidePassword" : "auth.showPassword";
     reveal.onclick = () => {
       pass.type = pass.type === "password" ? "text" : "password";
       const key = revealKey();
@@ -1138,7 +1201,21 @@ export class TmathApp {
     // (live probe 2026-10-27: wrapped payload {name, participation_id, scope:"participation",
     // problems:[{code,name,display_index}], items:[…]}).
     const rememberedScope = remembered.scope === "public_practice" ? "public" : typeof remembered.scope === "string" ? remembered.scope : "";
-    const scopeRaw = params.has("scope") ? params.get("scope")! : rememberedScope || (this.contest ? `contest:${this.contest.key}` : "global");
+    // pass #134 (He: "Scope is fixed to [Public problems] even when switched into contests …
+    // make the current contest the default upon the contest's 1st join by the user"): the
+    // scope memory is now PER CONTEST. The old global `scope` memory meant a remembered
+    // Public Problems scope rode INTO a contest's first submissions visit (possibly with a
+    // stale problem filter) and showed the wrong feed or [No result]. Inside a contest
+    // workspace: the URL's explicit scope= always wins; otherwise that contest's OWN scope
+    // memory wins; otherwise (first join) the current contest is the default. Outside a
+    // contest the behavior is unchanged (remembered global scope, else Global).
+    const contestScopes = (typeof remembered.contestScopes === "object" && remembered.contestScopes !== null
+      ? remembered.contestScopes : {}) as Record<string, string>;
+    const scopeRaw = params.has("scope")
+      ? params.get("scope")!
+      : this.contest
+        ? (typeof contestScopes[this.contest.key] === "string" ? contestScopes[this.contest.key]! : `contest:${this.contest.key}`)
+        : (rememberedScope || "global");
     const contestKey = scopeRaw.startsWith("contest:") ? scopeRaw.slice(8) : "";
     const isContestScope = !!contestKey;
     const serverScope = scopeRaw === "public" ? "public_practice" : ""; // /submissions scope enum: null | public_practice
@@ -1197,6 +1274,10 @@ export class TmathApp {
     const serverProblem = isContestScope ? "" : (subId || SMART.test(problemQ) ? "" : problemQ);
     const serverUser = isContestScope ? "" : (SMART.test(userFilter) ? "" : userFilter);
     const filters: SubsFilterPrefs = {scope:scopeRaw,mine:mine ? "1" : "",user:userFilter,problem,result,pageSize:String(pageSize)};
+    // pass #134: the scope choice is remembered PER CONTEST (the global `scope` field
+    // keeps its old meaning — the last scope used outside contest memory — so the
+    // non-contest behavior is byte-identical).
+    if (this.contest) filters.contestScopes = { ...contestScopes, [this.contest.key]: scopeRaw };
     // Resolve shared memory before the very first request, including explicit clears.
     for (const [key,v] of Object.entries(filters)) params.set(key,v);
     // pass #52: the #ID click jumps to the official source page — a sub-route of this

@@ -191,6 +191,9 @@ export interface Dict {
   "app.releasesTap": string;
   "app.github": string;
   "app.independent": string;
+  "app.upToDate": string;
+  "app.updateAvailable": string;
+  "app.updateUnknown": string;
   "app.clientVersion": string;
   "app.requiredVersion": string;
   "auth.subtitle": string;

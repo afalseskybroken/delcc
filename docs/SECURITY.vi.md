@@ -4,13 +4,14 @@ Lời hứa của delcc đơn giản: **bạn đọc được mọi thứ nó l�
 tắt có thể kiểm toán. Nếu code và file này mâu thuẫn thì một trong hai là bug —
 report, và sửa cái sai. Bản gốc tiếng Anh: [SECURITY.md](SECURITY.md).
 
-## Toàn bộ bề mặt mạng (tính từ 0.3.26-alpha)
+## Toàn bộ bề mặt mạng (tính từ 0.3.37-alpha)
 
 | Điểm đến | Khi nào | Vì sao |
 |---|---|---|
 | `oj.tmathcoding.vn/api/v3/*` | toàn bộ traffic API | sàn thi đấu: auth, contests, problems, submissions, leaderboard, manifest client-release |
 | `oj.tmathcoding.vn/api/v3/client-releases/downloads` POST | chỉ khi bạn bấm nút "open official installer" trên banner cập nhật | bộ đếm tải của chính feed release — cùng lệnh gọi mà client chính thức thực hiện; chỉ mang channel, platform và release id, không có gì về bạn |
 | `oj.tmathcoding.vn/<trang profile người dùng>` | chỉ khi xem profile của người dùng khác | đọc trang profile **công khai** của site — đúng những byte mà bất kỳ browser ẩn danh nào cũng nhận được, CORS mở — để lấy hash gravatar mà chính site công bố ở đó. Được validate, cache tại máy (giới hạn FIFO); một GET *thành công* mỗi người dùng, trượt thì thử lại ở lần xem sau. Do shell Rust (`site_fetch`) thực hiện — các trang này không có header CORS cho webview. Xem `src/tmath/avatars.ts`. |
+| `api.github.com/repos/afalseskybroken/delcc/releases/latest` | một lần mỗi lần khởi động (pass #134, chấm trạng thái update ở footnote) | kiểm tra READ-ONLY xem có bản delcc mới hơn không — chấm màu ở footnote của sidebar (xanh [Đã mới nhất] / đỏ [Có bản cập nhật], bấm mở trang phát hành). Feed client-releases của sàn không thể trả lời câu này (delcc nhận phiên bản client mà feed đó yêu cầu, qua shim ở trên, nên luôn "đồng bộ" với sàn một cách hiển nhiên). Không mang token hay cookie; `Accept: application/vnd.github+json` + user agent delcc; timeout 10 s; cùng giới hạn 8 MiB như mọi đường byte khác; URL được ghim vào đúng một host:path bên trong lệnh `update_check` — nội dung webview không thể nhắm nó đi đâu khác; lỗi thì chấm chuyển xám trung tính (không bằng chứng, không khẳng định) |
 | `www.gravatar.com/avatar/<sha256>` | chỉ khi server giao hash gravatar của chính bạn (self-view, tài khoản có email đăng ký Gravatar) | ảnh avatar của bạn, gọi với `referrerpolicy="no-referrer"`, `d=404` nên không thứ gì khác được fetch |
 
 Các request tự mang theo gì, công khai: call có xác thực mang `Authorization: Bearer <token>`;

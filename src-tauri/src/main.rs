@@ -267,6 +267,63 @@ fn toggle_fullscreen(window: tauri::WebviewWindow) -> Result<bool, String> {
     Ok(!fs)
 }
 
+// pass #134 (He: the footnote update dot — [Up to date] / [Update available], visible
+// even with the tools panel minimized): the ONE honest source for "a newer delcc exists"
+// is delcc's own GitHub releases feed (the judge's client-releases feed cannot say it —
+// delcc adopts whatever client version that feed demands, by the documented shim, so it
+// is always "in sync" with the judge by construction). Posture, disclosed in SECURITY.md:
+// a READ-ONLY GET of the repo's latest-release endpoint on api.github.com, no tokens or
+// cookies ever attached, 10 s timeout, the same 8 MiB body cap as every other byte path,
+// once per boot from the frontend. Comparison: delcc's own CARGO_PKG_VERSION vs the
+// release tag (v0.3.36a-alpha → 0,3,36) — numeric triples only; anything unparseable on
+// either side is "unknown", and the frontend shows a neutral dot (no evidence, no claim).
+// The URL is pinned to exactly one host:path — webview content cannot aim it elsewhere.
+#[tauri::command]
+async fn update_check() -> Result<String, String> {
+    const ENDPOINT: &str = "https://api.github.com/repos/afalseskybroken/delcc/releases/latest";
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    let resp = http().get(ENDPOINT)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .timeout(std::time::Duration::from_secs(10))
+        .send().await.map_err(|e| format!("send: {e}"))?;
+    let status = resp.status().as_u16();
+    if !(200..300).contains(&status) { return Err(format!("API_ERROR {status}")); }
+    let body = read_capped_text(resp).await?;
+    let tag = serde_json::from_str::<serde_json::Value>(&body)
+        .map_err(|e| format!("parse: {e}"))?
+        .get("tag_name").and_then(|t| t.as_str()).unwrap_or("").to_string();
+    Ok(serde_json::to_string(&serde_json::json!({
+        "current": current,
+        "latest": tag,
+        "update_available": version_gt(&tag, &current),
+    })).map_err(|e| format!("encode: {e}"))?)
+}
+
+// Numeric-triple comparison for delcc's version spellings: "v0.3.31a-alpha" and
+// "0.3.36-alpha" both parse to (0,3,31)/(0,3,36) — leading `v` ignored, each dot component
+// takes its numeric prefix, the alpha suffix never compares. Unparseable → None.
+fn version_triple(v: &str) -> Option<(u64, u64, u64)> {
+    let core = v.trim().strip_prefix('v').unwrap_or(v.trim());
+    let mut it = core.split('.');
+    let num = |s: Option<&str>| -> Option<u64> {
+        let s = s?;
+        let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if digits.is_empty() { return None; }
+        digits.parse::<u64>().ok()
+    };
+    let major = num(it.next())?;
+    let minor = num(it.next())?;
+    let patch = num(it.next())?;
+    Some((major, minor, patch))
+}
+fn version_gt(candidate: &str, current: &str) -> bool {
+    match (version_triple(candidate), version_triple(current)) {
+        (Some(a), Some(b)) => a > b,
+        _ => false, // unknown versions never claim an update exists
+    }
+}
+
 // System-browser opener for the Google PKCE step. https only; the URL is a single
 // argv entry for the OS opener, never passed through a shell.
 // pass #78 (Sonnet S6): host allowlist — open_url is the only path from webview
@@ -374,7 +431,7 @@ fn identity_apply(window: tauri::WebviewWindow, title: Option<String>, icon: Opt
 fn main() {
     tauri::Builder::default()
         .manage(CphState::default())
-        .invoke_handler(tauri::generate_handler![api_fetch, site_fetch, asset_fetch, get_layout, toggle_fullscreen, open_url, fonts_list, cph_detect, cph_set_override, cph_run, cph_compile, cph_stop, debug_start, debug_step, debug_stop, identity_apply, secure_put, secure_get, secure_del])
+        .invoke_handler(tauri::generate_handler![api_fetch, site_fetch, asset_fetch, get_layout, toggle_fullscreen, open_url, update_check, fonts_list, cph_detect, cph_set_override, cph_run, cph_compile, cph_stop, debug_start, debug_step, debug_stop, identity_apply, secure_put, secure_get, secure_del])
         .setup(move |app| {
             {
                 use tauri::Manager;
@@ -413,6 +470,21 @@ mod asset_tests {
 
     fn u(s: &str) -> reqwest::Url {
         s.parse().unwrap()
+    }
+
+    #[test]
+    fn version_compare_handles_delcc_and_tag_spellings() {
+        // pass #134 (the update dot): the release tag and the package version spell
+        // versions differently — the comparison must read both and stay honest on junk.
+        assert!(version_gt("v0.3.37a-alpha", "0.3.36-alpha"));
+        assert!(version_gt("v1.0.0", "0.99.99"));
+        assert!(!version_gt("v0.3.36a-alpha", "0.3.36-alpha"), "same triple = no update");
+        assert!(!version_gt("v0.3.35a-alpha", "0.3.36-alpha"));
+        assert!(!version_gt("v0.3.36b-alpha", "0.3.36-alpha"), "the alpha suffix never compares");
+        assert!(!version_gt("", "0.3.36-alpha"), "unparseable candidate never claims an update");
+        assert!(!version_gt("v0.3.37a-alpha", ""), "unparseable current never claims an update");
+        assert_eq!(version_triple("v0.3.31a-alpha"), Some((0, 3, 31)));
+        assert_eq!(version_triple("0.3.36-alpha"), Some((0, 3, 36)));
     }
 
     #[test]
