@@ -53,7 +53,7 @@ npm run tauri build  # bundle phát hành (MSI/NSIS trên Windows)
 Chế độ chỉ-frontend đủ cho đăng nhập và danh sách; shell desktop mới có custom
 headers, phần nộp bài, và trình chạy CPH cục bộ.
 
-## Tính năng hiện có (v0.3.37a-alpha)
+## Tính năng hiện có (v0.3.38a-alpha)
 
 Đăng nhập (+ luồng Google) → thi → workspace → bài tập → nộp bài → poll kết
 quả; bảng xếp hạng, bộ lọc bài nộp, tài khoản, cài đặt; CPH biên dịch/chạy cục
@@ -85,12 +85,18 @@ Cố ý chưa theme. `src/app.css` là lane cho guest-themer
   được loại bỏ bởi việc thay này (chỉ là glue thừa khi đã tìm ra nguồn gốc thật).
 - **Ghi công tab vẽ nháp (pass #112).** Tab vẽ nháp mount **[Excalidraw](https://github.com/excalidraw/excalidraw)** (MIT) — thư viện mà Vẽ nháp của client chính thức tải — dưới dạng React component lười trong bảng công cụ; scene lưu cục bộ. Ghi chú tại [docs/THIRD-PARTY-NOTICES.md](docs/THIRD-PARTY-NOTICES.md).
 - **Không phải sản phẩm của TMATH.** delcc là client cộng đồng độc lập;
-  "TMATH" và client chính thức thuộc về chủ sở hữu tương ứng. delcc không
-  ship bất kỳ code/asset chính thức nào (API nó gọi là API công khai, đã tài liệu hoá).
+  "TMATH" và client chính thức thuộc về chủ sở hữu tương ứng. delcc không ship
+  bất kỳ code chính thức nào và không ship asset chính thức nào (API nó gọi là
+  API công khai, đã tài liệu hoá) — với duy nhất một ngoại lệ được công khai:
+  **icon cửa sổ/taskbar (pass #135)** là mark của chính client chính thức, được
+  trích từ installer công khai của họ để titlebar trùng nhìn một cái là biết
+  (title cửa sổ vốn đã là "TMATH Code Client" dưới cùng tư thế persona).
+  Mọi thứ khác trong repo là của delcc hoặc được ghi công.
 - **Giống thiết kế — nói thẳng.** delcc gần như 100% không chứa code nguồn đóng.
   Layout `tmath` cố ý theo ngôn ngữ thiết kế của client chính thức — dưới nguyên
   tắc "port trung thực": hiện thực của riêng mình, tham chiếu quan sát carve cho
-  các câu hỏi parity, không có source hay asset chính thức nào trong repo.
+  các câu hỏi parity, không có source chính thức nào trong repo — ngoại lệ asset
+  duy nhất là icon cửa sổ, công khai ở trên (pass #135).
 - **Shim X-Client-Version — công khai, và chịu tải.** Sàn 426-chặn mọi client có
   chuỗi phiên bản cũ hơn `required_version` trên feed release chính thức, mà delcc
   không nằm trên feed đó: báo phiên bản của chính mình sẽ làm hỏng mọi lần nộp bài.
