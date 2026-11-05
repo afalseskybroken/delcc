@@ -387,7 +387,14 @@ fn open_url(url: String) -> Result<(), String> {
     // browser, and a return value > 32 proves it dispatched).
     #[cfg(target_os = "windows")]
     {
+        use windows_sys::Win32::System::Com::CoInitializeEx;
         use windows_sys::Win32::UI::Shell::ShellExecuteW;
+        // pass #136, the live-smoke finding: ShellExecuteW dispatches URL protocols through
+        // the shell's COM objects, and a Tauri command thread has NO COM apartment — the
+        // documented prerequisite. Without it the call silently no-ops (the oracle's GitHub
+        // button produced nothing while the OS path via PowerShell worked). Initialize here;
+        // a thread that already has an apartment answers RPC_E_CHANGED_MODE and is fine as-is.
+        let hr = unsafe { CoInitializeEx(std::ptr::null_mut(), 2 /* COINIT_APARTMENTTHREADED */) };
         let verb: Vec<u16> = "open\u{0}".encode_utf16().collect();
         let file: Vec<u16> = parsed.as_str().encode_utf16().chain(std::iter::once(0)).collect();
         // SW_SHOWNORMAL = 1 (Win32_UI_WindowsAndMessaging's constant, inlined raw so the
@@ -402,6 +409,15 @@ fn open_url(url: String) -> Result<(), String> {
                 1,
             )
         };
+        if hr == 0 {
+            // S_OK means THIS call initialized the apartment — balance it. A pool thread
+            // runs many commands; every successful init here gets its own uninit.
+            #[cfg(target_os = "windows")]
+            unsafe {
+                use windows_sys::Win32::System::Com::CoUninitialize;
+                CoUninitialize();
+            }
+        }
         if (res as isize) <= 32 {
             return Err(format!("open: ShellExecuteW failed ({})", res as isize));
         }

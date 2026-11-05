@@ -118,7 +118,10 @@ export async function getLayout(): Promise<string> {
 export async function openExternal(url: string): Promise<boolean> {
   const inv = await invoke();
   if (!inv) { window.open(url, "_blank"); return true; }
-  try { await inv("open_url", { url }); return true; } catch { return false; }
+  // pass #136 (the AGE lesson, applied): a silently-swallowed open failure is exactly the
+  // class of bug that hides for weeks — the shell command now reports WHY it refused.
+  try { await inv("open_url", { url }); return true; }
+  catch (e) { logError(`open_url failed for ${url}: ${e instanceof Error ? e.message : String(e)}`); return false; }
 }
 
 // ---------- CPH: local compile/run, desktop shell only ----------
