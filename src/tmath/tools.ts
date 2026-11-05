@@ -8,6 +8,7 @@
 // as unverifiable).
 import { t } from "../i18n";
 import { esc } from "./ui";
+import { logError } from "../lib/applog";
 import "./tools.css";
 
 type Tab = "calc" | "bytes" | "graph" | "sketch";
@@ -185,7 +186,7 @@ export function openToolsPanel(): void {
 <div class="tm-tools-body" data-pane="graph" hidden>
   <div class="tm-tools-cols"><div class="tm-tools-col narrow"><b>${esc(t("tools.graphEdges"))}</b><textarea class="tm-tools-area mono" data-graph-edges spellcheck="false" placeholder="1 2 4&#10;2 3 2&#10;3 1 5">1 2 4
 2 3 2
-3 1 5</textarea><input class="tm-tools-input" data-graph-roots spellcheck="false" placeholder="${esc(t("tools.graphRootPh"))}" aria-label="${esc(t("tools.graphRoot"))}" title="${esc(t("tools.graphRoot"))}"><button type="button" class="tm-button primary" data-graph-draw>${esc(t("tools.graphDraw"))}</button><div class="tm-tools-sub">${esc(t("tools.graphHint"))}</div><div class="tm-tools-checks"><label class="tm-tools-inline"><input type="checkbox" data-graph-directed> ${esc(t("tools.graphDirected"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-tree> ${esc(t("tools.treeLayout"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-lock> ${esc(t("tools.lockPositions"))}</label></div><label class="tm-tools-inline">${esc(t("tools.graphRelabel"))} <select class="tm-drafts-select" data-graph-relabel><option value="0">${esc(t("tools.graphRelabelKeep"))}</option><option value="-1">${esc(t("tools.graphRelabelZero"))}</option><option value="1">${esc(t("tools.graphRelabelOne"))}</option></select></label></div><div class="tm-tools-col"><div class="tm-graph-box" data-graph-box><div class="tm-age-host" data-graph-host></div><div class="tm-graph-badge" data-graph-stats></div></div></div></div>
+3 1 5</textarea><input class="tm-tools-input" data-graph-roots spellcheck="false" placeholder="${esc(t("tools.graphRootPh"))}" aria-label="${esc(t("tools.graphRoot"))}" title="${esc(t("tools.graphRoot"))}"><button type="button" class="tm-button primary" data-graph-draw>${esc(t("tools.graphDraw"))}</button><div class="tm-tools-sub">${esc(t("tools.graphHint"))}</div><div class="tm-tools-checks"><label class="tm-tools-inline"><input type="checkbox" data-graph-directed> ${esc(t("tools.graphDirected"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-tree> ${esc(t("tools.treeLayout"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-lock> ${esc(t("tools.lockPositions"))}</label></div><label class="tm-tools-inline">${esc(t("tools.graphRelabel"))} <select class="tm-drafts-select" data-graph-relabel><option value="0">${esc(t("tools.graphRelabelKeep"))}</option><option value="-1">${esc(t("tools.graphRelabelZero"))}</option><option value="1">${esc(t("tools.graphRelabelOne"))}</option></select></label></div><div class="tm-tools-col"><div class="tm-graph-box" data-graph-box><div class="tm-age-host" data-graph-host></div><div class="tm-graph-badge" data-graph-stats></div><p class="tm-age-error" data-age-error hidden role="alert"></p></div></div></div>
 </div></div>`;
   // pass #112: the sketch pane is appended in JS as a DIRECT child of the panel — the
   // template nesting bit us twice (a pane inside the graph pane body vanishes with it).
@@ -729,11 +730,35 @@ function wireGraph(root: HTMLElement): () => void {
     stats.textContent = t("tools.graphStats", { n: String(maxId), m: String(m) });
   };
   let mounted = false;
+  // pass #130 (T2, He: "AGE just refused to load, out of the blue, no repro"): the mount
+  // was a bare `void import(...).then(...)` — a failed chunk load or a throwing
+  // mountAge/updateAge died as an UNHANDLED rejection the app never showed, which is
+  // exactly why the refusal could happen with no report. INSTRUMENT FIRST (per the lane
+  // note: no behavior change, no retries, no fallbacks — every failure path now (a) logs
+  // to Settings → Logs with the stage and the error, (b) surfaces inline in the graph
+  // box; a later successful push clears the inline error). The next occurrence reports
+  // itself; the autopsy waits for that evidence.
+  const ageFail = (stage: string, e: unknown): void => {
+    const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    logError(`AGE ${stage} failed: ${msg}`);
+    const errBox = root.querySelector<HTMLElement>("[data-age-error]");
+    if (errBox) {
+      errBox.hidden = false;
+      errBox.textContent = `${t("tools.ageFail")} [${stage}] ${msg}`;
+    }
+  };
+  const ageOk = (): void => {
+    const errBox = root.querySelector<HTMLElement>("[data-age-error]");
+    if (errBox) { errBox.hidden = true; errBox.textContent = ""; }
+  };
   const push = (): void => {
     void import("../vendor/age").then((age) => {
       if (!mounted) {
-        age.mountAge(root.querySelector<HTMLElement>("[data-graph-host]")!, ageData());
+        try {
+          age.mountAge(root.querySelector<HTMLElement>("[data-graph-host]")!, ageData());
+        } catch (e) { ageFail("mount", e); return; }
         mounted = true;
+        ageOk();
         // pass #115: the first parse can race the panel layout — nodes get placed for a
         // stale canvas size, then clamped into the top-left corner (resetPos only
         // clamps, it never re-centers). One settled re-measure + re-parse places the
@@ -741,9 +766,12 @@ function wireGraph(root: HTMLElement): () => void {
         window.dispatchEvent(new Event("resize"));
         setTimeout(() => { window.dispatchEvent(new Event("resize")); push(); }, 250);
       } else {
-        age.updateAge(ageData());
+        try {
+          age.updateAge(ageData());
+        } catch (e) { ageFail("update", e); return; }
+        ageOk();
       }
-    });
+    }).catch((e) => ageFail("chunk-load", e));
   };
   root.querySelector<HTMLButtonElement>("[data-graph-draw]")!.onclick = () => { updateStats(); push(); };
   edges.onchange = () => { updateStats(); push(); };

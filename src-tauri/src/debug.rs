@@ -734,10 +734,20 @@ fn stop_inner(s: &mut Session) -> Result<(), String> {
 }
 
 /// One debugging step. kind: over | into | out | continue.
-pub fn step(kind: &str) -> Result<DebugSnapshot, String> {
+/// pass #130 (He: "Slider to choose steps on [Step-by-step]"): one click may advance
+/// SEVERAL engine steps — the slider's count rides `steps` (clamped 1..=20). The loop
+/// repeats the same engine step and breaks early when the program exits, returning the
+/// LAST snapshot; intermediate locations are deliberately not rendered (skipping is the
+/// feature), the final location/locals/output are. A mid-loop engine error (the common
+/// one: the program just exited) is swallowed in favor of the last good snapshot; an
+/// error on the very first step propagates exactly as before. `continue` is FORCED to
+/// a single engine step: N>1 continues would silently skip N breakpoints, which is
+/// nobody's mental model of "steps per click".
+pub fn step(kind: &str, steps: u32) -> Result<DebugSnapshot, String> {
     if !matches!(kind, "over" | "into" | "out" | "continue") {
         return Err(format!("unknown step kind '{kind}'"));
     }
+    let steps = if kind == "continue" { 1 } else { steps.clamp(1, 20) };
     let mut slot = SESSION.lock().map_err(|_| "debug session lock poisoned")?;
     match slot.as_mut() {
         Some(Engine::Gdb(s)) => {
@@ -747,11 +757,38 @@ pub fn step(kind: &str) -> Result<DebugSnapshot, String> {
                 "out" => "-exec-finish",
                 _ => "-exec-continue",
             };
-            s.transact(exec, STEP_TIMEOUT)?;
-            let stop_raw = s.wait_stopped(STEP_TIMEOUT)?;
-            s.snapshot(&stop_raw)
+            let mut last: Option<DebugSnapshot> = None;
+            for _ in 0..steps {
+                match s.transact(exec, STEP_TIMEOUT).and_then(|_| s.wait_stopped(STEP_TIMEOUT)) {
+                    Ok(stop_raw) => {
+                        let snap = s.snapshot(&stop_raw)?;
+                        let exited = snap.exited;
+                        last = Some(snap);
+                        if exited {
+                            break;
+                        }
+                    }
+                    Err(e) => return last.ok_or(e),
+                }
+            }
+            last.ok_or_else(|| "debug step produced no stop".into())
         }
-        Some(Engine::Pdb(s)) => s.step(kind),
+        Some(Engine::Pdb(s)) => {
+            let mut last: Option<DebugSnapshot> = None;
+            for _ in 0..steps {
+                match s.step(kind) {
+                    Ok(snap) => {
+                        let exited = snap.exited;
+                        last = Some(snap);
+                        if exited {
+                            break;
+                        }
+                    }
+                    Err(e) => return last.ok_or(e),
+                }
+            }
+            last.ok_or_else(|| "debug step produced no stop".into())
+        }
         None => Err("no debug session is running".into()),
     }
 }

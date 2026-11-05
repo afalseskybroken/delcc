@@ -38,6 +38,8 @@ export interface Dict {
   "debug.stepOver": string;
   "debug.stepInto": string;
   "debug.stepOut": string;
+  "debug.stepCount": string;
+  "debug.stepCountHint": string;
   "debug.continue": string;
   "debug.locals": string;
   "debug.output": string;
@@ -107,6 +109,7 @@ export interface Dict {
   "tools.graphDirected": string;
   "tools.graphDraw": string;
   "tools.graphStats": string;
+  "tools.ageFail": string;
   "tools.graphRoot": string;
   "tools.graphRootPh": string;
   "tools.graphHint": string;

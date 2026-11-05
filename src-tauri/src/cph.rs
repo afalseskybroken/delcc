@@ -1573,8 +1573,10 @@ pub async fn debug_start(state: tauri::State<'_, CphState>, req: DebugStartReque
 }
 
 #[tauri::command]
-pub async fn debug_step(kind: String) -> Result<crate::debug::DebugSnapshot, String> {
-    tauri::async_runtime::spawn_blocking(move || crate::debug::step(&kind)).await.map_err(|e| e.to_string())?
+pub async fn debug_step(kind: String, steps: Option<u32>) -> Result<crate::debug::DebugSnapshot, String> {
+    // pass #130 (He): the step slider's count — None (missing arg) and out-of-range
+    // values clamp to one honest step inside debug::step.
+    tauri::async_runtime::spawn_blocking(move || crate::debug::step(&kind, steps.unwrap_or(1))).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

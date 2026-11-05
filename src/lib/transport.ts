@@ -197,10 +197,12 @@ export async function debugStart(langKey: string, binary: string, source: string
   })) as unknown as DebugSnapshot;
 }
 
-export async function debugStep(kind: "over" | "into" | "out" | "continue"): Promise<DebugSnapshot> {
+// pass #130 (He): steps = the slider's count (how many engine steps one click advances);
+// 1 stays the exact pre-#130 behavior.
+export async function debugStep(kind: "over" | "into" | "out" | "continue", steps = 1): Promise<DebugSnapshot> {
   const inv = await invoke();
   if (!inv) throw new Error("Step-by-step needs the desktop shell — no local process access in a plain browser.");
-  return (await inv("debug_step", { kind })) as unknown as DebugSnapshot;
+  return (await inv("debug_step", { kind, steps })) as unknown as DebugSnapshot;
 }
 
 export async function debugStop(): Promise<boolean> {
