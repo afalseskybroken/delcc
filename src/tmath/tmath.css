@@ -686,8 +686,16 @@ body[data-persona="tmath"] .tm-output-box { margin: 0; padding: 10px 12px; borde
    only connection does (centered in the rail), the fine line and the note hide, and the
    login text button still hides (it cannot fit the rail). */
 body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) .tm-sidebar-footer :is(p, .tm-button) { display: none; }
-body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) .tm-connection { text-align: center; }
-body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) .tm-connection::before { margin-right: 0; }
+/* pass #140 continued (He's "OFFCENTER" note typed INTO the footer field — the live
+   feedback): the centering above DID NOT center. Root cause: a <button> with
+   width:auto sizes to its INTRINSIC width (form controls never stretch like normal
+   blocks — the hidden status span made the intrinsic width exactly the 7px dot), so
+   text-align:center had a 7px line to "center" and changed nothing. The fix anchors
+   the dot to the one reliable frame: the SIDEBAR itself is position:fixed (a
+   positioned ancestor), so the ::before goes absolute — left 50% + translateX(-50%)
+   centers it in the 76px rail regardless of the footer's padding asymmetry. */
+body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) .tm-connection { width: 100%; }
+body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) .tm-connection::before { position: absolute; left: 50%; transform: translateX(-50%); margin-right: 0; }
 body[data-persona="tmath"] .tm-settings-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 body[data-persona="tmath"] .tm-settings-head .tm-button { flex: none; min-height: 28px; padding: 4px 10px; font-size: 12px; }
 body[data-persona="tmath"] .tm-settings-section .tm-field { margin: 0 0 14px; }
