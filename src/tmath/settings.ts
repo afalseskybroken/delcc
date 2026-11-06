@@ -171,8 +171,11 @@ export function renderSettings(host: HTMLElement, prefs: Preferences, onChange: 
     const clean = footerNote.value.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 240);
     footerNote.value = clean;
     write(FOOTER_NOTE_KEY, clean);
-    const footer = document.querySelector<HTMLElement>(".tm-sidebar-footer .tm-sidebar-note");
-    if (footer) footer.innerHTML = sanitizeFooterNote(clean || t("app.independent"));
+    // pass #140 (He: the note REPLACES the version info in the fine line when set — one
+    // line, not two): the fine line shows the sanitized note when present, else the
+    // edition · version fallback, exactly like the shell's render.
+    const footer = document.querySelector<HTMLElement>(".tm-sidebar-footer [data-footnote-fine]");
+    if (footer) footer.innerHTML = sanitizeFooterNote(clean) || `independent · ${esc(manifest.version)}`;
   };
   const winIcon = host.querySelector<HTMLInputElement>("#tm-win-icon")!;
   winIcon.onchange = async () => {
