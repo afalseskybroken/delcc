@@ -409,9 +409,16 @@ fn open_url(url: String) -> Result<(), String> {
                 1,
             )
         };
-        if hr == 0 {
-            // S_OK means THIS call initialized the apartment — balance it. A pool thread
-            // runs many commands; every successful init here gets its own uninit.
+        if hr >= 0 {
+            // pass #138 (wave-6 fact-check, the auditor was RIGHT): the balance condition
+            // was `hr == 0` — S_OK only. CoInitializeEx ALSO returns S_FALSE (1) when the
+            // apartment was already initialized, and the COM contract requires EVERY
+            // successful init — S_OK and S_FALSE alike — to be balanced by CoUninitialize.
+            // The old condition leaked a reference count on every S_FALSE call. SUCCEEDED
+            // (hr >= 0) is the documented boundary: S_OK and S_FALSE balance,
+            // RPC_E_CHANGED_MODE (a negative failure — the thread already has a different
+            // apartment kind) does not. A pool thread runs many commands; each call that
+            // took a reference gives it back before returning.
             #[cfg(target_os = "windows")]
             unsafe {
                 use windows_sys::Win32::System::Com::CoUninitialize;
