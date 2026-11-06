@@ -694,6 +694,12 @@ body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-coll
    the dot to the one reliable frame: the SIDEBAR itself is position:fixed (a
    positioned ancestor), so the ::before goes absolute — left 50% + translateX(-50%)
    centers it in the 76px rail regardless of the footer's padding asymmetry. */
+/* pass #140 continued (He: "IT'S OFFCENTER (hugging the top)"): the dot sat at the
+   footer's 18px top padding while the 30px bottom padding made the space below it —
+   the dot read glued to the separator line. On collapse the footer's top padding
+   rises to match the bottom: the dot centers vertically between the separator and
+   the window edge at any zoom. */
+body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) .tm-sidebar-footer { padding-top: 30px; }
 body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) .tm-connection { width: 100%; }
 body[data-persona="tmath"] .tm-shell:is(.collapsed, .tm-collapsed, .sidebar-collapsed) .tm-connection::before { position: absolute; left: 50%; transform: translateX(-50%); margin-right: 0; }
 body[data-persona="tmath"] .tm-settings-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
