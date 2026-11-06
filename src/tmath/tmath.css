@@ -119,7 +119,7 @@ body[data-persona="tmath"] .tm-sidebar {
   display: flex;
   flex-direction: column;
   width: var(--tm-sidebar-width);
-  padding: 24px 14px 16px;
+  padding: 24px 14px 30px; /* pass #140 continued: the bottom padding 16 -> 30 — He's red-boxed side-by-side showed the dot sitting ~10px lower than Official's; official's own .sidebar padding is 30px all around (carved from the v1.0.9 bundle), and that bottom padding is exactly what sets the separator line + dot height above the window edge */
   border-right: 1px solid var(--tmath-border);
   background: var(--tmath-card);
   overflow-y: auto;
