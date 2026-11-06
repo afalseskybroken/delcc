@@ -440,10 +440,13 @@ fn open_url(url: String) -> Result<(), String> {
     }
 }
 
-// The window title follows the layout's official client (tmath exe version resource:
-// ProductName "TMATH Code Client" 1.0.9, read from the installed binary 2026-10-22).
+// pass #139 (He's wave-6 P3 ruling): the stock window title is delcc's OWN — the #137
+// icon revert removed the official mark, and the title now follows it, so a delcc
+// window is identifiable as delcc at a glance end to end. The Settings → identity
+// override (WINDOW_TITLE_KEY) still wins when set — custom theming keeps the titlebar
+// exactly as it had (the #106 feature is untouched).
 fn window_title() -> &'static str {
-    if DELCC_LAYOUT == "tmath" { "TMATH Code Client" } else { "delcc \u{2014} custom frontend" }
+    if DELCC_LAYOUT == "tmath" { "delcc" } else { "delcc \u{2014} custom frontend" }
 }
 
 // pass #106 (He): user-customizable window identity — a custom title and/or window icon
