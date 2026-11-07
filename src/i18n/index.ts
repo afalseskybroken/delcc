@@ -181,6 +181,7 @@ export interface Dict {
   "common.retry": string;
   "problem.table": string;
   "problem.mathLimited": string;
+  "problem.statementTruncated": string;
   "app.workspace": string;
   "app.navigation": string;
   "app.expandSidebar": string;
@@ -350,12 +351,14 @@ export interface Dict {
   "subs.yourOutput": string;
   "subs.judgeFeedback": string;
   "subs.noCaseDetail": string;
+  "subs.casesTruncated": string;
   "subs.compileOutput": string;
   "subs.sourceTitle": string;
   "subs.backToSubs": string;
   "subs.loadingSource": string;
   "subs.noSourceProvided": string;
   "subs.sourceAria": string;
+  "subs.sourceTruncated": string;
   "settings.title": string;
   "settings.eyebrow": string;
   "settings.headerDesc": string;

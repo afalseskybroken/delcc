@@ -15,6 +15,11 @@ export interface StatementResult { samples: StatementSample[]; dispose: () => vo
 interface Formula { raw: string; tex: string; display: boolean }
 const MATH_SIZE_LIMIT = 200_000;
 const MATH_COUNT_LIMIT = 500;
+// pass #142 (wave-8 W8-12): the hard parse bound. The full markdown parse used to run
+// on ANY statement the judge shipped (the shell caps bodies at 8 MiB — far more than a
+// synchronous main-thread parse should ever touch). Beyond STATEMENT_PARSE_CAP the tail
+// is cut and a visible notice says so; the math limiting below stays as-is.
+const STATEMENT_PARSE_CAP = 1_000_000;
 const MATH_EXPRESSION_LIMIT = 8_000;
 const MATH_LOOKAHEAD_LIMIT = 32_000;
 const SAMPLE_CLASSES = new Set([
@@ -117,9 +122,14 @@ function readSamples(component: HTMLElement): StatementSample[] | null {
   return samples;
 }
 
-export function renderStatement(host: HTMLElement, source: string, options: StatementOptions = {}): StatementResult {
+export function renderStatement(host: HTMLElement, rawSource: string, options: StatementOptions = {}): StatementResult {
   activeRenders.get(host)?.();
   host.classList.add("tm-statement");
+  // pass #142 (W8-12): the parse bound — a cut statement renders its first megabyte
+  // with an honest notice instead of stalling the main thread on a pathological body.
+  let source = rawSource;
+  const statementTruncated = source.length > STATEMENT_PARSE_CAP;
+  if (statementTruncated) source = source.slice(0, STATEMENT_PARSE_CAP) + "\n\n…";
   const protectedMath = protectMath(source);
   const parseMarkdown = parse as (text: string, options: Record<string, unknown>) => string;
   const html = parseMarkdown(protectedMath.markdown, {
@@ -258,6 +268,13 @@ export function renderStatement(host: HTMLElement, source: string, options: Stat
     notice.className = "tm-statement-notice";
     notice.setAttribute("role", "status");
     notice.textContent = t("problem.mathLimited");
+    host.prepend(notice);
+  }
+  if (statementTruncated) {
+    const notice = document.createElement("p");
+    notice.className = "tm-statement-notice";
+    notice.setAttribute("role", "status");
+    notice.textContent = t("problem.statementTruncated");
     host.prepend(notice);
   }
 

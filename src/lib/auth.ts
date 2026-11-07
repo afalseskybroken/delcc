@@ -82,7 +82,18 @@ function persist(t: TokenPair | null) {
 // profiles persist the rotated token through this (refresh tokens rotate; a stale copy = forced re-login).
 export function onTokenChange(f: (t: TokenPair | null) => void) { listener = f; }
 
-function save(t: TokenPair | null) {
+// pass #142 (wave-8 W8-05): the save KIND is visible while the listener runs. login()
+// and seed() mark their save FRESH — a fresh token belongs to NO profile until identity
+// binding completes; silentRefresh()/logout() mark REFRESH (an already-bound session's
+// rotation belongs to its slot). The tmath profile listener persists only REFRESH saves,
+// so a fresh login can no longer write account B's token into the currently-active
+// unlocked profile A (the audit's cross-profile contamination — He's documented
+// burner+main pattern with one locked slot).
+export type SaveKind = "fresh" | "refresh" | null;
+let saveKind: SaveKind = null;
+export function currentSaveKind(): SaveKind { return saveKind; }
+
+function save(t: TokenPair | null, kind: Exclude<SaveKind, null>) {
   if (t) {
     // pass #141 (wave-8 W8-L05): the pair's timing fields are server JSON. A
     // nonnumeric/absurd access_expires_in used to ride straight into schedule() —
@@ -99,7 +110,8 @@ function save(t: TokenPair | null) {
   cur = t;
   if (t) sessionTokens.add(t.access_token);
   persist(t);
-  try { listener?.(t); } catch { /* listener must never break auth */ }
+  saveKind = kind;
+  try { listener?.(t); } catch { /* listener must never break auth */ } finally { saveKind = null; }
 }
 
 function clearTimer() {
@@ -151,7 +163,7 @@ export async function login(u: string, p: string, signal?: AbortSignal): Promise
     assertCurrent(intent, signal);
     loginVersion = null;
     sessionTokens.clear();
-    save(t); schedule();
+    save(t, "fresh"); schedule();
     return t;
   } catch (e) {
     if (version === intent) { loginVersion = null; schedule(); }
@@ -163,7 +175,7 @@ export async function login(u: string, p: string, signal?: AbortSignal): Promise
 export function seed(t: TokenPair | null) {
   newIntent();
   sessionTokens.clear();
-  save(t); schedule();
+  save(t, "fresh"); schedule();
 }
 
 export async function silentRefresh(): Promise<TokenPair | null> {
@@ -176,7 +188,7 @@ export async function silentRefresh(): Promise<TokenPair | null> {
     try {
       const t = await api.refresh(refreshToken);
       assertCurrent(expected);
-      save(t); schedule();
+      save(t, "refresh"); schedule();
       return cur;
     } catch (e) {
       assertCurrent(expected);
@@ -208,6 +220,6 @@ export async function logout(): Promise<void> {
   const t = cur?.access_token;
   newIntent();
   sessionTokens.clear();
-  save(null);
+  save(null, "refresh");
   if (t) { try { await api.logout(t); } catch { /* already dead */ } }
 }

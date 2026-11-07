@@ -282,7 +282,10 @@ export function GraphCanvas({
 
     resizeCanvas();
 
-    animateGraph(
+    // pass #142 (wave-8 W8-11): the animation loop's cancellation rides the effect
+    // cleanup — unmounting (the tools panel closing) stops the render loop and removes
+    // the window keydown listener instead of rendering into a detached canvas forever.
+    const stopAnimation = animateGraph(
       canvasMain,
       canvasAnnotation,
       mainRenderer,
@@ -297,6 +300,7 @@ export function GraphCanvas({
     window.addEventListener("resize", resizeCanvas);
     return () => {
       window.removeEventListener("resize", resizeCanvas);
+      stopAnimation();
     };
   }, []);
 

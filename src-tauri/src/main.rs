@@ -103,15 +103,19 @@ use fonts::fonts_list;
 
 // pass #83 (He): profile-provided About images render again — fetched by the SHELL, not
 // the webview (the CSP stays pinned; images enter the page as data: URLs). Isolation
-// posture: https-only, every redirect hop re-validated against a public host, image-only
-// content types, 2 MiB cap, 10 s timeout, no cookies or tokens ever attached. The image
-// host sees the viewer's IP (same as the official client). pass #96 (re-audit N2): the
-// hostname is resolved ONCE, every resolved address is verified public, and the client is
-// PINNED to that address — the connection can only hit the IP we verified, closing the
-// classic rebind window (verify A, connect B). Disclosed residual: a redirect hop to a
-// fresh host is string-checked and then resolves normally (the pin covers the original
-// host only). The command carries no credentials and caps the response, so the blast
-// radius is one capped-size image fetch, never a token.
+// posture: https-only, image-only content types, 2 MiB cap streamed (#141, W8-01), 10 s
+// timeout per hop, no cookies or tokens ever attached. The image host sees the viewer's
+// IP (same as the official client). pass #96 (re-audit N2): the hostname is resolved
+// ONCE, every resolved address is verified public, and the client is PINNED to that
+// address — the connection can only hit the IP we verified, closing the classic rebind
+// window (verify A, connect B). pass #142 (wave-8 W8-04): that gate now covers EVERY
+// redirect hop — automatic redirect-following is OFF, and the fetch loop drives at most
+// three hops, each through the exact same resolve → verify-all-addresses → pin
+// procedure as the original host (the old shape string-checked a hop's hostname and let
+// it resolve normally — a public attacker server could redirect to a name resolving
+// into private infrastructure). Trailing-dot hostnames ("localhost.") normalize before
+// the suffix checks. The command carries no credentials and caps the response, so the
+// blast radius is one capped-size image fetch, never a token.
 fn is_public_v4(ip: std::net::Ipv4Addr) -> bool {
     let o = ip.octets();
     !(ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified()
@@ -143,7 +147,9 @@ fn public_https_host(url: &reqwest::Url) -> bool {
     match url.host_str() {
         None => false,
         Some(h) => {
-            let h = h.trim_matches(|c| c == '[' || c == ']').to_lowercase();
+            // pass #142 (W8-04): the trailing-dot form ("localhost.") used to evade the
+            // exact-match suffix checks; normalize before judging.
+            let h = h.trim_matches(|c| c == '[' || c == ']').trim_end_matches('.').to_lowercase();
             if h == "localhost" || h.ends_with(".localhost") || h.ends_with(".local") || h.ends_with(".internal") { return false; }
             match h.parse::<std::net::IpAddr>() {
                 Ok(ip) => is_public_ip(ip),
@@ -152,57 +158,84 @@ fn public_https_host(url: &reqwest::Url) -> bool {
         }
     }
 }
+// The resolved-IP validation helper every hop shares (pass #142, W8-04): resolve the
+// hostname ONCE, refuse if ANY answer is not public, and hand back a client pinned to
+// the verified address. Cached per (normalized) host — a cache hit skips the DNS
+// round-trip and reuses the client whose address was verified when it was built.
+async fn pinned_client(url: &reqwest::Url) -> Result<reqwest::Client, String> {
+    let raw_host = url.host_str().ok_or("FORBIDDEN")?.to_string();
+    let host = raw_host.trim_matches(|c| c == '[' || c == ']').trim_end_matches('.').to_string();
+    let cached = asset_clients().lock().unwrap_or_else(|e| e.into_inner()).get(&host.to_lowercase()).cloned();
+    if let Some(c) = cached {
+        return Ok(c);
+    }
+    // pass #96: resolve once, verify every answer, pin. A hostname resolving to ANY
+    // non-public address is refused outright (round-robin rebinding included).
+    let mut builder = reqwest::Client::builder()
+        .http1_only()
+        .user_agent(concat!("delcc/", env!("CARGO_PKG_VERSION")))
+        .timeout(std::time::Duration::from_secs(10))
+        // pass #142 (W8-04): NO automatic redirects — asset_fetch's loop validates and
+        // drives every hop itself, so the client must never follow one on its own.
+        .redirect(reqwest::redirect::Policy::none());
+    let host_is_literal = host.parse::<std::net::IpAddr>().is_ok();
+    if !host_is_literal {
+        let target = format!("{host}:{}", url.port_or_known_default().unwrap_or(443));
+        let addrs: Vec<std::net::SocketAddr> = tauri::async_runtime::spawn_blocking(move || {
+            use std::net::ToSocketAddrs;
+            target.to_socket_addrs().map(|it| it.collect()).map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| format!("join: {e}"))?
+        .map_err(|e| format!("DNS_RESOLUTION_FAILED {e}"))?;
+        if addrs.is_empty() { return Err("DNS_RESOLUTION_FAILED empty".into()); }
+        if let Some(bad) = addrs.iter().find(|a| !is_public_ip(a.ip())) {
+            return Err(format!("FORBIDDEN non-public address {bad}"));
+        }
+        builder = builder.resolve(&host, addrs[0]);
+    }
+    let client = builder.build().map_err(|e| format!("client: {e}"))?;
+    let mut cache = asset_clients().lock().unwrap_or_else(|e| e.into_inner());
+    if cache.len() >= 16 { cache.clear(); }
+    cache.insert(host.to_lowercase(), client.clone());
+    drop(cache);
+    Ok(client)
+}
+// The hop gate (pass #142, W8-04): resolve a redirect Location against the current URL,
+// then apply the SAME string checks as the original — https, public host.
+fn redirect_target(current: &reqwest::Url, location: &str) -> Result<reqwest::Url, String> {
+    let next = current.join(location).map_err(|_| "FORBIDDEN bad redirect location".to_string())?;
+    if next.scheme() != "https" { return Err("FORBIDDEN non-https redirect".into()); }
+    if !public_https_host(&next) { return Err("FORBIDDEN redirect to a non-public host".into()); }
+    Ok(next)
+}
 #[tauri::command]
 async fn asset_fetch(url: String) -> Result<String, String> {
     use base64::Engine as _;
     const MAX: usize = 2 * 1024 * 1024;
-    let parsed: reqwest::Url = url.parse().map_err(|_| "INVALID_ARGUMENT".to_string())?;
-    if !public_https_host(&parsed) { return Err("FORBIDDEN".to_string()); }
-    let host = parsed.host_str().ok_or("FORBIDDEN")?.to_string();
-    // pass #129 (P1): cache hit skips the DNS round-trip entirely — the pinned client
-    // inside is the one whose address was verified public when it was built. The guard
-    // is scoped OUT of the if/else (it must not live across the build branch's awaits).
-    let cached = asset_clients().lock().unwrap_or_else(|e| e.into_inner()).get(&host.to_lowercase()).cloned();
-    let client = if let Some(c) = cached {
-        c
-    } else {
-        // pass #96: resolve once, verify every answer, pin. A hostname resolving to ANY
-        // non-public address is refused outright (round-robin rebinding included).
-        let mut builder = reqwest::Client::builder()
-            .http1_only()
-            .user_agent(concat!("delcc/", env!("CARGO_PKG_VERSION")))
-            .timeout(std::time::Duration::from_secs(10));
-        let host_is_literal = host.trim_matches(|c| c == '[' || c == ']').parse::<std::net::IpAddr>().is_ok();
-        if !host_is_literal {
-            let target = format!("{host}:{}", parsed.port_or_known_default().unwrap_or(443));
-            let addrs: Vec<std::net::SocketAddr> = tauri::async_runtime::spawn_blocking(move || {
-                use std::net::ToSocketAddrs;
-                target.to_socket_addrs().map(|it| it.collect()).map_err(|e| e.to_string())
-            })
-            .await
-            .map_err(|e| format!("join: {e}"))?
-            .map_err(|e| format!("DNS_RESOLUTION_FAILED {e}"))?;
-            if addrs.is_empty() { return Err("DNS_RESOLUTION_FAILED empty".into()); }
-            if let Some(bad) = addrs.iter().find(|a| !is_public_ip(a.ip())) {
-                return Err(format!("FORBIDDEN non-public address {bad}"));
+    const MAX_HOPS: usize = 3;
+    let mut current: reqwest::Url = url.parse().map_err(|_| "INVALID_ARGUMENT".to_string())?;
+    if !public_https_host(&current) { return Err("FORBIDDEN".to_string()); }
+    let mut resp = None;
+    for hops in 0..=MAX_HOPS {
+        let client = pinned_client(&current).await?;
+        let r = client.get(current.clone()).header("Accept", "image/*").send().await.map_err(|e| format!("send: {e}"))?;
+        let status = r.status().as_u16();
+        if (300..400).contains(&status) {
+            if hops == MAX_HOPS {
+                return Err("FORBIDDEN too many redirects".into());
             }
-            builder = builder.resolve(&host, addrs[0]);
+            let loc = r.headers().get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .ok_or("FORBIDDEN redirect without a location")?
+                .to_string();
+            current = redirect_target(&current, &loc)?;
+            continue;
         }
-        let client = builder
-            .redirect(reqwest::redirect::Policy::custom(|attempt| {
-                if attempt.previous().len() >= 3 { return attempt.error("too many redirects"); }
-                if !public_https_host(attempt.url()) { return attempt.error("redirect to a non-public host"); }
-                attempt.follow()
-            }))
-            .build()
-            .map_err(|e| format!("client: {e}"))?;
-        let mut cache = asset_clients().lock().unwrap_or_else(|e| e.into_inner());
-        if cache.len() >= 16 { cache.clear(); }
-        cache.insert(host.to_lowercase(), client.clone());
-        drop(cache);
-        client
-    };
-    let resp = client.get(parsed).header("Accept", "image/*").send().await.map_err(|e| format!("send: {e}"))?;
+        resp = Some(r);
+        break;
+    }
+    let resp = resp.ok_or("FORBIDDEN too many redirects")?;
     let status = resp.status().as_u16();
     if !(200..300).contains(&status) { return Err(format!("API_ERROR {status}")); }
     let ct = resp.headers().get(reqwest::header::CONTENT_TYPE)
@@ -588,6 +621,30 @@ mod asset_tests {
         assert_eq!(update_available_value("v0.3.45a-alpha", "0.3.44-alpha"), serde_json::Value::Bool(true));
         assert_eq!(update_available_value("v0.3.44a-alpha", "0.3.44-alpha"), serde_json::Value::Bool(false));
         assert_eq!(update_available_value("v0.3.43a-alpha", "0.3.44-alpha"), serde_json::Value::Bool(false));
+    }
+
+    #[test]
+    fn redirect_hops_ride_the_full_gate() {
+        // pass #142 (wave-8 W8-04): every hop resolves and re-validates — the unit gate
+        // here pins the string-level half (the resolved-IP half runs in pinned_client,
+        // which the hop loop calls for the target host too). The wave-8 payload shape:
+        // a public attacker server redirecting to private infrastructure must refuse.
+        let start: reqwest::Url = "https://images.example.com/a.png".parse().unwrap();
+        // a relative Location resolves against the current URL (the common shape)
+        let next = redirect_target(&start, "/b.png").expect("relative hop passes");
+        assert_eq!(next.as_str(), "https://images.example.com/b.png");
+        // non-https hops are refused outright
+        let e = redirect_target(&start, "http://images.example.com/b.png").unwrap_err();
+        assert!(e.contains("non-https"), "{e}");
+        // a hop to a private-address literal is refused
+        let e = redirect_target(&start, "https://192.168.1.10/x").unwrap_err();
+        assert!(e.contains("non-public"), "{e}");
+        // a hop to a loopback literal is refused
+        assert!(redirect_target(&start, "https://127.0.0.1/x").is_err());
+        // the trailing-dot localhost form (the wave-8 evasion shape) is refused
+        assert!(redirect_target(&start, "https://localhost./x").is_err());
+        assert!(!public_https_host(&"https://localhost./x".parse().unwrap()));
+        assert!(public_https_host(&"https://images.example.com/x".parse().unwrap()));
     }
 
     #[test]

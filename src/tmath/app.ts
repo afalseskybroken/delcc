@@ -323,9 +323,16 @@ export class TmathApp {
     auth.onTokenChange(token => {
       // pass #60-#63: this listener REPLACED the baseplate one (onTokenChange is a
       // single slot). The tmath shell has no profile switcher — the active unlocked
-      // slot IS whoever holds the live session, so every token landing persists to it
-      // and clears needsReauth (a token landing IS the recovery; a logout lands null
-      // and intentionally empties the slot's token).
+      // slot IS whoever holds the live session, so every REFRESH landing persists to
+      // it and clears needsReauth (a refresh landing IS the recovery; a logout lands
+      // null and intentionally empties the slot's token).
+      // pass #142 (wave-8 W8-05): FRESH saves are skipped — a fresh login's token
+      // belongs to NO profile until finish() binds the identity (and never lands in a
+      // locked profile at all). The old shape persisted every landing, so unlocking
+      // profile A and then logging in as account B wrote B's token into A — and an
+      // identify() failure left it there. Refresh rotations of an already-bound
+      // session keep landing exactly as before.
+      if (token && auth.currentSaveKind() === "fresh") return;
       const profiles = loadProfiles();
       const p = profiles.find(x => x.id === activeId());
       if (p && !p.locked) { p.token = token; p.needsReauth = false; saveProfiles(profiles); }
@@ -1530,21 +1537,38 @@ export class TmathApp {
       const out = typeof c.output === "string" && c.output ? c.output.slice(0, 10_000) : ""; // "(rút gọn)" is honest: capped
       const fb = [c.extended_feedback, c.feedback].find((v: unknown): v is string => typeof v === "string" && !!v.trim()) ?? "";
       const tone = String(c.status ?? "") === "AC" ? "ok" : "bad";
-      return `${out ? `<div class="tm-case-panel info"><b>${text("subs.yourOutput")}</b><pre>${esc(out)}</pre></div>` : ""}${fb ? `<div class="tm-case-panel ${tone}"><b>${text("subs.judgeFeedback")}</b><pre>${esc(fb)}</pre></div>` : ""}`;
+      // pass #142 (W8-12): feedback is capped like the output already was — a
+      // multi-megabyte extended_feedback used to materialize whole.
+      const fbCapped = fb.length > FEEDBACK_CAP;
+      const fbShown = fbCapped ? fb.slice(0, FEEDBACK_CAP) + "\n…(feedback truncated)" : fb;
+      return `${out ? `<div class="tm-case-panel info"><b>${text("subs.yourOutput")}</b><pre>${esc(out)}</pre></div>` : ""}${fb ? `<div class="tm-case-panel ${tone}"><b>${text("subs.judgeFeedback")}</b><pre>${esc(fbShown)}</pre></div>` : ""}`;
     };
-    const caseRows = (items: any[], group: number | null): string => (Array.isArray(items) ? items : []).map((c: any) => {
-      if (!c || typeof c !== "object") return "";
-      const batch = typeof c.batch_id === "number" ? c.batch_id : null;
-      const leaf = batch == null;
-      const panelHtml = panels(c);
-      const testCell = leaf
-        ? (panelHtml ? `<button type="button" class="tm-case-toggle" data-case-toggle aria-expanded="false"><span>#${esc(c.case_id ?? "—")}</span>${caseChevronSvg}</button>` : `#${esc(c.case_id ?? "—")}`)
-        : "—";
-      const groupCell = leaf ? (group == null ? "—" : text("subs.groupN", { n: group })) : text("subs.groupN", { n: batch! });
-      return `<tr><th scope="row" class="tm-case-cell">${testCell}</th><td>${esc(groupCell)}</td><td>${leaf ? pill(c.status) : "—"}</td><td class="tm-case-number">${esc(fmtT(c.time))}</td><td class="tm-case-number">${esc(fmtM(c.memory))}</td><td>${esc(c.points ?? "—")} / ${esc(c.total ?? "—")}</td></tr>${panelHtml ? `<tr class="tm-case-panel-row" hidden><td colspan="6">${panelHtml}</td></tr>` : ""}${Array.isArray(c.cases) && c.cases.length ? caseRows(c.cases, batch) : ""}`;
-    }).join("");
+    // pass #142 (wave-8 W8-12): the case TREE is bounded — the recursion used to
+    // materialize the full HTML at any depth and count the judge shipped. Beyond
+    // CASE_MAX_DEPTH levels or CASE_MAX_NODES rows the tree stops and a visible
+    // notice says so.
+    const FEEDBACK_CAP = 100_000;
+    const CASE_MAX_DEPTH = 20;
+    const CASE_MAX_NODES = 2000;
+    let caseNodes = 0;
+    let caseTruncated = false;
+    const caseRows = (items: any[], group: number | null, depth: number): string => {
+      if (depth > CASE_MAX_DEPTH || caseNodes >= CASE_MAX_NODES) { caseTruncated = true; return ""; }
+      return (Array.isArray(items) ? items : []).map((c: any) => {
+        if (++caseNodes > CASE_MAX_NODES) { caseTruncated = true; return ""; }
+        if (!c || typeof c !== "object") return "";
+        const batch = typeof c.batch_id === "number" ? c.batch_id : null;
+        const leaf = batch == null;
+        const panelHtml = panels(c);
+        const testCell = leaf
+          ? (panelHtml ? `<button type="button" class="tm-case-toggle" data-case-toggle aria-expanded="false"><span>#${esc(c.case_id ?? "—")}</span>${caseChevronSvg}</button>` : `#${esc(c.case_id ?? "—")}`)
+          : "—";
+        const groupCell = leaf ? (group == null ? "—" : text("subs.groupN", { n: group })) : text("subs.groupN", { n: batch! });
+        return `<tr><th scope="row" class="tm-case-cell">${testCell}</th><td>${esc(groupCell)}</td><td>${leaf ? pill(c.status) : "—"}</td><td class="tm-case-number">${esc(fmtT(c.time))}</td><td class="tm-case-number">${esc(fmtM(c.memory))}</td><td>${esc(c.points ?? "—")} / ${esc(c.total ?? "—")}</td></tr>${panelHtml ? `<tr class="tm-case-panel-row" hidden><td colspan="6">${panelHtml}</td></tr>` : ""}${Array.isArray(c.cases) && c.cases.length ? caseRows(c.cases, batch, depth + 1) : ""}`;
+      }).join("");
+    };
     const casesHtml = Array.isArray(s.cases) && s.cases.length
-      ? `<div class="tm-sub-cases-wrap"><table class="tm-sub-cases" aria-label="${text("subs.testcase")}"><thead><tr><th>${text("subs.testcase")}</th><th>${text("subs.group")}</th><th>${text("subs.result")}</th><th>${text("subs.time")} (s)</th><th>${text("subs.memory")} (MB)</th><th>${text("subs.score")}</th></tr></thead><tbody>${caseRows(s.cases, null)}</tbody></table></div>`
+      ? `<div class="tm-sub-cases-wrap"><table class="tm-sub-cases" aria-label="${text("subs.testcase")}"><thead><tr><th>${text("subs.testcase")}</th><th>${text("subs.group")}</th><th>${text("subs.result")}</th><th>${text("subs.time")} (s)</th><th>${text("subs.memory")} (MB)</th><th>${text("subs.score")}</th></tr></thead><tbody>${caseRows(s.cases, null, 0)}</tbody></table>${caseTruncated ? `<p class="tm-muted" role="status">${esc(text("subs.casesTruncated"))}</p>` : ""}</div>`
       : `<p class="tm-muted">${text("subs.noCaseDetail")}</p>`;
     // pass #99 (1.1.0 parity): the judge's compile errors/warnings ride
     // SubmissionDetailSchema.error. Compilers emit ANSI escapes (SGR colors, cursor
@@ -1596,10 +1620,16 @@ export class TmathApp {
       const lang = String(data?.language ?? "");
       const sub = host.querySelector<HTMLElement>("[data-source-sub]");
       if (sub) sub.textContent = `#${id}${lang ? ` · ${langName(lang)}` : ""}`;
-      const lines = sourceCode.split("\n").length;
-      const codeHtml = /^CPP/i.test(lang) ? cppHighlight(sourceCode) : esc(sourceCode);
+      // pass #142 (wave-8 W8-12): the viewer is bounded — a multi-hundred-KB source
+      // used to be tokenized, guttered, and materialized synchronously (a main-thread
+      // stall). Beyond SOURCE_CAP: plain (unhighlighted) text, cut, with a notice.
+      const SOURCE_CAP = 262_144;
+      const truncatedSource = sourceCode.length > SOURCE_CAP;
+      const shown = truncatedSource ? sourceCode.slice(0, SOURCE_CAP) : sourceCode;
+      const lines = shown.split("\n").length;
+      const codeHtml = truncatedSource ? esc(shown) : (/^CPP/i.test(lang) ? cppHighlight(shown) : esc(shown));
       body.removeAttribute("role");
-      body.innerHTML = `<div class="tm-source-viewer" tabindex="0" role="region" aria-label="${esc(text("subs.sourceAria", { n: String(id) }))}"><pre class="tm-source-gutter" aria-hidden="true">${Array.from({ length: lines }, (_, i) => i + 1).join("\n")}</pre><pre class="tm-source-code"><code>${codeHtml}</code></pre></div>`;
+      body.innerHTML = `<div class="tm-source-viewer" tabindex="0" role="region" aria-label="${esc(text("subs.sourceAria", { n: String(id) }))}"><pre class="tm-source-gutter" aria-hidden="true">${Array.from({ length: lines }, (_, i) => i + 1).join("\n")}</pre><pre class="tm-source-code"><code>${codeHtml}</code></pre></div>${truncatedSource ? `<p class="tm-muted" role="status">${esc(text("subs.sourceTruncated"))}</p>` : ""}`;
     } catch (e) {
       if (!alive()) return;
       body.innerHTML = errorBox(e) + button("common.retry", "source-retry");

@@ -1271,7 +1271,7 @@ export function animateGraph(
   mainRenderer: GraphRenderer,
   indicatorRenderer: GraphRenderer,
   ctxAnnotation: CanvasRenderingContext2D,
-) {
+): () => void {
   generateRandomCoords();
 
   canvasAnnotation.addEventListener("pointerdown", (event) => {
@@ -1350,7 +1350,10 @@ export function animateGraph(
     ctxAnnotation.putImageData(lastState as ImageData, 0, 0);
   };
 
-  window.addEventListener("keydown", (event: KeyboardEvent) => {
+  // pass #142 (wave-8 W8-11): the keydown handler is named so the returned cleanup can
+  // remove it — an anonymous listener survived unmount and kept undoing on Ctrl+Z with
+  // the panel long gone.
+  const keydownHandler = (event: KeyboardEvent) => {
     const isCtrl = event.ctrlKey || event.metaKey;
     const isZ = event.key.toLowerCase() === "z";
     const inInput = document.activeElement instanceof HTMLTextAreaElement;
@@ -1367,7 +1370,8 @@ export function animateGraph(
 
       undoMS = curMS;
     }
-  });
+  };
+  window.addEventListener("keydown", keydownHandler);
 
   canvas.addEventListener("pointerdown", (event) => {
     event.preventDefault();
@@ -1447,9 +1451,19 @@ export function animateGraph(
     canvas.style.cursor = "default";
   });
 
+  // pass #142 (wave-8 W8-11): the recursive setTimeout → requestAnimationFrame chain is
+  // cancellable — every generation checks the flag, and the returned cleanup kills the
+  // pending timer, the in-flight frame, and the window keydown listener. The tools
+  // panel's unmount used to leave a 90 FPS loop rendering into a detached canvas
+  // forever (compounding CPU/battery per open/close cycle).
+  let cancelled = false;
+  let pendingTimeout = 0;
+  let pendingFrame = 0;
   const animate = () => {
-    setTimeout(() => {
-      requestAnimationFrame(animate);
+    pendingTimeout = window.setTimeout(() => {
+      if (cancelled) return;
+
+      pendingFrame = requestAnimationFrame(animate);
 
       mainRenderer.clearRect(0, 0, canvasWidth + 20, canvasHeight + 20);
       indicatorRenderer.clearRect(0, 0, canvasWidth + 20, canvasHeight + 20);
@@ -1487,4 +1501,10 @@ export function animateGraph(
     }, 1000 / FPS);
   };
   animate();
+  return () => {
+    cancelled = true;
+    window.clearTimeout(pendingTimeout);
+    window.cancelAnimationFrame(pendingFrame);
+    window.removeEventListener("keydown", keydownHandler);
+  };
 }

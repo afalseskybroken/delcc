@@ -246,7 +246,18 @@ export function openToolsPanel(): void {
     rz.onpointermove = move;
     rz.onpointerup = () => { rz.onpointermove = null; rz.onpointerup = null; };
   };
-  panel.querySelector<HTMLElement>("[data-tools-close]")!.onclick = () => { panel?.remove(); panel = null; };
+  panel.querySelector<HTMLElement>("[data-tools-close]")!.onclick = () => {
+    // pass #142 (wave-8 W8-11): close DISPOSES the live roots. The AGE and sketch React
+    // roots are module-level and used to survive the panel removal — a reopen mounted
+    // into the NEW host while the old root still held the old one (blank panel), and
+    // AGE's animation loop kept rendering into a detached canvas at 90 FPS with its
+    // window keydown listener still attached. Both unmounts are dynamic imports so the
+    // lazy chunks stay lazy.
+    void import("../vendor/age").then(m => m.unmountAge()).catch(() => {});
+    void import("./sketch").then(m => m.unmountSketch()).catch(() => {});
+    panel?.remove();
+    panel = null;
+  };
   panel.querySelector<HTMLElement>("[data-tools-min]")!.onclick = () => panel!.classList.toggle("minimized");
   // pass #107 (Official parity): maximize pins the panel to the viewport; the glyph flips
   const maxBtn = panel.querySelector<HTMLButtonElement>("[data-tools-max]")!;

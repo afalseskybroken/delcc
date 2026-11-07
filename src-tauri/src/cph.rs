@@ -19,6 +19,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -150,6 +151,77 @@ pub(crate) mod job {
     }
 }
 
+// pass #142 (wave-8 W8-10): the spawn-to-assign window is CLOSED. A child spawned
+// normally can fork a descendant BEFORE AssignProcessToJobObject runs — that descendant
+// is never in the job, so the memory cap and KILL_ON_JOB_CLOSE do not reach it. The
+// child is now created SUSPENDED (its single initial thread never runs), assigned, and
+// only then resumed; anything it spawns from its first instruction onward inherits the
+// job. A failed resume is fatal to the run (killed + error) rather than a silent hang.
+#[cfg(all(windows, feature = "job-mem-cap"))]
+pub(crate) fn spawn_suspended(cmd: &mut Command) -> std::io::Result<Child> {
+    use std::os::windows::process::CommandExt;
+    // CREATE_NO_WINDOW (the new_cmd default, re-applied) | CREATE_SUSPENDED
+    cmd.creation_flags(0x0800_0000 | 0x0000_0004);
+    cmd.spawn()
+}
+
+#[cfg(all(windows, feature = "job-mem-cap"))]
+pub(crate) fn resume_process(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
+    };
+    use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+    unsafe {
+        let snap: HANDLE = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+        if snap.is_null() {
+            return false;
+        }
+        let mut entry: THREADENTRY32 = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
+        let mut resumed = false;
+        if Thread32First(snap, &mut entry) != 0 {
+            loop {
+                if entry.th32OwnerProcessID == pid {
+                    // a CREATE_SUSPENDED process owns exactly one thread — its entry
+                    let h: HANDLE = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
+                    if !h.is_null() {
+                        ResumeThread(h);
+                        CloseHandle(h);
+                        resumed = true;
+                        break;
+                    }
+                }
+                if Thread32Next(snap, &mut entry) == 0 {
+                    break;
+                }
+            }
+        }
+        CloseHandle(snap);
+        resumed
+    }
+}
+
+// Spawn + job assignment in the W8-10 order (suspended → assign → resume), shared by
+// the memory-capped run path and the debug engines' tracked spawns.
+#[cfg(all(windows, feature = "job-mem-cap"))]
+pub(crate) fn spawn_tracked_suspended(
+    cmd: &mut Command,
+    memory_limit_mb: Option<u64>,
+) -> Result<(Child, Option<job::Job>), String> {
+    let mut child = spawn_suspended(cmd).map_err(|e| e.to_string())?;
+    let job = match memory_limit_mb {
+        Some(mb) => job::Job::attach(&child, mb),
+        None => job::Job::track(&child),
+    };
+    if !resume_process(child.id()) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("resume after job assignment failed".into());
+    }
+    Ok((child, job))
+}
+
 // ---------- shared state: one active job, one cached build ----------
 
 const COMPILE_LIMIT: Duration = Duration::from_secs(120);
@@ -196,6 +268,12 @@ pub(crate) struct Inner {
 #[derive(Default)]
 struct AllowedBinaries {
     detected: HashMap<String, HashSet<String>>, // lang_key -> binaries the detector answered with
+    // pass #142 (wave-8 W8-06): binaries the detector probed WITHOUT any consent — the
+    // trusted-installation class (PATH names, Program Files / user-profile fixed roots).
+    // The debugger's sibling rule auto-trusts a gdb ONLY next to one of these; the
+    // sibling of a confirmed planted candidate or of a Settings override rides the
+    // debugger consent like every other unprobed executable.
+    trusted_detect: HashSet<String>,
     overrides: HashMap<String, String>,         // lang_key -> Settings-registered path
     confirmed_fixed: HashSet<String>,           // pass #101: planted-root/extension candidates the user confirmed
     refused_fixed: HashSet<String>,             // pass #123 (wave-4 N6b): sticky refusal — the path is never re-asked and never re-run; Settings' explicit override is the way to change one's mind
@@ -359,26 +437,101 @@ pub struct Toolchain {
     version: String,
 }
 
+// pass #142 (wave-8 W8-07): the shared version-probe runner. Command::output() waits for
+// EOF and buffers EVERYTHING — an approved-but-malfunctioning executable could hang
+// detection forever (the spawn_blocking worker never returns; forced rescans piled up
+// blocked workers) or flood host memory with version output. Every probe now runs under
+// a hard deadline and a byte cap: both pipes are drained by threads into capped buffers,
+// the child is killed at the deadline, and only a SUCCESS exit is admitted.
+pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const PROBE_CAP: usize = 64 * 1024;
+
+fn drain_capped<R: std::io::Read + Send + 'static>(pipe: R, cap: usize, tx: mpsc::Sender<Vec<u8>>) {
+    std::thread::spawn(move || {
+        let mut reader = pipe;
+        let mut buf: Vec<u8> = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let room = cap.saturating_sub(buf.len());
+                    let take = n.min(room);
+                    buf.extend_from_slice(&chunk[..take]);
+                    if buf.len() >= cap {
+                        break; // cap reached — stop draining; the deadline path reaps the child
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        let _ = tx.send(buf);
+    });
+}
+
+// Runs `bin args` with stdin closed, returns (exit_success, combined stdout+stderr up to
+// ~2*cap). None = the child could not be spawned. A child that never exits is killed at
+// the deadline; the pipes close and the drain threads finish.
+pub(crate) fn probe_with_limit(bin: &str, args: &[&str], timeout: Duration, cap: usize) -> Option<(bool, String)> {
+    let mut c = new_cmd(bin);
+    c.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = c.spawn().ok()?;
+    let out_pipe = child.stdout.take()?;
+    let err_pipe = child.stderr.take()?;
+    let (tx, rx) = mpsc::channel::<Vec<u8>>();
+    drain_capped(out_pipe, cap, tx.clone());
+    drain_capped(err_pipe, cap, tx);
+    let deadline = Instant::now() + timeout;
+    let mut collected: Vec<u8> = Vec::new();
+    let mut readers_done = 0;
+    while readers_done < 2 {
+        let now = Instant::now();
+        if now >= deadline {
+            break;
+        }
+        match rx.recv_timeout(deadline - now) {
+            Ok(buf) => {
+                collected.extend_from_slice(&buf);
+                readers_done += 1;
+            }
+            Err(_) => break, // timeout or disconnect — the deadline path owns it now
+        }
+    }
+    // The child must be gone by the deadline too: a drain that stopped at the cap leaves
+    // it blocked on a full pipe, so it is killed, not waited on forever.
+    let mut status = None;
+    while Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(s)) => {
+                status = Some(s);
+                break;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(_) => break,
+        }
+    }
+    if status.is_none() {
+        let _ = child.kill();
+        status = child.wait().ok();
+    }
+    let ok = status.map(|s| s.success()).unwrap_or(false);
+    Some((ok, String::from_utf8_lossy(&collected).into_owned()))
+}
+
 fn probe_one(candidates: &[&str], version_args: &[&str]) -> Option<(String, String)> {
     for bin in candidates {
-        let mut c = new_cmd(bin);
-        c.args(version_args);
-        if let Ok(out) = c.output() {
-            // several of these (java -version, fpc -iV on some builds) write to stderr, not stdout.
-            let combined = format!(
-                "{}{}",
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr)
-            );
-            let first_line = combined.lines().next().unwrap_or("").trim().to_string();
-            // Nyx pass #8 gate, re-ported over the Claude pass #11 payload: a probe must SUCCEED and
-            // print its own version. The Microsoft Store app-execution-alias stubs (python3/python)
-            // run fine, print "Python was not found..." and exit 9009 — the first real detect
-            // claimed the stub as a Python toolchain. status gate + marketing-line guard.
-            const NOT_FOUND: &str = "was not found";
-            if out.status.success() && !first_line.is_empty() && !first_line.contains(NOT_FOUND) {
-                return Some((bin.to_string(), first_line));
-            }
+        let Some((ok, combined)) = probe_with_limit(bin, version_args, PROBE_TIMEOUT, PROBE_CAP) else {
+            continue;
+        };
+        // several of these (java -version, fpc -iV on some builds) write to stderr, not stdout.
+        let first_line = combined.lines().next().unwrap_or("").trim().to_string();
+        // Nyx pass #8 gate, re-ported over the Claude pass #11 payload: a probe must SUCCEED and
+        // print its own version. The Microsoft Store app-execution-alias stubs (python3/python)
+        // run fine, print "Python was not found..." and exit 9009 — the first real detect
+        // claimed the stub as a Python toolchain. status gate + marketing-line guard.
+        const NOT_FOUND: &str = "was not found";
+        if ok && !first_line.is_empty() && !first_line.contains(NOT_FOUND) {
+            return Some((bin.to_string(), first_line));
         }
     }
     None
@@ -737,6 +890,18 @@ pub async fn cph_detect(state: tauri::State<'_, CphState>, force: Option<bool>) 
             m.entry(t.lang_key.clone()).or_default().insert(t.binary.clone());
             m
         });
+        // pass #142 (W8-06): the trust class split — everything detected WITHOUT consent
+        // is a trusted installation; confirmed planted candidates (their paths sit in
+        // confirmed_fixed) and Settings overrides (the overrides map) name a path the
+        // user chose for the COMPILER, and their sibling gdb never was.
+        allowed.trusted_detect = found
+            .iter()
+            .filter(|t| {
+                !allowed.confirmed_fixed.contains(&t.binary)
+                    && !allowed.overrides.values().any(|v| v == &t.binary)
+            })
+            .map(|t| t.binary.clone())
+            .collect();
     }
     *lock(&state.0.detect_cache) = Some((std::time::Instant::now(), found.clone()));
     Ok(found)
@@ -829,14 +994,16 @@ fn confirm_override(lang_key: &str, bin: &str) -> bool {
     )
 }
 // pass #129 (attack-surface A3 symmetry): the debugger consent uses the same native-dialog
-// machinery with its own wording — a PATH gdb is probed automatically, not chosen in
-// Settings, so the "a path you chose yourself" line would be wrong here.
+// machinery with its own wording. pass #142 (wave-8 W8-06): this gate now covers every
+// debugger candidate that is NOT auto-trusted — PATH-derived ones AND the sibling gdb of
+// a consent-gated or Settings-overridden compiler (the user's action named the compiler,
+// never the debugger beside it) — so "came off PATH" alone would understate the gate.
 #[cfg(all(windows, not(test)))]
 fn confirm_debugger(bin: &str) -> bool {
     confirm_dialog(
         "delcc \u{2014} debugger consent",
         &format!(
-            "Allow \u{201c}{bin}\u{201d} to run as the step-by-step debugger?\r\n\r\ndelcc prefers the gdb shipped next to the compiler; this candidate came off PATH. Refuse it if you did not install it."
+            "Allow \u{201c}{bin}\u{201d} to run as the step-by-step debugger?\r\n\r\ndelcc only auto-trusts the debugger shipped beside a toolchain it detected on its own. This candidate was not. Refuse it if you did not install it."
         ),
     )
 }
@@ -1130,6 +1297,33 @@ fn capture(mut cmd: Command, input: Option<&str>, limit: Duration, _memory_limit
         use std::os::unix::process::CommandExt;
         cmd.process_group(0); // own group -> kill_tree can reach every descendant
     }
+    // pass #142 (wave-8 W8-10): a memory-capped run spawns SUSPENDED, attaches to its
+    // Job, then resumes — the old spawn-then-attach window let a fast child fork a
+    // descendant the cap and KILL_ON_JOB_CLOSE never covered. Runs without a cap keep
+    // the plain spawn (their containment is kill_tree, which reaches the whole tree).
+    #[cfg(all(windows, feature = "job-mem-cap"))]
+    let (mut child, _job) = match _memory_limit_mb {
+        Some(_) => match spawn_tracked_suspended(&mut cmd, _memory_limit_mb) {
+            Ok(pair) => pair,
+            Err(e) => {
+                drop(cmd); // close the input handle before removing its temporary file
+                result.spawn_err = Some(e);
+                return result;
+            }
+        },
+        None => (
+            match cmd.spawn() {
+                Ok(c) => c,
+                Err(e) => {
+                    drop(cmd);
+                    result.spawn_err = Some(e.to_string());
+                    return result;
+                }
+            },
+            None,
+        ),
+    };
+    #[cfg(not(all(windows, feature = "job-mem-cap")))]
     let mut child: Child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
@@ -1141,9 +1335,6 @@ fn capture(mut cmd: Command, input: Option<&str>, limit: Duration, _memory_limit
     drop(cmd);
     let pid = child.id();
     job.pid.store(pid, Ordering::SeqCst);
-
-    #[cfg(all(windows, feature = "job-mem-cap"))]
-    let _job = _memory_limit_mb.and_then(|mb| job::Job::attach(&child, mb));
 
     let stop_readers = Arc::new(AtomicBool::new(false));
     let limited = Arc::new(AtomicBool::new(false));
@@ -1572,7 +1763,12 @@ fn debug_start_blocking(inner: Arc<Inner>, req: DebugStartRequest) -> Result<cra
         source_path: tmp.join(source_name(&req.lang_key).unwrap_or("main")),
         dir: tmp,
         stdin_text: req.stdin_text,
-        compiler_binary: req.binary,
+        compiler_binary: req.binary.clone(),
+        // pass #142 (wave-8 W8-06): the sibling-gdb auto-trust extends ONLY to compilers
+        // the detector probed without any consent (trusted_detect). Confirmed planted
+        // candidates and Settings overrides bought trust for the COMPILER path alone —
+        // their sibling debugger rides the consent gate like everything else.
+        compiler_trusted: lock(&inner.allowed).trusted_detect.contains(&req.binary),
         guard,
         #[cfg(windows)]
         job: None,
@@ -1605,6 +1801,26 @@ pub async fn debug_stop() -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn probe_with_limit_kills_hanging_and_flooding_children() {
+        // pass #142 (wave-8 W8-07): the probe runner's deadline and cap are load-bearing
+        // — a hung "compiler" must not pin the detect worker, a flooding one must not
+        // balloon host memory. Real children on the real OS: ping outlives the deadline
+        // and gets killed (nonzero, no success), the echo flood is capped.
+        let start = Instant::now();
+        let (ok, _out) = probe_with_limit("cmd", &["/c", "ping", "-n", "60", "127.0.0.1"], PROBE_TIMEOUT, PROBE_CAP).expect("spawns");
+        assert!(!ok, "the deadline-killed child is not a success exit");
+        assert!(start.elapsed() < Duration::from_secs(15), "the deadline actually fires (took {:?})", start.elapsed());
+        let (_ok2, out) = probe_with_limit(
+            "cmd",
+            &["/c", "for /l %i in (1,1,200000) do @echo 0123456789012345678901234567890123456789"],
+            PROBE_TIMEOUT,
+            PROBE_CAP,
+        ).expect("spawns");
+        assert!(out.len() <= 2 * PROBE_CAP, "the combined output is capped ({} bytes)", out.len());
+    }
 
     #[test]
     fn refusal_persists_across_reload() {

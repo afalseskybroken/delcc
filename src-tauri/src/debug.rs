@@ -224,21 +224,17 @@ pub fn build_run_command(input: &Path, output: &Path) -> String {
     format!("run < \"{inp}\" > \"{outp}\"")
 }
 
-/// pass #129 (attack-surface A3 symmetry): candidates carry a trust class. Sibling
-/// candidates inherit whatever trust the COMPILER itself has — same directory, same
-/// execution class as running the compiler. pass #141 (wave-8 W8-06) states the
-/// boundary honestly: the persisted consent records and the Settings overrides name
-/// the COMPILER path only, so approving a compiler also approves its sibling gdb
-/// WITHOUT a second prompt — even when the compiler itself only ran because the user
-/// consented to it. That is a disclosed consent boundary, not an audited one: the
-/// per-executable model (#101) and the sibling rule disagree until the provenance-aware
-/// fix (consent for the exact debugger path whenever the compiler was consent-gated or
-/// overridden — wave-8 Batch B) lands. Every PATH-derived candidate is the UNTRUSTED
-/// class: same-user-writable, and the version gate alone admits any binary that prints
-/// a plausible number — those ride the confirm-once consent gate in find_gdb before
-/// their `--version` may execute. A bare compiler name has no real sibling directory
-/// (parent is ""), and a CWD-relative "gdb.exe" is not the toolchain's own gdb —
-/// skipped rather than probed.
+/// pass #129 (attack-surface A3 symmetry): candidates carry a trust class — sibling-of-
+/// compiler vs PATH-derived — and pass #142 (wave-8 W8-06) closes the consent-boundary
+/// disagreement the wave-8 audit found: sibling candidates are auto-trusted ONLY when
+/// the COMPILER itself is a trusted installation (detected without any consent — the
+/// `trusted_detect` class in cph.rs). The sibling of a confirmed planted candidate or
+/// of a Settings override was never named by the user's action, so it rides the same
+/// confirm-once consent gate as every PATH-derived candidate BEFORE its `--version` may
+/// execute. PATH-derived candidates are always the UNTRUSTED class: same-user-writable,
+/// and the version gate alone admits any binary that prints a plausible number. A bare
+/// compiler name has no real sibling directory (parent is ""), and a CWD-relative
+/// "gdb.exe" is not the toolchain's own gdb — skipped rather than probed.
 fn find_gdb_candidates(compiler: &str) -> Vec<(PathBuf, bool)> {
     let mut out = Vec::new();
     // sibling first: the toolchain's own gdb understands its own binaries
@@ -261,34 +257,36 @@ fn find_gdb_candidates(compiler: &str) -> Vec<(PathBuf, bool)> {
 }
 
 /// Sibling-of-compiler first, then PATH; both gated at gdb >= 8 (7.6.1 verified broken:
-/// no file redirection). PATH-class candidates additionally ride the confirm-once
-/// consent gate (A3 symmetry) BEFORE the version probe — probing is an execution.
-/// Returns (path, version string) or an honest error naming what was probed and what
-/// was refused.
-pub fn find_gdb(compiler: &str, consent: &dyn Fn(&str) -> bool) -> Result<(PathBuf, String), String> {
+/// no file redirection). A sibling candidate is auto-trusted only when the compiler
+/// itself is a trusted installation (`compiler_trusted` — pass #142, wave-8 W8-06);
+/// otherwise it rides the same confirm-once consent gate as the PATH class, BEFORE the
+/// version probe — probing is an execution. The probe itself runs deadlined and capped
+/// (pass #142, wave-8 W8-07). Returns (path, version string) or an honest error naming
+/// what was probed and what was refused.
+pub fn find_gdb(compiler: &str, compiler_trusted: bool, consent: &dyn Fn(&str) -> bool) -> Result<(PathBuf, String), String> {
     let mut probed: Vec<String> = Vec::new();
-    for (cand, trusted) in find_gdb_candidates(compiler) {
+    for (cand, sibling) in find_gdb_candidates(compiler) {
         if !cand.is_file() {
             continue;
         }
         let path_str = cand.to_string_lossy().to_string();
+        let trusted = sibling && compiler_trusted;
         if !trusted && !consent(&path_str) {
             probed.push(format!("{path_str} (refused by the user)"));
             continue;
         }
-        let out = match crate::cph::new_cmd(&path_str).arg("--version").output() {
-            Ok(o) => o,
-            Err(_) => continue,
+        // pass #142 (wave-8 W8-07): the probe rides the shared deadline+cap runner — a
+        // hung gdb can no longer pin the debug start, a flooding one cannot balloon
+        // memory. Success required (probe_one's doctrine — #141).
+        let Some((ok, combined)) = crate::cph::probe_with_limit(&path_str, &["--version"], crate::cph::PROBE_TIMEOUT, crate::cph::PROBE_CAP) else {
+            probed.push(format!("{path_str} (spawn failed)"));
+            continue;
         };
-        // pass #141 (wave-8 W8-07, partial — the rest is queued Batch C): probe_one's
-        // doctrine holds here too — a probe must SUCCEED. The old loop read stdout with
-        // no exit check, so any binary that printed a plausible version line on its way
-        // to a nonzero exit was admitted as "gdb".
-        if !out.status.success() {
+        if !ok {
             probed.push(format!("{} (probe exited nonzero)", cand.display()));
             continue;
         }
-        let first = String::from_utf8_lossy(&out.stdout).lines().next().unwrap_or("").to_string();
+        let first = combined.lines().next().unwrap_or("").to_string();
         match parse_gdb_version(&first) {
             Some((major, ver)) if major >= 8 => return Ok((cand, ver)),
             Some((_major, ver)) => probed.push(format!("{} (gdb {ver}, needs >= 8)", cand.display())),
@@ -356,14 +354,114 @@ fn classify(raw: &str) -> LineKind {
 
 struct ReaderLine(LineKind);
 
+// pass #142 (wave-8 W8-08): the inferior's stdout is redirected to a session file that
+// the 64 KiB snapshot cap bounds for READING only — `continue` past an infinite print
+// loop used to grow that file until the user stopped the session. A watcher thread
+// stats the file every 500 ms; past DEBUG_OUTPUT_FILE_CAP it kills the ENGINE TREE
+// (taskkill /T reaches gdb + the inferior through the external pid — no shared handles
+// with the session thread) and raises a flag the wait paths turn into an honest error.
+const DEBUG_OUTPUT_FILE_CAP: u64 = 32 * 1024 * 1024;
+const OUTPUT_WATCH_INTERVAL: Duration = Duration::from_millis(500);
+
+fn spawn_output_watcher(out_path: PathBuf, engine_pid: u32, overflow: std::sync::Arc<std::sync::atomic::AtomicBool>, shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>) {
+    use std::sync::atomic::Ordering;
+    std::thread::spawn(move || {
+        while !shutdown.load(Ordering::SeqCst) {
+            std::thread::sleep(OUTPUT_WATCH_INTERVAL);
+            if shutdown.load(Ordering::SeqCst) {
+                break;
+            }
+            match std::fs::metadata(&out_path) {
+                Ok(m) => {
+                    if m.len() > DEBUG_OUTPUT_FILE_CAP {
+                        overflow.store(true, Ordering::SeqCst);
+                        crate::cph::kill_tree(engine_pid);
+                        break;
+                    }
+                }
+                // the session dir is gone — the session ended, the watcher retires
+                Err(_) => break,
+            }
+        }
+    });
+}
+
+// pass #142 (wave-8 W8-09): a thin wrapper that keeps the in-flight count of the
+// unbounded std channel — the reader thread uses it for backpressure (stops reading,
+// letting the OS pipe bound the producer) and never lets delcc-side memory grow with
+// what a broken engine streams. The count is approximate (a gauge, not a contract).
+struct BoundedRecv<T> {
+    rx: Receiver<T>,
+    pending: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl<T> BoundedRecv<T> {
+    fn recv_timeout(&self, d: Duration) -> Result<T, RecvTimeoutError> {
+        use std::sync::atomic::Ordering;
+        match self.rx.recv_timeout(d) {
+            Ok(v) => {
+                if self.pending.load(Ordering::SeqCst) > 0 {
+                    self.pending.fetch_sub(1, Ordering::SeqCst);
+                }
+                Ok(v)
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
+// pass #142 (W8-09): BufReader::lines() allocated the COMPLETE line before any cap — a
+// single newline-less flood line ballooned the reader. Reads one line capped at `cap`
+// bytes; overflow past the cap is DRAINED (protocol lines we care about are short and
+// newline-terminated — a truncated junk line just fails to parse). None = clean EOF.
+fn read_line_capped(reader: &mut impl BufRead, cap: usize) -> std::io::Result<Option<String>> {
+    let mut out: Vec<u8> = Vec::new();
+    let mut saw_any = false;
+    loop {
+        let available = match reader.fill_buf() {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        if available.is_empty() {
+            break;
+        }
+        saw_any = true;
+        match available.iter().position(|&b| b == b'\n') {
+            Some(pos) => {
+                let take = &available[..pos];
+                let room = cap.saturating_sub(out.len());
+                out.extend_from_slice(&take[..take.len().min(room)]);
+                reader.consume(pos + 1);
+                break;
+            }
+            None => {
+                let room = cap.saturating_sub(out.len());
+                let n = available.len();
+                out.extend_from_slice(&available[..n.min(room)]);
+                reader.consume(n);
+            }
+        }
+    }
+    if !saw_any {
+        return Ok(None);
+    }
+    Ok(Some(String::from_utf8_lossy(&out).into_owned()))
+}
+
+const LINE_CAP: usize = 256 * 1024;
+const CHANNEL_HIGH_WATER: usize = 1024;
+
 pub struct Session {
     child: Child,
     stdin: Option<ChildStdin>,
-    rx: Receiver<ReaderLine>,
+    rx: BoundedRecv<ReaderLine>,
     dir: PathBuf,
     out_path: PathBuf,
     seq: i32,
     events: VecDeque<String>,
+    overflow: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    watcher_stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     #[cfg(windows)]
     _job: Option<crate::cph::job::Job>,
     /// Held for the whole session: while you debug, cph_run/cph_compile stay refused
@@ -373,6 +471,8 @@ pub struct Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
+        use std::sync::atomic::Ordering;
+        self.watcher_stop.store(true, Ordering::SeqCst);
         let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = std::fs::remove_dir_all(&self.dir);
@@ -448,6 +548,28 @@ impl Session {
         stdin.flush().map_err(|e| format!("gdb flush: {e}"))
     }
 
+    /// pass #142 (W8-08): the engine-tree death is either "gdb exited unexpectedly" or —
+    /// when the output watcher killed it — the honest overflow verdict.
+    fn engine_death(&self) -> String {
+        use std::sync::atomic::Ordering;
+        if self.overflow.load(Ordering::SeqCst) {
+            "the program's output overflowed the 32 MiB session cap — the session was stopped".into()
+        } else {
+            "gdb exited unexpectedly".into()
+        }
+    }
+
+    /// The wait-timeout error, also overridden by an overflow verdict (a flooded
+    /// session reports WHY instead of a generic timeout).
+    fn wait_err(&self, default: &'static str) -> String {
+        use std::sync::atomic::Ordering;
+        if self.overflow.load(Ordering::SeqCst) {
+            self.engine_death()
+        } else {
+            default.into()
+        }
+    }
+
     fn next_seq(&mut self) -> i32 {
         self.seq += 1;
         self.seq
@@ -462,7 +584,7 @@ impl Session {
         loop {
             let now = Instant::now();
             if now >= deadline {
-                return Err("gdb did not answer in time — Stop the session and retry".into());
+                return Err(self.wait_err("gdb did not answer in time — Stop the session and retry"));
             }
             match self.rx.recv_timeout(deadline - now) {
                 Ok(ReaderLine(LineKind::Result(Some(t), class, values))) if t == tok => {
@@ -474,11 +596,11 @@ impl Session {
                 Ok(ReaderLine(LineKind::Result(_, _, _))) => {} // stale/async record — skip
                 Ok(ReaderLine(LineKind::Event(raw))) => self.events.push_back(raw),
                 Ok(ReaderLine(LineKind::Other)) => {}
-                Ok(ReaderLine(LineKind::Eof)) => return Err("gdb exited unexpectedly".into()),
+                Ok(ReaderLine(LineKind::Eof)) => return Err(self.engine_death()),
                 Err(RecvTimeoutError::Timeout) => {
-                    return Err("gdb did not answer in time — Stop the session and retry".into())
+                    return Err(self.wait_err("gdb did not answer in time — Stop the session and retry"))
                 }
-                Err(RecvTimeoutError::Disconnected) => return Err("gdb exited unexpectedly".into()),
+                Err(RecvTimeoutError::Disconnected) => return Err(self.engine_death()),
             }
         }
     }
@@ -494,17 +616,17 @@ impl Session {
             }
             let now = Instant::now();
             if now >= deadline {
-                return Err("the program did not stop in time — Stop the session and retry".into());
+                return Err(self.wait_err("the program did not stop in time — Stop the session and retry"));
             }
             match self.rx.recv_timeout(deadline - now) {
                 Ok(ReaderLine(LineKind::Event(raw))) => return Ok(raw),
                 Ok(ReaderLine(LineKind::Eof)) | Err(RecvTimeoutError::Disconnected) => {
-                    return Err("gdb exited unexpectedly".into())
+                    return Err(self.engine_death())
                 }
                 Ok(ReaderLine(LineKind::Other)) => {}
                 Ok(ReaderLine(_)) => {} // result records of already-answered transacts
                 Err(RecvTimeoutError::Timeout) => {
-                    return Err("the program did not stop in time — Stop the session and retry".into())
+                    return Err(self.wait_err("the program did not stop in time — Stop the session and retry"))
                 }
             }
         }
@@ -585,6 +707,9 @@ impl Session {
         let (mut locals, mut locals_truncated) = (Vec::new(), false);
         if let Ok(rest) = self.transact("-stack-list-variables --all-values", STEP_TIMEOUT) {
             if let Some(vars) = parse_mi(&rest).as_ref().and_then(|v| v.get("variables")).and_then(|v| v.as_list()) {
+                // pass #142 (W8-09): the running cost is tracked incrementally — the old
+                // loop re-summed every prior local on every row (O(n²) on wide frames).
+                let mut running = 0usize;
                 for var in vars {
                     let name = var.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
                     if name.is_empty() {
@@ -592,12 +717,13 @@ impl Session {
                     }
                     let kind = var.get("type").and_then(|t| t.as_str()).unwrap_or("").to_string();
                     let value = var.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    locals.push(DebugLocal { name, kind, value });
-                    if locals.iter().map(|l| l.name.len() + l.kind.len() + l.value.len() + 24).sum::<usize>() > LOCALS_JSON_CAP {
-                        locals.pop();
+                    let cost = name.len() + kind.len() + value.len() + 24;
+                    if running + cost > LOCALS_JSON_CAP {
                         locals_truncated = true;
                         break;
                     }
+                    running += cost;
+                    locals.push(DebugLocal { name, kind, value });
                 }
             }
         }
@@ -605,20 +731,33 @@ impl Session {
     }
 }
 
-fn spawn_reader(child_stdout: std::process::ChildStdout, tx: mpsc::Sender<ReaderLine>) {
+fn spawn_reader(
+    child_stdout: std::process::ChildStdout,
+    tx: mpsc::Sender<ReaderLine>,
+    pending: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    use std::sync::atomic::Ordering;
     std::thread::spawn(move || {
-        let reader = BufReader::new(child_stdout);
-        for line in reader.lines() {
-            let Ok(line) = line else { break };
-            let trimmed = line.trim_end();
+        let mut reader = BufReader::new(child_stdout);
+        while let Ok(Some(line)) = read_line_capped(&mut reader, LINE_CAP) {
+            // pass #142 (W8-09): backpressure — when the consumer falls behind, the
+            // reader STOPS reading; the OS pipe fills and the producing side blocks.
+            // delcc-side memory stays bounded no matter what the engine streams.
+            while !shutdown.load(Ordering::SeqCst) && pending.load(Ordering::SeqCst) >= CHANNEL_HIGH_WATER {
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            let trimmed = line.trim_end().to_string();
             if trimmed == "(gdb)" {
                 continue;
             }
-            let kind = classify(trimmed);
+            let kind = classify(&trimmed);
+            pending.fetch_add(1, Ordering::SeqCst);
             if tx.send(ReaderLine(kind)).is_err() {
                 break;
             }
         }
+        pending.fetch_add(1, Ordering::SeqCst);
         let _ = tx.send(ReaderLine(LineKind::Eof));
     });
 }
@@ -634,6 +773,9 @@ pub struct StartParams {
     pub dir: PathBuf,     // owns the build dir; removed on Drop
     pub stdin_text: String,
     pub compiler_binary: String,
+    // pass #142 (wave-8 W8-06): whether the compiler is a trusted installation (detected
+    // without consent). Only then may the sibling gdb be auto-trusted.
+    pub compiler_trusted: bool,
     pub guard: crate::cph::JobGuard,
     #[cfg(windows)]
     pub job: Option<crate::cph::job::Job>,
@@ -642,7 +784,8 @@ pub struct StartParams {
 pub fn start(params: StartParams, consent: &dyn Fn(&str) -> bool) -> Result<DebugSnapshot, String> {
     // pass #124: engine dispatch — python rides pdb (its own lane below); the compiled
     // family rides gdb with per-language entry symbols. The consent gate (A3 symmetry,
-    // pass #129) only concerns the gdb lane's PATH-class debugger candidates.
+    // pass #129; provenance-aware since #142) only concerns the gdb lane's debugger
+    // candidates: PATH-class always, and the sibling of a non-trusted compiler.
     if params.lang_key == "python" {
         return start_pdb(params);
     }
@@ -652,7 +795,7 @@ pub fn start(params: StartParams, consent: &dyn Fn(&str) -> bool) -> Result<Debu
 fn start_gdb(params: StartParams, consent: &dyn Fn(&str) -> bool) -> Result<DebugSnapshot, String> {
     // self-heal: one session at a time — an abandoned one is stopped first
     stop_session();
-    let (gdb_path, ver) = find_gdb(&params.compiler_binary, consent)?;
+    let (gdb_path, ver) = find_gdb(&params.compiler_binary, params.compiler_trusted, consent)?;
     let dir = params.dir.clone();
     let in_path = dir.join("stdin.txt");
     let out_path = dir.join("stdout.txt");
@@ -660,8 +803,8 @@ fn start_gdb(params: StartParams, consent: &dyn Fn(&str) -> bool) -> Result<Debu
     std::fs::write(&in_path, &params.stdin_text).map_err(|e| cleanup(format!("write stdin: {e}")))?;
 
     let gdb_str = gdb_path.to_string_lossy().into_owned();
-    let mut child = match crate::cph::new_cmd(&gdb_str)
-        // pass #123 (attack-surface A3): `-nx` skips user/system .gdbinit — MI needs no
+    let mut cmd = crate::cph::new_cmd(&gdb_str);
+    cmd // pass #123 (attack-surface A3): `-nx` skips user/system .gdbinit — MI needs no
         // init-file conveniences, and an init file is one more thing the plant-a-file
         // adversary (the A2 class) could inject into every debug session.
         .args(["--quiet", "-nx", "--interpreter=mi2"])
@@ -669,27 +812,46 @@ fn start_gdb(params: StartParams, consent: &dyn Fn(&str) -> bool) -> Result<Debu
         .current_dir(&dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    {
+        .stderr(Stdio::null());
+    // pass #142 (wave-8 W8-10): the engine is created SUSPENDED, assigned to its
+    // KILL_ON_JOB_CLOSE job, then resumed — the old spawn-then-track window let a fast
+    // gdb spawn the inferior before containment landed (the inferior inherited no job).
+    #[cfg(all(windows, feature = "job-mem-cap"))]
+    let (mut child, attached) = match crate::cph::spawn_tracked_suspended(&mut cmd, None) {
+        Ok(pair) => pair,
+        Err(e) => return Err(cleanup(format!("spawn gdb: {e}"))),
+    };
+    #[cfg(all(windows, feature = "job-mem-cap"))]
+    let job = params.job.or(attached);
+    #[cfg(not(all(windows, feature = "job-mem-cap")))]
+    let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => return Err(cleanup(format!("spawn gdb: {e}"))),
     };
+    #[cfg(not(all(windows, feature = "job-mem-cap")))]
     #[cfg(windows)]
     let job = params.job.or_else(|| crate::cph::job::Job::track(&child));
     let stdout = child.stdout.take().ok_or("gdb stdout")?;
     let stdin = child.stdin.take().ok_or("gdb stdin")?;
     let (tx, rx) = mpsc::channel();
-    spawn_reader(stdout, tx);
+    let pending = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let watcher_stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    spawn_reader(stdout, tx, pending.clone(), watcher_stop.clone());
+    let overflow = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // pass #142 (W8-08): the watcher needs the engine pid and the output path before
+    // both move into the Session.
+    spawn_output_watcher(out_path.clone(), child.id(), overflow.clone(), watcher_stop.clone());
 
     let mut s = Session {
         child,
         stdin: Some(stdin),
-        rx,
+        rx: BoundedRecv { rx, pending },
         dir,
         out_path,
         seq: 0,
         events: VecDeque::new(),
+        overflow,
+        watcher_stop,
         #[cfg(windows)]
         _job: job,
         _guard: params.guard,
@@ -820,10 +982,12 @@ pub fn step(kind: &str, steps: u32) -> Result<DebugSnapshot, String> {
 pub struct PdbSession {
     child: Child,
     stdin: Option<ChildStdin>,
-    rx: Receiver<String>,
+    rx: BoundedRecv<String>,
     dir: PathBuf,
     out_path: PathBuf,
     stderr_tail: std::collections::VecDeque<String>, // debuggee stderr (tracebacks…) — display, capped
+    overflow: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    watcher_stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     #[cfg(windows)]
     _job: Option<crate::cph::job::Job>,
     _guard: crate::cph::JobGuard,
@@ -831,6 +995,8 @@ pub struct PdbSession {
 
 impl Drop for PdbSession {
     fn drop(&mut self) {
+        use std::sync::atomic::Ordering;
+        self.watcher_stop.store(true, Ordering::SeqCst);
         let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = std::fs::remove_dir_all(&self.dir);
@@ -874,11 +1040,22 @@ pub fn parse_pdb_location(line: &str) -> Option<(u32, Option<String>)> {
     Some((n, if func.is_empty() { None } else { Some(func) }))
 }
 
-fn spawn_line_reader(child_stderr: std::process::ChildStderr, tx: mpsc::Sender<String>) {
+fn spawn_line_reader(
+    child_stderr: std::process::ChildStderr,
+    tx: mpsc::Sender<String>,
+    pending: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    use std::sync::atomic::Ordering;
     std::thread::spawn(move || {
-        let reader = BufReader::new(child_stderr);
-        for line in reader.lines() {
-            let Ok(line) = line else { break };
+        let mut reader = BufReader::new(child_stderr);
+        // pass #142 (W8-09): byte-capped lines + consumer backpressure — a python
+        // draft flooding ITS stderr can no longer balloon the reader or the channel.
+        while let Ok(Some(line)) = read_line_capped(&mut reader, LINE_CAP) {
+            while !shutdown.load(Ordering::SeqCst) && pending.load(Ordering::SeqCst) >= CHANNEL_HIGH_WATER {
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            pending.fetch_add(1, Ordering::SeqCst);
             if tx.send(line).is_err() {
                 break;
             }
@@ -888,8 +1065,29 @@ fn spawn_line_reader(child_stderr: std::process::ChildStderr, tx: mpsc::Sender<S
 }
 
 const PDB_TAIL_LINES: usize = 60;
+const PDB_TAIL_BYTES: usize = 32 * 1024;
 
 impl PdbSession {
+    /// pass #142 (W8-08): the pdb wrapper's death is either the stream ending or the
+    /// output watcher killing the tree — the overflow verdict wins when raised.
+    fn engine_death(&self) -> String {
+        use std::sync::atomic::Ordering;
+        if self.overflow.load(Ordering::SeqCst) {
+            "the program's output overflowed the 32 MiB session cap — the session was stopped".into()
+        } else {
+            "the wrapper exited".into()
+        }
+    }
+
+    fn wait_err(&self, default: &'static str) -> String {
+        use std::sync::atomic::Ordering;
+        if self.overflow.load(Ordering::SeqCst) {
+            self.engine_death()
+        } else {
+            default.into()
+        }
+    }
+
     fn send(&mut self, cmd: &str) -> Result<(), String> {
         let stdin = self.stdin.as_mut().ok_or("pdb stdin closed")?;
         writeln!(stdin, "{cmd}").map_err(|e| format!("pdb write: {e}"))?;
@@ -897,7 +1095,12 @@ impl PdbSession {
     }
 
     fn push_tail(&mut self, line: String) {
-        if self.stderr_tail.len() >= PDB_TAIL_LINES {
+        // pass #142 (W8-09): byte-capped as well as line-capped — sixty 2 MB lines were a
+        // 120 MB tail. The FRONT is dropped first (the newest traceback text wins).
+        while !self.stderr_tail.is_empty()
+            && (self.stderr_tail.len() >= PDB_TAIL_LINES
+                || self.stderr_tail.iter().map(|l| l.len() + 1).sum::<usize>() + line.len() + 1 > PDB_TAIL_BYTES)
+        {
             self.stderr_tail.pop_front();
         }
         self.stderr_tail.push_back(line);
@@ -910,7 +1113,7 @@ impl PdbSession {
         loop {
             let now = Instant::now();
             if now >= deadline {
-                return Err("the program did not stop in time — Stop the session and retry".into());
+                return Err(self.wait_err("the program did not stop in time — Stop the session and retry"));
             }
             match self.rx.recv_timeout(deadline - now) {
                 Ok(raw) => {
@@ -923,7 +1126,7 @@ impl PdbSession {
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {
-                    return Err("the program did not stop in time — Stop the session and retry".into())
+                    return Err(self.wait_err("the program did not stop in time — Stop the session and retry"))
                 }
                 Err(RecvTimeoutError::Disconnected) => return Ok(None),
             }
@@ -932,14 +1135,22 @@ impl PdbSession {
 
     /// One line in, one line out: json.dumps keeps the answer single-line and repr()
     /// pre-stringifies every value, so nothing but text crosses the protocol.
+    /// pass #142 (W8-09): the answer is PRE-BOUNDED at the source — at most 200 locals
+    /// and repr strings cut at 2000 chars each — so a frame with pathological values
+    /// cannot serialize an unbounded line; the reader's line cap and the JSON cap here
+    /// are the second and third fences.
     fn query_locals(&mut self) -> (Vec<DebugLocal>, bool) {
-        const EXPR: &str = "__import__('json').dumps([[str(k), type(v).__name__, repr(v)] for k, v in sorted(locals().items(), key=lambda i: str(i[0]))])";
+        const EXPR: &str = "__import__('json').dumps([[str(k), type(v).__name__, repr(v)[:2000]] for k, v in sorted(locals().items(), key=lambda i: str(i[0]))][:200])";
         if self.send(&format!("p {EXPR}")).is_err() {
             return (Vec::new(), false);
         }
         let deadline = Instant::now() + STEP_TIMEOUT;
         let mut locals = Vec::new();
         let mut truncated = false;
+        // pass #142 (W8-09): the running cost is incremental (the old loop re-summed
+        // every prior local per row), and the wrapper's own answer is pre-bounded
+        // (PdbSession::LOCALS_EXPR caps count and repr length at the source).
+        let mut running = 0usize;
         loop {
             let now = Instant::now();
             if now >= deadline {
@@ -956,10 +1167,12 @@ impl PdbSession {
                             if row.len() != 3 {
                                 continue;
                             }
-                            if locals.iter().map(|l: &DebugLocal| l.name.len() + l.kind.len() + l.value.len() + 24).sum::<usize>() > LOCALS_JSON_CAP {
+                            let cost = row[0].len() + row[1].len() + row[2].len() + 24;
+                            if running + cost > LOCALS_JSON_CAP {
                                 truncated = true;
                                 break;
                             }
+                            running += cost;
                             locals.push(DebugLocal { name: row[0].clone(), kind: row[1].clone(), value: row[2].clone() });
                         }
                         return (locals, truncated);
@@ -1054,31 +1267,46 @@ fn start_pdb(params: StartParams) -> Result<DebugSnapshot, String> {
     std::fs::write(&wrapper, pdb_wrapper_script(&params.source_path, &in_path))
         .map_err(|e| cleanup(format!("write pdb wrapper: {e}")))?;
     let out_file = std::fs::File::create(&out_path).map_err(|e| cleanup(format!("open output: {e}")))?;
-    let mut child = match crate::cph::new_cmd(&params.compiler_binary)
-        .arg("-u") // unbuffered — the protocol must never sit in a stdout buffer
+    let mut cmd = crate::cph::new_cmd(&params.compiler_binary);
+    cmd.arg("-u") // unbuffered — the protocol must never sit in a stdout buffer
         .arg(wrapper.as_os_str())
         .current_dir(&dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::from(out_file))
-        .stderr(Stdio::piped())
-        .spawn()
-    {
+        .stderr(Stdio::piped());
+    // pass #142 (wave-8 W8-10): the same suspended → assign → resume order as the gdb lane.
+    #[cfg(all(windows, feature = "job-mem-cap"))]
+    let (mut child, attached) = match crate::cph::spawn_tracked_suspended(&mut cmd, None) {
+        Ok(pair) => pair,
+        Err(e) => return Err(cleanup(format!("spawn python: {e}"))),
+    };
+    #[cfg(all(windows, feature = "job-mem-cap"))]
+    let job = params.job.or(attached);
+    #[cfg(not(all(windows, feature = "job-mem-cap")))]
+    let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => return Err(cleanup(format!("spawn python: {e}"))),
     };
+    #[cfg(not(all(windows, feature = "job-mem-cap")))]
     #[cfg(windows)]
     let job = params.job.or_else(|| crate::cph::job::Job::track(&child));
     let stderr = child.stderr.take().ok_or("python stderr")?;
     let stdin = child.stdin.take().ok_or("python stdin")?;
     let (tx, rx) = mpsc::channel();
-    spawn_line_reader(stderr, tx);
+    let pending = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let watcher_stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    spawn_line_reader(stderr, tx, pending.clone(), watcher_stop.clone());
+    let overflow = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    spawn_output_watcher(out_path.clone(), child.id(), overflow.clone(), watcher_stop.clone());
     let mut s = PdbSession {
         child,
         stdin: Some(stdin),
-        rx,
+        rx: BoundedRecv { rx, pending },
         dir,
         out_path,
         stderr_tail: std::collections::VecDeque::new(),
+        overflow,
+        watcher_stop,
         #[cfg(windows)]
         _job: job,
         _guard: params.guard,
@@ -1111,10 +1339,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn sibling_gdb_consent_follows_compiler_provenance() {
+        // pass #142 (wave-8 W8-06): the sibling candidate is auto-trusted ONLY for a
+        // trusted-installation compiler; otherwise it rides the same consent gate as
+        // the PATH class — BEFORE its version probe may execute. Structural check with
+        // a consent closure recording calls: the sibling exists on disk as a text file
+        // (its probe fails to spawn, but consent is consulted before any probe).
+        let dir = std::env::temp_dir().join(format!("delcc-w8-06-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let compiler = dir.join("g++.exe");
+        std::fs::write(&compiler, b"not a real compiler").unwrap();
+        let sibling = dir.join("gdb.exe");
+        std::fs::write(&sibling, b"not a real gdb").unwrap();
+        let compiler_str = compiler.to_string_lossy().to_string();
+        let sibling_str = sibling.to_string_lossy().to_string();
+        let asked: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
+        let count = |p: &str| {
+            asked.borrow_mut().push(p.to_string());
+            true
+        };
+        let _ = find_gdb(&compiler_str, true, &count);
+        assert!(
+            !asked.borrow().iter().any(|p| p == &sibling_str),
+            "a trusted compiler's sibling is auto-trusted — consent is never consulted"
+        );
+        let _ = find_gdb(&compiler_str, false, &count);
+        assert!(
+            asked.borrow().iter().any(|p| p == &sibling_str),
+            "the sibling of an untrusted compiler rides the consent gate"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn gdb_candidates_mark_path_entries_untrusted() {
-        // pass #129 (attack-surface A3 symmetry): sibling-of-compiler candidates carry
-        // the compiler's own trust; every PATH-derived candidate is the untrusted class
-        // that rides the consent gate before its version probe may execute it.
+        // pass #129 (attack-surface A3 symmetry) + #142 (W8-06): sibling-of-compiler
+        // candidates carry the SIBLING class (auto-trusted only for a trusted-install
+        // compiler — see sibling_gdb_consent_follows_compiler_provenance); every
+        // PATH-derived candidate is the untrusted class that rides the consent gate
+        // before its version probe may execute it.
         let cands = find_gdb_candidates("/opt/tc/bin/g++");
         assert!(cands.len() >= 4, "two sibling candidates plus at least one PATH pair");
         assert!(cands[0].1 && cands[1].1, "the sibling pair is the trusted class");
