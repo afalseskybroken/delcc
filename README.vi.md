@@ -1,6 +1,7 @@
 # delcc — client độc lập, minh bạch cho TMATH
 
 > *"and in that light, I find deliverance"*
+[![CI](https://github.com/afalseskybroken/delcc/actions/workflows/ci.yml/badge.svg)](https://github.com/afalseskybroken/delcc/actions/workflows/ci.yml)
 >
 > *— và trong ánh sáng ấy, tôi tìm thấy sự giải thoát*
 

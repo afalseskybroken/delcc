@@ -26,7 +26,13 @@ open-source libraries, credited here with their licenses.
   and neuter the service-worker registration — the SW file is not shipped;
   Tauri's custom protocol is not a SW host. The same app the official client's
   graph tool embeds — the offline contract holds: everything runs inside the
-  panel, nothing is fetched.
+  panel, nothing is fetched. **Also modified in-tree beyond the recorded patch**
+  (pass #142, wave-8 W8-L07 + W8-11 — MIT-compatible delcc changes): the graph
+  input parsers ride Set membership + in-place pushes instead of O(n²) scans
+  (`parseGraphInput.ts`, both parsers, order and dedup semantics unchanged), and
+  `animateGraph`/`GraphCanvas` gained a cancellation return so the 90 FPS render
+  loop and its window keydown listener stop on unmount; the patch file is due a
+  regeneration to fold these hunks in (queued).
 - **[Excalidraw](https://github.com/excalidraw/excalidraw)** (MIT, 0.18.1) — the
   sketch tab (Vẽ nháp), the same library the official client's sketch tool loads.
   Rendered as a React component inside the tools panel (lazy chunk) together

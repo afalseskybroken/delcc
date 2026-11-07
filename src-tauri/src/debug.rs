@@ -1338,6 +1338,62 @@ fn start_pdb(params: StartParams) -> Result<DebugSnapshot, String> {
 mod tests {
     use super::*;
 
+    // pass #143 (self-sweep F3): the watcher's live poll → escalate → kill path. A
+    // sacrificial real child (ping) plays the engine; the test grows the watched file
+    // past the 32 MiB cap and asserts the flag raises AND the child tree dies.
+    // (The full gdb-integrated smoke — an infinite printer through start_gdb — is
+    // BLOCKED ON THIS BOX right now, not by delcc: the box runs Windhawk, whose
+    // injected windhawk.dll acts as a second debugger in the inferior — under gdb,
+    // every `continue` re-fires the entry breakpoint at the same address without
+    // executing anything (raw-MI-verified: breakpoint times="2", same PC, empty
+    // redirection file). delcc's own step/continue is equally affected on this box
+    // until Windhawk excludes delcc/gdb/the compiler — recorded in the sweep doc.)
+    #[cfg(windows)]
+    #[test]
+    fn output_watcher_kills_the_engine_tree_at_the_cap() {
+        use std::io::Write;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let dir = std::env::temp_dir().join(format!("delcc-w8-08b-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("stdout.txt");
+        std::fs::write(&out, "").unwrap();
+        let mut child = crate::cph::new_cmd("cmd")
+            .args(["/c", "ping", "-n", "60", "127.0.0.1"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("the sacrificial engine spawns");
+        let pid = child.id();
+        let overflow = std::sync::Arc::new(AtomicBool::new(false));
+        let shutdown = std::sync::Arc::new(AtomicBool::new(false));
+        spawn_output_watcher(out.clone(), pid, overflow.clone(), shutdown.clone());
+        // grow the watched file past the 32 MiB cap — the watcher's next poll kills
+        let mut f = std::fs::OpenOptions::new().append(true).open(&out).unwrap();
+        let chunk = vec![b'x'; 1024 * 1024];
+        for _ in 0..34 {
+            let _ = f.write_all(&chunk);
+        }
+        drop(f);
+        let deadline = Instant::now() + Duration::from_secs(8);
+        let (mut dead, mut flagged) = (false, false);
+        while Instant::now() < deadline {
+            flagged = overflow.load(Ordering::SeqCst);
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                dead = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        shutdown.store(true, Ordering::SeqCst);
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(flagged, "the watcher raised the overflow flag");
+        assert!(dead, "the engine tree was killed within the poll window");
+    }
+
     #[test]
     fn sibling_gdb_consent_follows_compiler_provenance() {
         // pass #142 (wave-8 W8-06): the sibling candidate is auto-trusted ONLY for a

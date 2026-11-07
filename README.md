@@ -1,6 +1,7 @@
 # delcc — an independent, inspectable client for TMATH
 
 > *"and in that light, I find deliverance"*
+[![CI](https://github.com/afalseskybroken/delcc/actions/workflows/ci.yml/badge.svg)](https://github.com/afalseskybroken/delcc/actions/workflows/ci.yml)
 
 Not TMATH's work. delcc is an independent desktop client for the TMATH
 competitive programming judge (`oj.tmathcoding.vn`), built because the official

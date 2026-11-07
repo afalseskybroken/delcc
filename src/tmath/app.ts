@@ -54,7 +54,8 @@ const IMAGE_CAP = 8;
 // pass #141 (wave-8 W8-L03): the cache used to be COUNT-capped only — sixty near-2 MiB
 // data URLs could pin ~160 MiB of characters before anything evicted. Byte-budgeted now
 // (~24 MiB of data-URL text, the encoded ≈4/3 of the image bytes), oldest evicted first,
-// overwrites accounted.
+// overwrites accounted. pass #143 (self-sweep F1): hits refresh recency (LRU), so the
+// eviction order tracks actual use, not insertion order.
 const IMAGE_CACHE_BYTES = 24 * 1024 * 1024;
 let assetCacheBytes = 0;
 const cacheAsset = (src: string, du: string): void => {
@@ -85,7 +86,16 @@ const wireAboutImages = (root: HTMLElement): void => {
   for (const img of all.slice(0, IMAGE_CAP)) {
     const src = img.getAttribute("src") ?? "";
     if (!/^https:\/\//i.test(src)) continue;
-    if (assetCache.has(src)) { img.src = assetCache.get(src)!; continue; }
+    if (assetCache.has(src)) {
+      // pass #143 (self-sweep F1): LRU, not FIFO — a cache HIT refreshes recency
+      // (delete + re-set moves the entry to the eviction tail), so a hot image
+      // survives while stale ones go first.
+      const du = assetCache.get(src)!;
+      assetCache.delete(src);
+      assetCache.set(src, du);
+      img.src = du;
+      continue;
+    }
     img.removeAttribute("src");
     img.classList.add("tm-about-img-pending");
     img.alt = img.alt || "image";

@@ -512,7 +512,23 @@ pub(crate) fn probe_with_limit(bin: &str, args: &[&str], timeout: Duration, cap:
     }
     if status.is_none() {
         let _ = child.kill();
-        status = child.wait().ok();
+        // pass #143 (self-sweep F2): the post-kill reap cannot block the detect worker
+        // either — try_wait under its own deadline. A child that survives even the kill
+        // (the never-seen corner: kill() of our own child failing) is abandoned as
+        // failed instead of being waited on forever.
+        let reap_deadline = Instant::now() + Duration::from_secs(5);
+        while status.is_none() {
+            match child.try_wait() {
+                Ok(Some(s)) => status = Some(s),
+                Ok(None) => {
+                    if Instant::now() >= reap_deadline {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(_) => break,
+            }
+        }
     }
     let ok = status.map(|s| s.success()).unwrap_or(false);
     Some((ok, String::from_utf8_lossy(&collected).into_owned()))
