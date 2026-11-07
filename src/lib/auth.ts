@@ -26,7 +26,14 @@ let listener: ((t: TokenPair | null) => void) | null = null;
 // permanent store in plain-browser dev, where no shell exists.
 try {
   const raw = localStorage.getItem(LS);
-  if (raw) cur = JSON.parse(raw) as TokenPair;
+  // pass #144 (wave-8 W8-L14): the legacy seed is validated, not trusted — a
+  // malformed plaintext copy (a corrupted dev store) must not become a session.
+  const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+  if (parsed && typeof parsed === "object"
+    && typeof (parsed as TokenPair).access_token === "string"
+    && typeof (parsed as TokenPair).refresh_token === "string") {
+    cur = parsed as TokenPair;
+  }
 } catch { cur = null; }
 let sessionTokens = new Set(cur?.access_token ? [cur.access_token] : []);
 
@@ -57,26 +64,34 @@ export function initAuthStore(): Promise<void> {
   return storeInit;
 }
 
-function persist(t: TokenPair | null) {
+// pass #144 (wave-8 W8-L13): persist returns the LINK's outcome — true = the token
+// (or its deletion) is durably on disk. The chain itself still never rejects
+// (persistence must never break auth), but logout can now AWAIT the deletion and
+// surface an incomplete one instead of leaving it a log entry.
+function persist(t: TokenPair | null): Promise<boolean> {
   // serialized: concurrent saves (a login racing a refresh) must land in call order
-  persistChain = persistChain.then(async () => {
+  const done = persistChain.then(async (): Promise<boolean> => {
     if (useShell === null) await initAuthStore(); // a persist can never outrun the probe
     if (useShell) {
       if (t) {
         const ok = await securePut(SEC_NAME, JSON.stringify(t));
         if (!ok) logError("auth: secure store write failed — session stays memory-only this boot");
         try { localStorage.removeItem(LS); } catch { /* ignore */ }
-      } else {
-        await secureDel(SEC_NAME);
-        try { localStorage.removeItem(LS); } catch { /* ignore */ }
+        return ok;
       }
-    } else {
-      try {
-        if (t) localStorage.setItem(LS, JSON.stringify(t));
-        else localStorage.removeItem(LS);
-      } catch { /* private mode — session only */ }
+      const del = await secureDel(SEC_NAME);
+      if (!del) logError("auth: secure deletion failed — the DPAPI blob is still on disk");
+      try { localStorage.removeItem(LS); } catch { /* ignore */ }
+      return del;
     }
-  }).catch(() => { /* persistence must never break auth */ });
+    try {
+      if (t) localStorage.setItem(LS, JSON.stringify(t));
+      else localStorage.removeItem(LS);
+      return true;
+    } catch { return false; /* private mode — session only */ }
+  });
+  persistChain = done.then(() => {}, () => {}); // the queue keeps flowing, never rejecting
+  return done;
 }
 
 // profiles persist the rotated token through this (refresh tokens rotate; a stale copy = forced re-login).
@@ -93,7 +108,7 @@ export type SaveKind = "fresh" | "refresh" | null;
 let saveKind: SaveKind = null;
 export function currentSaveKind(): SaveKind { return saveKind; }
 
-function save(t: TokenPair | null, kind: Exclude<SaveKind, null>) {
+function save(t: TokenPair | null, kind: Exclude<SaveKind, null>): Promise<boolean> {
   if (t) {
     // pass #141 (wave-8 W8-L05): the pair's timing fields are server JSON. A
     // nonnumeric/absurd access_expires_in used to ride straight into schedule() —
@@ -109,9 +124,10 @@ function save(t: TokenPair | null, kind: Exclude<SaveKind, null>) {
   }
   cur = t;
   if (t) sessionTokens.add(t.access_token);
-  persist(t);
+  const done = persist(t);
   saveKind = kind;
   try { listener?.(t); } catch { /* listener must never break auth */ } finally { saveKind = null; }
+  return done;
 }
 
 function clearTimer() {
@@ -216,10 +232,15 @@ setSessionGuardHook((token, requireCurrentToken) => {
 // 401 replay hook for api.raw(): hands back a fresh access token or null.
 setRefreshHook(async () => (await silentRefresh())?.access_token ?? null);
 
-export async function logout(): Promise<void> {
+// pass #144 (wave-8 W8-L13): logout now awaits the LOCAL deletion too and returns
+// whether it fully landed — the caller can surface an incomplete logout (the DPAPI
+// blob still on disk can restore the supposedly logged-out session) instead of the
+// old shape that awaited only the server request.
+export async function logout(): Promise<boolean> {
   const t = cur?.access_token;
   newIntent();
   sessionTokens.clear();
-  save(null, "refresh");
+  const persisted = save(null, "refresh");
   if (t) { try { await api.logout(t); } catch { /* already dead */ } }
+  return persisted;
 }

@@ -41,8 +41,22 @@ export async function hashLockPw(pw: string): Promise<LockHash> {
   const bits = await pbkdf2Bits(pw, salt, 256, PBKDF2_ITERATIONS);
   return { salt: b64(salt), hash: b64(bits), iterations: PBKDF2_ITERATIONS };
 }
+// pass #144 (wave-8 W8-L14): the iteration count rides PERSISTED records — a
+// corrupted or attacker-controlled value could request extreme derivation work
+// (a DoS on the lock screen). Anything outside the sane band fails closed, exactly
+// like a wrong password (the record is unusable either way).
+export const KDF_MIN_ITERATIONS = 10_000;
+export const KDF_MAX_ITERATIONS = 2_000_000;
+function boundedIterations(v: unknown): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v)) return null;
+  const i = Math.floor(v);
+  return i >= KDF_MIN_ITERATIONS && i <= KDF_MAX_ITERATIONS ? i : null;
+}
+
 export async function verifyLockPw(pw: string, h: LockHash): Promise<boolean> {
-  const bits = await pbkdf2Bits(pw, unb64(h.salt), 256, h.iterations);
+  const iterations = boundedIterations(h.iterations);
+  if (!iterations) return false;
+  const bits = await pbkdf2Bits(pw, unb64(h.salt), 256, iterations);
   return b64(bits) === h.hash;
 }
 
@@ -63,8 +77,10 @@ export async function encryptWithLockPw(pw: string, plaintext: string): Promise<
 // null = wrong password (GCM auth tag fails closed) or corrupt data — same outcome either way,
 // and the caller already treats "no saved password" as "ask for the account password again".
 export async function decryptWithLockPw(pw: string, blob: EncBlob): Promise<string | null> {
+  const iterations = boundedIterations(blob.iterations);
+  if (!iterations) return null; // corrupt record — same outcome as a wrong password
   try {
-    const key = await aesKeyFrom(pw, unb64(blob.salt), blob.iterations);
+    const key = await aesKeyFrom(pw, unb64(blob.salt), iterations);
     const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(blob.iv) as BufferSource }, key, unb64(blob.ct) as BufferSource);
     return new TextDecoder().decode(pt);
   } catch { return null; }

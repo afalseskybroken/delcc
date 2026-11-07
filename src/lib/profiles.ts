@@ -48,7 +48,10 @@ export function initProfiles(): Promise<Profile[]> {
       if (useShell) {
         const stored = await secureGet(SEC_NAME);
         if (stored) {
-          try { cache = JSON.parse(stored) as Profile[]; } catch { cache = legacy; }
+          // pass #144 (wave-8 W8-L14): the persisted list is SANITIZED, not trusted —
+          // a corrupted record ([null]-style entries, wrong shapes) is quarantined
+          // instead of crashing a property access somewhere downstream.
+          try { cache = sanitizeProfiles(JSON.parse(stored) as unknown); } catch { cache = legacy; }
           if (legacy.length) {
             // secure store wins; drop the stale plaintext copy
             try { localStorage.removeItem(LS); } catch { /* ignore */ }
@@ -111,4 +114,29 @@ export function upsertProfile(list: Profile[], p: Profile): Profile[] {
   if (i >= 0) list[i] = p;
   else list.push(p);
   return list;
+}
+
+
+// pass #144 (wave-8 W8-L14): only well-shaped records survive the load — a sanitized
+// store can be handed to any consumer without a shape guard at every read site.
+function sanitizeProfiles(parsed: unknown): Profile[] {
+  if (!Array.isArray(parsed)) return [];
+  const out: Profile[] = [];
+  for (const raw of parsed) {
+    const p = raw as Partial<Profile> | null;
+    if (!p || typeof p !== "object") continue;
+    if (typeof p.id !== "string" || !p.id) continue;
+    if (typeof p.username !== "string" || !p.username) continue;
+    if (typeof p.locked !== "boolean") continue;
+    out.push({
+      id: p.id,
+      username: p.username,
+      locked: p.locked,
+      lockHash: p.lockHash ?? null,
+      savedPwEnc: p.savedPwEnc ?? null,
+      needsReauth: p.needsReauth === true,
+      token: p.token ?? null,
+    });
+  }
+  return out;
 }

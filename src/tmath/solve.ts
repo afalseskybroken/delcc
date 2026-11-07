@@ -189,7 +189,11 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     const compileLabel = host.querySelector<HTMLElement>("[data-compile-label]");
     if (compileLabel) compileLabel.textContent = t(language === "PY3" ? "cph.syntaxCheck" : "cph.compile"); // official: PY3 has no compile step
     const stopBtn = host.querySelector<HTMLButtonElement>('[data-action="stop"]');
-    if (stopBtn) stopBtn.disabled = debugging ? debugBusy : (!running || stopping); // official: Dừng is live only while a job runs
+    // pass #144 (wave-8 W8-L16): Stop stays LIVE while a debug step is in flight —
+    // debugBusy used to disable it, so an infinite Continue could not be interrupted
+    // until the 30 s engine timeout expired. The Rust side unwinds the wait on the
+    // Stop interrupt (#144's INTERRUPT flag) and the step errors honestly.
+    if (stopBtn) stopBtn.disabled = debugging ? false : (!running || stopping); // official: Dừng is live only while a job runs
     // pass #106: the debug panel's own buttons follow the session state
     host.querySelectorAll<HTMLButtonElement>("[data-debug-step]").forEach(b => b.disabled = !debugging || debugBusy || debugExited);
     const debugStopBtn = host.querySelector<HTMLButtonElement>('[data-action="debug-stop"]');
@@ -912,6 +916,14 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       $<HTMLInputElement>("[data-pool-file]").onchange = async e => {
         const f = (e.currentTarget as HTMLInputElement).files?.[0];
         if (!f || disposed) return;
+        // pass #144 (wave-8 W8-L12): preflight the FILE before reading it — the pool
+        // caps at 40 cases x 100k chars, so anything past ~16 MB cannot produce a
+        // single accepted case and would only spike memory being parsed.
+        if (f.size > 16 * 1024 * 1024) {
+          note(t("cph.importFailed"), "error");
+          (e.currentTarget as HTMLInputElement).value = "";
+          return;
+        }
         try {
           const r = cph.importCasePool(args.code, await f.text());
           cases = cph.loadCases(args.code);

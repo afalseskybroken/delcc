@@ -31,12 +31,18 @@ export async function securePut(name: string, plaintext: string): Promise<boolea
   }
 }
 
-export async function secureDel(name: string): Promise<void> {
+// pass #144 (wave-8 W8-L13): secureDel REPORTS — true = deleted (or nothing was
+// stored), false = the shell refused and the DPAPI blob is still on disk. The logout
+// path awaits this and surfaces an incomplete local deletion instead of logging it
+// into the ring and moving on.
+export async function secureDel(name: string): Promise<boolean> {
   const inv = await shellInvoke();
-  if (!inv) return;
+  if (!inv) return true; // dev lane: nothing was ever written shell-side
   try {
     await inv("secure_del", { name });
+    return true;
   } catch (e) {
     logError(`secure del ${name}: ${e instanceof Error ? e.message : String(e)}`);
+    return false;
   }
 }

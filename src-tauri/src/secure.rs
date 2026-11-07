@@ -90,7 +90,12 @@ pub async fn secure_put(app: tauri::AppHandle, name: String, plaintext: String) 
     let blob = tauri::async_runtime::spawn_blocking(move || protect(plaintext.as_bytes()))
         .await
         .map_err(|e| format!("join: {e}"))??;
-    fs::write(blob_path(&app, &name)?, blob).map_err(|e| format!("secure write: {e}"))
+    // pass #144 (wave-8 W8-L11): the file write rides spawn_blocking too — DPAPI was
+    // already off-thread, but the fs write sat on the IPC thread.
+    let path = blob_path(&app, &name)?;
+    tauri::async_runtime::spawn_blocking(move || fs::write(path, blob).map_err(|e| format!("secure write: {e}")))
+        .await
+        .map_err(|e| format!("join: {e}"))?
 }
 
 // Ok(None) = nothing stored under this name yet — first boot, not an error.
@@ -99,7 +104,10 @@ pub async fn secure_get(app: tauri::AppHandle, name: String) -> Result<Option<St
     valid_name(&name)?;
     let path = blob_path(&app, &name)?;
     if !path.exists() { return Ok(None); }
-    let blob = fs::read(&path).map_err(|e| format!("secure read: {e}"))?;
+    // pass #144 (W8-L11): the read is blocking file I/O — off the IPC thread.
+    let blob = tauri::async_runtime::spawn_blocking(move || fs::read(&path).map_err(|e| format!("secure read: {e}")))
+        .await
+        .map_err(|e| format!("join: {e}"))??;
     let plain = tauri::async_runtime::spawn_blocking(move || unprotect(&blob))
         .await
         .map_err(|e| format!("join: {e}"))??;
@@ -110,10 +118,15 @@ pub async fn secure_get(app: tauri::AppHandle, name: String) -> Result<Option<St
 pub async fn secure_del(app: tauri::AppHandle, name: String) -> Result<(), String> {
     valid_name(&name)?;
     let path = blob_path(&app, &name)?;
-    if path.exists() {
-        fs::remove_file(&path).map_err(|e| format!("secure delete: {e}"))?;
-    }
-    Ok(())
+    // pass #144 (W8-L11): the delete is blocking file I/O — off the IPC thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        if path.exists() {
+            fs::remove_file(&path).map_err(|e| format!("secure delete: {e}"))?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 #[cfg(all(test, windows))]

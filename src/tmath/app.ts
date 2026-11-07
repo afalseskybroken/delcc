@@ -14,6 +14,7 @@ import { cachedAvatar, hydrateAvatars } from "./avatars";
 import { logError, logInfo } from "../lib/applog";
 import { phIcon, type PhName } from "./phosphor";
 import { renderSettings } from "./settings";
+import { regexSafe } from "../lib/regex-probe";
 import { mountSolve } from "./solve";
 import "./tmath.css";
 
@@ -492,7 +493,7 @@ export class TmathApp {
     const content = this.host.querySelector<HTMLElement>("#tm-content")!;
     const alive = () => gen === this.generation && !this.stopped;
     if (this.route === "settings") {
-      this.disposeView = renderSettings(content, this.prefs, () => void this.render()); return;
+      this.disposeView = renderSettings(content, this.prefs, (localeChanged: boolean) => { if (localeChanged) void this.render(); }); return;
     }
     content.innerHTML = loading();
     try {
@@ -1322,10 +1323,17 @@ export class TmathApp {
     const SMART = /[*+?()[\]{}|^$\\]/;
     const problemQ = problem.trim();
     const subId = /^\d+$/.test(problemQ) ? problemQ : "";
+    // pass #144 (wave-8 W8-L15): a user pattern becomes a RegExp only after the
+    // terminable canary worker proves it terminates on an adversarial input —
+    // unknown or unsafe patterns (and the whole path while the probe is in flight)
+    // use the literal substring fallback, the safe default. Verdicts cache per
+    // pattern, so the 10 s poll never re-probes.
     const matcher = (q: string): ((v: string) => boolean) | null => {
       if (!q) return null;
+      const literal = (): ((v: string) => boolean) => { const l = q.toLowerCase(); return (v: string) => v.toLowerCase().includes(l); };
+      if (!regexSafe(q)) return literal();
       try { const re = new RegExp(q, "i"); return (v: string) => re.test(v); }
-      catch { const l = q.toLowerCase(); return (v: string) => v.toLowerCase().includes(l); }
+      catch { return literal(); }
     };
     const pMatch = matcher(problemQ), uMatch = matcher(user.trim());
     const serverProblem = isContestScope ? "" : (subId || SMART.test(problemQ) ? "" : problemQ);

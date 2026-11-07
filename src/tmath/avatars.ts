@@ -24,7 +24,11 @@ type AvatarMap = Record<string, { h: string; t: number }>;
 // cache is untrusted on load: only well-shaped entries survive
 let store: AvatarMap = (() => {
   try {
-    const parsed = JSON.parse(read(CACHE_KEY, "{}")) as unknown;
+    // pass #144 (wave-8 W8-L12): preflight the raw cache — a quota-sized value is
+    // parsed no further (the per-entry validation below caps the useful size anyway).
+    const rawCache = read(CACHE_KEY, "{}");
+    if (rawCache.length > 512 * 1024) return {};
+    const parsed = JSON.parse(rawCache) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     const out: AvatarMap = {};
     for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {

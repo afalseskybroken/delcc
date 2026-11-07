@@ -1039,6 +1039,12 @@ fn confirm_dialog(title: &str, message: &str) -> bool {
         ))
     }
 }
+// pass #144 (wave-8 W8-L18): DISCLOSED CONSENT BOUNDARY on non-Windows builds — there
+// is no native dialog to host, so both consent gates answer true and the confirm-once
+// records never engage. The shipped and documented target is Windows (DPAPI, Job
+// Objects, the native MessageBoxW); a non-Windows build is a development lane whose
+// consent boundaries are exactly the ones the page could have anyway. SECURITY.md
+// states this plainly.
 #[cfg(any(not(windows), test))]
 fn confirm_override(_lang_key: &str, _bin: &str) -> bool {
     true // test builds and non-Windows builds have no dialog to show

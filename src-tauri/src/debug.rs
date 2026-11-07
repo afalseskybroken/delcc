@@ -395,20 +395,7 @@ struct BoundedRecv<T> {
     pending: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
-impl<T> BoundedRecv<T> {
-    fn recv_timeout(&self, d: Duration) -> Result<T, RecvTimeoutError> {
-        use std::sync::atomic::Ordering;
-        match self.rx.recv_timeout(d) {
-            Ok(v) => {
-                if self.pending.load(Ordering::SeqCst) > 0 {
-                    self.pending.fetch_sub(1, Ordering::SeqCst);
-                }
-                Ok(v)
-            }
-            Err(e) => Err(e),
-        }
-    }
-}
+impl<T> BoundedRecv<T> {}
 
 // pass #142 (W8-09): BufReader::lines() allocated the COMPLETE line before any cap — a
 // single newline-less flood line ballooned the reader. Reads one line capped at `cap`
@@ -496,9 +483,52 @@ impl Engine {
 
 static SESSION: Mutex<Option<Engine>> = Mutex::new(None);
 
+// pass #144 (wave-8 W8-L16): set by stop_session BEFORE it tries the session lock.
+// The step paths hold that lock through their waits — without this flag a Stop during
+// a long in-flight step parked behind the mutex until the 30 s STEP_TIMEOUT expired.
+// The wait loops poll it in small slices and unwind early, releasing the lock for
+// stop_session, which then kills the engine tree as usual.
+static INTERRUPT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+const RECV_SLICE: Duration = Duration::from_millis(100);
+
+enum RecvOutcome<T> {
+    Got(T),
+    TimedOut,
+    Disconnected,
+    Interrupted,
+}
+
+impl<T> BoundedRecv<T> {
+    fn recv_sliced(&self, deadline: Instant, interrupt: &std::sync::atomic::AtomicBool) -> RecvOutcome<T> {
+        use std::sync::atomic::Ordering;
+        loop {
+            if interrupt.load(Ordering::SeqCst) {
+                return RecvOutcome::Interrupted;
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return RecvOutcome::TimedOut;
+            }
+            match self.rx.recv_timeout((deadline - now).min(RECV_SLICE)) {
+                Ok(v) => {
+                    if self.pending.load(Ordering::SeqCst) > 0 {
+                        self.pending.fetch_sub(1, Ordering::SeqCst);
+                    }
+                    return RecvOutcome::Got(v);
+                }
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => return RecvOutcome::Disconnected,
+            }
+        }
+    }
+}
+
 /// Polite shutdown per engine, then Drop cleans up.
 /// Used by debug_stop, by debug_start's self-heal, and by the app's own job slot rules.
 pub fn stop_session() -> bool {
+    // pass #144 (W8-L16): the interrupt goes up first — an in-flight step unwinds on
+    // its next 100 ms slice and releases the SESSION lock for the stop below.
+    INTERRUPT.store(true, std::sync::atomic::Ordering::SeqCst);
     let mut slot = match SESSION.lock() {
         Ok(s) => s,
         Err(_) => return false,
@@ -582,25 +612,22 @@ impl Session {
         self.send(&format!("{tok}{cmd}"))?;
         let deadline = Instant::now() + timeout;
         loop {
-            let now = Instant::now();
-            if now >= deadline {
-                return Err(self.wait_err("gdb did not answer in time — Stop the session and retry"));
-            }
-            match self.rx.recv_timeout(deadline - now) {
-                Ok(ReaderLine(LineKind::Result(Some(t), class, values))) if t == tok => {
+            match self.rx.recv_sliced(deadline, &INTERRUPT) {
+                RecvOutcome::Got(ReaderLine(LineKind::Result(Some(t), class, values))) if t == tok => {
                     if class == "error" {
                         return Err(format!("gdb: {values}"));
                     }
                     return Ok(values);
                 }
-                Ok(ReaderLine(LineKind::Result(_, _, _))) => {} // stale/async record — skip
-                Ok(ReaderLine(LineKind::Event(raw))) => self.events.push_back(raw),
-                Ok(ReaderLine(LineKind::Other)) => {}
-                Ok(ReaderLine(LineKind::Eof)) => return Err(self.engine_death()),
-                Err(RecvTimeoutError::Timeout) => {
+                RecvOutcome::Got(ReaderLine(LineKind::Result(_, _, _))) => {} // stale/async record — skip
+                RecvOutcome::Got(ReaderLine(LineKind::Event(raw))) => self.events.push_back(raw),
+                RecvOutcome::Got(ReaderLine(LineKind::Other)) => {}
+                RecvOutcome::Got(ReaderLine(LineKind::Eof)) => return Err(self.engine_death()),
+                RecvOutcome::TimedOut => {
                     return Err(self.wait_err("gdb did not answer in time — Stop the session and retry"))
                 }
-                Err(RecvTimeoutError::Disconnected) => return Err(self.engine_death()),
+                RecvOutcome::Disconnected => return Err(self.engine_death()),
+                RecvOutcome::Interrupted => return Err("the step was interrupted by Stop".into()),
             }
         }
     }
@@ -614,20 +641,17 @@ impl Session {
             if let Some(raw) = self.events.pop_front() {
                 return Ok(raw);
             }
-            let now = Instant::now();
-            if now >= deadline {
-                return Err(self.wait_err("the program did not stop in time — Stop the session and retry"));
-            }
-            match self.rx.recv_timeout(deadline - now) {
-                Ok(ReaderLine(LineKind::Event(raw))) => return Ok(raw),
-                Ok(ReaderLine(LineKind::Eof)) | Err(RecvTimeoutError::Disconnected) => {
+            match self.rx.recv_sliced(deadline, &INTERRUPT) {
+                RecvOutcome::Got(ReaderLine(LineKind::Event(raw))) => return Ok(raw),
+                RecvOutcome::Got(ReaderLine(LineKind::Eof)) | RecvOutcome::Disconnected => {
                     return Err(self.engine_death())
                 }
-                Ok(ReaderLine(LineKind::Other)) => {}
-                Ok(ReaderLine(_)) => {} // result records of already-answered transacts
-                Err(RecvTimeoutError::Timeout) => {
+                RecvOutcome::Got(ReaderLine(LineKind::Other)) => {}
+                RecvOutcome::Got(ReaderLine(_)) => {} // result records of already-answered transacts
+                RecvOutcome::TimedOut => {
                     return Err(self.wait_err("the program did not stop in time — Stop the session and retry"))
                 }
+                RecvOutcome::Interrupted => return Err("the step was interrupted by Stop".into()),
             }
         }
     }
@@ -795,6 +819,7 @@ pub fn start(params: StartParams, consent: &dyn Fn(&str) -> bool) -> Result<Debu
 fn start_gdb(params: StartParams, consent: &dyn Fn(&str) -> bool) -> Result<DebugSnapshot, String> {
     // self-heal: one session at a time — an abandoned one is stopped first
     stop_session();
+    INTERRUPT.store(false, std::sync::atomic::Ordering::SeqCst);
     let (gdb_path, ver) = find_gdb(&params.compiler_binary, params.compiler_trusted, consent)?;
     let dir = params.dir.clone();
     let in_path = dir.join("stdin.txt");
@@ -823,6 +848,14 @@ fn start_gdb(params: StartParams, consent: &dyn Fn(&str) -> bool) -> Result<Debu
     };
     #[cfg(all(windows, feature = "job-mem-cap"))]
     let job = params.job.or(attached);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // pass #144 (wave-8 W8-L18): the gdb tree runs as its own process group so
+        // kill_tree's negative-pid signal reaches every descendant — the same
+        // guarantee the normal capture path has had since pass #96.
+        cmd.process_group(0);
+    }
     #[cfg(not(all(windows, feature = "job-mem-cap")))]
     let mut child = match cmd.spawn() {
         Ok(c) => c,
@@ -1111,12 +1144,8 @@ impl PdbSession {
     fn wait_location(&mut self, timeout: Duration) -> Result<Option<(u32, Option<String>)>, String> {
         let deadline = Instant::now() + timeout;
         loop {
-            let now = Instant::now();
-            if now >= deadline {
-                return Err(self.wait_err("the program did not stop in time — Stop the session and retry"));
-            }
-            match self.rx.recv_timeout(deadline - now) {
-                Ok(raw) => {
+            match self.rx.recv_sliced(deadline, &INTERRUPT) {
+                RecvOutcome::Got(raw) => {
                     let line = raw.trim_end().to_string();
                     if let Some((n, func)) = parse_pdb_location(&line) {
                         return Ok(Some((n, func)));
@@ -1125,10 +1154,11 @@ impl PdbSession {
                         self.push_tail(line);
                     }
                 }
-                Err(RecvTimeoutError::Timeout) => {
+                RecvOutcome::TimedOut => {
                     return Err(self.wait_err("the program did not stop in time — Stop the session and retry"))
                 }
-                Err(RecvTimeoutError::Disconnected) => return Ok(None),
+                RecvOutcome::Disconnected => return Ok(None),
+                RecvOutcome::Interrupted => return Err("the step was interrupted by Stop".into()),
             }
         }
     }
@@ -1152,12 +1182,8 @@ impl PdbSession {
         // (PdbSession::LOCALS_EXPR caps count and repr length at the source).
         let mut running = 0usize;
         loop {
-            let now = Instant::now();
-            if now >= deadline {
-                return (locals, true);
-            }
-            match self.rx.recv_timeout(deadline - now) {
-                Ok(raw) => {
+            match self.rx.recv_sliced(deadline, &INTERRUPT) {
+                RecvOutcome::Got(raw) => {
                     let line = raw.trim_start_matches("(Pdb) ").trim_end().to_string();
                     if line.is_empty() {
                         continue;
@@ -1179,8 +1205,9 @@ impl PdbSession {
                     }
                     self.push_tail(line); // not the answer — keep for display
                 }
-                Err(RecvTimeoutError::Timeout) => return (locals, true),
-                Err(RecvTimeoutError::Disconnected) => return (locals, false),
+                RecvOutcome::TimedOut => return (locals, true),
+                RecvOutcome::Disconnected => return (locals, false),
+                RecvOutcome::Interrupted => return (locals, false),
             }
         }
     }
@@ -1258,6 +1285,7 @@ impl PdbSession {
 fn start_pdb(params: StartParams) -> Result<DebugSnapshot, String> {
     // self-heal: one session at a time — an abandoned one is stopped first
     stop_session();
+    INTERRUPT.store(false, std::sync::atomic::Ordering::SeqCst);
     let dir = params.dir.clone();
     let in_path = dir.join("stdin.txt");
     let out_path = dir.join("stdout.txt");
@@ -1282,6 +1310,11 @@ fn start_pdb(params: StartParams) -> Result<DebugSnapshot, String> {
     };
     #[cfg(all(windows, feature = "job-mem-cap"))]
     let job = params.job.or(attached);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0); // pass #144 (W8-L18): same group discipline as the gdb lane
+    }
     #[cfg(not(all(windows, feature = "job-mem-cap")))]
     let mut child = match cmd.spawn() {
         Ok(c) => c,

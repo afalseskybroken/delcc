@@ -409,7 +409,7 @@ fn open_url_has_hostile_chars(raw: &str) -> bool {
 // downloads; the browser follows GitHub's own redirects, not us), and YouTube
 // (About-pane video links). Rejections are honest errors the caller can show.
 #[tauri::command]
-fn open_url(url: String) -> Result<(), String> {
+async fn open_url(url: String) -> Result<(), String> {
     if !url.starts_with("https://") {
         return Err("only https:// urls".into());
     }
@@ -440,8 +440,13 @@ fn open_url(url: String) -> Result<(), String> {
     // (explorer.exe treated the argument as a filesystem path and silently opened
     // nothing; ShellExecuteW's "open" verb on an https URL reaches the registered
     // browser, and a return value > 32 proves it dispatched).
+    // pass #144 (wave-8 W8-L11): the whole handoff rides spawn_blocking —
+    // ShellExecuteW is SYNCHRONOUS, and a sync Tauri command ran it on the main
+    // thread, stalling the window for the length of a browser launch.
     #[cfg(target_os = "windows")]
     {
+        let canonical = parsed.as_str().to_string();
+        tauri::async_runtime::spawn_blocking(move || {
         use windows_sys::Win32::System::Com::CoInitializeEx;
         use windows_sys::Win32::UI::Shell::ShellExecuteW;
         // pass #136, the live-smoke finding: ShellExecuteW dispatches URL protocols through
@@ -451,7 +456,7 @@ fn open_url(url: String) -> Result<(), String> {
         // a thread that already has an apartment answers RPC_E_CHANGED_MODE and is fine as-is.
         let hr = unsafe { CoInitializeEx(std::ptr::null_mut(), 2 /* COINIT_APARTMENTTHREADED */) };
         let verb: Vec<u16> = "open\u{0}".encode_utf16().collect();
-        let file: Vec<u16> = parsed.as_str().encode_utf16().chain(std::iter::once(0)).collect();
+        let file: Vec<u16> = canonical.encode_utf16().chain(std::iter::once(0)).collect();
         // SW_SHOWNORMAL = 1 (Win32_UI_WindowsAndMessaging's constant, inlined raw so the
         // shell feature stays the only new one). Success is an HINSTANCE > 32.
         let res = unsafe {
@@ -484,14 +489,22 @@ fn open_url(url: String) -> Result<(), String> {
             return Err(format!("open: ShellExecuteW failed ({})", res as isize));
         }
         Ok(())
+        })
+        .await
+        .map_err(|e| format!("join: {e}"))?
     }
     #[cfg(not(target_os = "windows"))]
     {
-        #[cfg(target_os = "macos")]
-        let mut cmd = std::process::Command::new("open");
-        #[cfg(all(unix, not(target_os = "macos")))]
-        let mut cmd = std::process::Command::new("xdg-open");
-        cmd.arg(parsed.as_str()).spawn().map(|_| ()).map_err(|e| format!("open: {e}"))
+        let canonical = parsed.as_str().to_string();
+        tauri::async_runtime::spawn_blocking(move || {
+            #[cfg(target_os = "macos")]
+            let mut cmd = std::process::Command::new("open");
+            #[cfg(all(unix, not(target_os = "macos")))]
+            let mut cmd = std::process::Command::new("xdg-open");
+            cmd.arg(canonical).spawn().map(|_| ()).map_err(|e| format!("open: {e}"))
+        })
+        .await
+        .map_err(|e| format!("join: {e}"))?
     }
 }
 

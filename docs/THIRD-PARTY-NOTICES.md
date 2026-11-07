@@ -31,8 +31,10 @@ open-source libraries, credited here with their licenses.
   input parsers ride Set membership + in-place pushes instead of O(n²) scans
   (`parseGraphInput.ts`, both parsers, order and dedup semantics unchanged), and
   `animateGraph`/`GraphCanvas` gained a cancellation return so the 90 FPS render
-  loop and its window keydown listener stop on unmount; the patch file is due a
-  regeneration to fold these hunks in (queued).
+  loop and its window keydown listener stop on unmount; the patch file
+  (patches/age-c11b36ad.patch) was REGENERATED in pass #144 to fold these hunks
+  in — it applies to a pristine c11b36ad checkout and reproduces the vendored
+  sources byte-for-byte.
 - **[Excalidraw](https://github.com/excalidraw/excalidraw)** (MIT, 0.18.1) — the
   sketch tab (Vẽ nháp), the same library the official client's sketch tool loads.
   Rendered as a React component inside the tools panel (lazy chunk) together

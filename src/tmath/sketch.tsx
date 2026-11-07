@@ -21,6 +21,9 @@ const loadScene = (): Scene | null => {
   try {
     const raw = localStorage.getItem(SCENE_KEY);
     if (!raw) return null;
+    // pass #144 (wave-8 W8-L12): preflight the raw bytes — a quota-sized or corrupt
+    // scene value used to be JSON.parsed whole before anything rejected it.
+    if (raw.length > 16 * 1024 * 1024) return null;
     const parsed = JSON.parse(raw) as Scene;
     return Array.isArray(parsed.elements) ? parsed : null;
   } catch {

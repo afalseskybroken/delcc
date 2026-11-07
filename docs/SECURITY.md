@@ -59,7 +59,13 @@ That is all. Concretely absent:
   other image fetches the app makes are the gravatar avatars in the table above
 - the CPH local runner (`src-tauri/src/cph.rs`) never touches the network — it
   compiles and runs *your* code on *your* machine, sandbox-free, exactly like
-  running it in a terminal
+  running it in a terminal. pass #144 (W8-L18) states a platform boundary
+  plainly: the native confirm-once dialogs (planted toolchains, PATH debuggers)
+  are a WINDOWS mechanism — on a non-Windows development build there is no dialog
+  to host, both gates answer true, and the consent records never engage. The
+  shipped and documented target is Windows (DPAPI, Job Objects, the native
+  MessageBoxW); a non-Windows build's consent boundaries are exactly the ones the
+  page could have anyway
 
 Network code lives in three plainly named places. `src/lib/transport.ts` carries
 all API traffic (Rust shell first, WebView `fetch` as fallback). Two deliberate

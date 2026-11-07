@@ -31,7 +31,12 @@ const EDITOR_FONTS: [string, string][] = [
   ["Courier New", "Courier New"],
 ];
 
-export function renderSettings(host: HTMLElement, prefs: Preferences, onChange: () => void): () => void {
+// pass #144 (wave-8 W8-L17): onChange now carries whether the LOCALE changed — a
+// locale change re-renders every string (the full rebuild), every other preference
+// applies in place. The handler below also stopped double-applying: it used to call
+// applyPreferences directly AND savePreferences (which applies again), plus the
+// parent rebuild re-enumerated fonts on every toggle.
+export function renderSettings(host: HTMLElement, prefs: Preferences, onChange: (localeChanged: boolean) => void): () => void {
   let disposed = false;
   // a saved off-list font survives remounts (audit F23) instead of silently resetting
   const withSaved = (list: [string, string][], saved: string): [string, string][] =>
@@ -43,6 +48,7 @@ export function renderSettings(host: HTMLElement, prefs: Preferences, onChange: 
     <section class="tm-card tm-settings-section"><h2>${text("settings.tools")}</h2>${button("settings.detectTools", "tools")}<div id="tm-tools"></div><p class="tm-muted">${text("settings.tcOverride")}</p>${CPH_LANGS.filter(l => cphSupported(l.key)).map(l => `<div class="tm-field"><label for="tm-tc-${l.key}">${l.label}</label><input id="tm-tc-${l.key}" spellcheck="false" placeholder="${text("settings.tcAuto")}"><small class="tm-muted" data-tc-state="${l.key}"></small></div>`).join("")}</section>
     <section class="tm-card tm-settings-section"><h2>${text("settings.identity")}</h2><p class="tm-muted">${text("settings.identityHint")}</p><div class="tm-field"><label for="tm-win-title">${text("settings.winTitle")}</label><input id="tm-win-title" spellcheck="false" maxlength="120" placeholder="${text("settings.winTitlePlaceholder")}" value="${esc(read(WINDOW_TITLE_KEY))}"><small class="tm-muted">${text("settings.winTitleHint")}</small></div><div class="tm-field"><label for="tm-win-icon">${text("settings.winIcon")}</label><input id="tm-win-icon" type="file" accept="image/png,image/x-icon,image/vnd.microsoft.icon,image/jpeg,image/webp"><small class="tm-muted">${text("settings.winIconHint")}</small><div data-icon-state class="tm-muted" role="status" aria-live="polite"></div></div><div class="tm-field"><label for="tm-footer-note">${text("settings.footerNote")}</label><input id="tm-footer-note" spellcheck="false" maxlength="240" placeholder="${esc(text("app.independent"))}" value="${esc(read(FOOTER_NOTE_KEY))}"><small class="tm-muted">${text("settings.footerNoteHint")}</small></div>${button("settings.identityReset", "identity-reset")}</section><section class="tm-card tm-settings-section"><h2>${text("settings.versions")}</h2><dl class="tm-versions"><div><dt>${text("app.clientVersion")}</dt><dd><button type="button" class="tm-button" data-action="open-releases" title="${text("app.releasesTap")}"><b>delcc</b> ${esc(manifest.version)}</button></dd></div><div><dt>${text("app.requiredVersion")}</dt><dd>${esc(clientVersion() || "—")}</dd></div><div><dt>${text("app.github")}</dt><dd>${button("app.github", "open-github")}</dd></div></dl><p class="tm-muted">${text("app.independent")}</p></section>
     <section class="tm-card tm-settings-section"><h2>${text("settings.logs")}</h2><pre class="tm-log-view" data-log-view>${esc(formatEntries(logSnapshot()))}</pre><div class="tm-toolbar">${button("settings.logsCopy", "log-copy")}${button("settings.logsClear", "log-clear")}</div><p class="tm-muted">${text("settings.logsHint")}</p></section></div></div>`;
+  const initialLocale = prefs.locale;
   host.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input,select").forEach(control => {
     if (control.id.startsWith("tm-tc-")) return; // toolchain overrides wire separately
     control.onchange = () => {
@@ -56,10 +62,11 @@ export function renderSettings(host: HTMLElement, prefs: Preferences, onChange: 
       prefs.minimap = (host.querySelector("#tm-minimap") as HTMLInputElement).checked;
       prefs.timeFormat = val("tm-timefmt") as Preferences["timeFormat"];
       prefs.uiScale = Math.max(80, Math.min(140, Number(val("tm-scale")) || 100));
-      // applyPreferences HERE (audit BUG-033, the one real find): without it the
-      // scheme/locale vars stayed stale until the next theme-menu action or restart
-      applyPreferences(prefs);
-      savePreferences(prefs); onChange();
+      // pass #144 (W8-L17): savePreferences applies ONCE — the direct
+      // applyPreferences here was a second full application of the same prefs.
+      // The rebuild fires only when the locale changed (every string is stale).
+      savePreferences(prefs);
+      onChange(prefs.locale !== initialLocale);
     };
   });
   // enumerate the OS font list on every Settings visit (queryLocalFonts -> bridge
