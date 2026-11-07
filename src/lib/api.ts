@@ -33,8 +33,16 @@ export async function syncClientVersion(platform = "windows-x64", manifest?: unk
   return _clientVersion;
 }
 
+// pass #141 (wave-8 W8-L06): a required-version bump (HTTP 426) used to send EVERY
+// concurrent failed request at the release feed — N in-flight calls, N identical GETs.
+// One shared in-flight promise now serves them all (the same single-flight shape auth's
+// refresh uses); it clears when it settles so a later 426 re-syncs fresh.
+let versionSync: Promise<string> | null = null;
 export async function bumpVersion(platform = "windows-x64"): Promise<string> {
-  return syncClientVersion(platform);
+  if (!versionSync) {
+    versionSync = syncClientVersion(platform).finally(() => { versionSync = null; });
+  }
+  return versionSync;
 }
 
 export interface ClientReleaseManifest {

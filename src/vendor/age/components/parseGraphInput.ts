@@ -63,6 +63,10 @@ export function parseGraphInputParentChild(
 
   const edgeCnt = Math.min(p.length, c.length);
 
+  // pass #141 (wave-8 W8-L07): nodeSeen replaces the O(n) `nodes.includes` scans; the
+  // adjacency/reverse appends push in place — the whole-array spreads copied the
+  // accumulated list on every edge. Order and (non-)dedup semantics unchanged.
+  const nodeSeen = new Set<string>();
   let nodes = new Array<string>();
   let adj = new Map<string, string[]>();
   let rev = new Map<string, string[]>();
@@ -75,7 +79,8 @@ export function parseGraphInputParentChild(
     .split(/\s+/)
     .map((u) => {
       const pu = padNode(u, testCaseNumber, "parentChild");
-      if (u.length && !nodes.includes(pu)) {
+      if (u.length && !nodeSeen.has(pu)) {
+        nodeSeen.add(pu);
         nodes.push(pu);
         adj.set(pu, []);
       }
@@ -84,18 +89,21 @@ export function parseGraphInputParentChild(
   for (let i = 0; i < edgeCnt; i++) {
     const pi = padNode(p[i], testCaseNumber, "parentChild");
     const ci = padNode(c[i], testCaseNumber, "parentChild");
-    if (pi === ci && !nodes.includes(pi)) {
+    if (pi === ci && !nodeSeen.has(pi)) {
+      nodeSeen.add(pi);
       nodes.push(pi);
       adj.set(pi, []);
     } else {
-      if (!nodes.includes(pi)) {
+      if (!nodeSeen.has(pi)) {
+        nodeSeen.add(pi);
         nodes.push(pi);
         adj.set(pi, [ci]);
       } else {
-        adj.set(pi, [...adj.get(pi)!, ci]);
+        adj.get(pi)!.push(ci);
       }
 
-      if (!nodes.includes(ci)) {
+      if (!nodeSeen.has(ci)) {
+        nodeSeen.add(ci);
         nodes.push(ci);
         adj.set(ci, []);
       }
@@ -127,8 +135,9 @@ export function parseGraphInputParentChild(
       rev.set(u, []);
     }
     for (const v of vs) {
+      // pass #141 (W8-L07): push in place — the spread copied the accumulated list per edge
       if (rev.has(v)) {
-        rev.set(v, [...rev.get(v)!, u]);
+        rev.get(v)!.push(u);
       } else {
         rev.set(v, [u]);
       }
@@ -190,7 +199,13 @@ export function parseGraphInputEdges(
   }
 
   let nodes = new Array<string>();
-  let adj = new Map<string, string[]>();
+  // pass #141 (wave-8 W8-L07): membership Sets ride beside the ordered arrays —
+  // `nodes.includes()` and per-edge adjacency `includes()` + whole-array spreads were
+  // O(n²)/O(n·deg) on large graphs (each edge rescanned/copied the accumulated data).
+  // The Map/Set shapes the rest of the parser consumes are unchanged.
+  const nodeSeen = new Set<string>();
+  const adjSeen = new Map<string, Set<string>>();
+  const adj = new Map<string, string[]>();
   let rev = new Map<string, string[]>();
   let edgeToPos = new Map<string, number>();
   let edges = new Array<string>();
@@ -201,8 +216,10 @@ export function parseGraphInputEdges(
     .split(/\s+/)
     .map((u) => {
       const pu = padNode(u, testCaseNumber, "edges");
-      if (u.length && !nodes.includes(pu)) {
+      if (u.length && !nodeSeen.has(pu)) {
+        nodeSeen.add(pu);
         nodes.push(pu);
+        adjSeen.set(pu, new Set());
         adj.set(pu, []);
       }
     });
@@ -210,26 +227,35 @@ export function parseGraphInputEdges(
   for (const e of raw) {
     if (e.length == 1) {
       const pu = padNode(e[0], testCaseNumber, "edges");
-      if (!nodes.includes(pu)) {
+      if (!nodeSeen.has(pu)) {
+        nodeSeen.add(pu);
         nodes.push(pu);
+        adjSeen.set(pu, new Set());
         adj.set(pu, []);
       }
     } else if (e.length <= 3) {
       const pu = padNode(e[0], testCaseNumber, "edges");
       const pv = padNode(e[1], testCaseNumber, "edges");
-      if (pu === pv && !nodes.includes(pu)) {
+      if (pu === pv && !nodeSeen.has(pu)) {
+        nodeSeen.add(pu);
         nodes.push(pu);
+        adjSeen.set(pu, new Set());
         adj.set(pu, []);
       } else {
-        if (!nodes.includes(pu)) {
+        if (!nodeSeen.has(pu)) {
+          nodeSeen.add(pu);
           nodes.push(pu);
+          adjSeen.set(pu, new Set([pv]));
           adj.set(pu, [pv]);
-        } else if (!adj.get(pu)!.includes(pv)) {
-          adj.set(pu, [...adj.get(pu)!, pv]);
+        } else if (!adjSeen.get(pu)!.has(pv)) {
+          adjSeen.get(pu)!.add(pv);
+          adj.get(pu)!.push(pv);
         }
 
-        if (!nodes.includes(pv)) {
+        if (!nodeSeen.has(pv)) {
+          nodeSeen.add(pv);
           nodes.push(pv);
+          adjSeen.set(pv, new Set());
           adj.set(pv, []);
         }
 
@@ -265,8 +291,9 @@ export function parseGraphInputEdges(
       rev.set(u, []);
     }
     for (const v of vs) {
+      // pass #141 (W8-L07): push in place — the spread copied the accumulated list per edge
       if (rev.has(v)) {
-        rev.set(v, [...rev.get(v)!, u]);
+        rev.get(v)!.push(u);
       } else {
         rev.set(v, [u]);
       }

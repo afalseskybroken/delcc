@@ -39,9 +39,14 @@ That is all. Concretely absent:
 - no third-party CDNs, fonts, or scripts — all assets ship in the bundle. About-pane
   markdown may contain remote **images** (profiles decorate their About with them; the
   official client renders them too). Since pass #83 they load through an ISOLATED shell
-  fetch, never from the webview: the `asset_fetch` command is https-only, re-validates
-  every redirect hop against public hosts, accepts `image/*` content types only, caps
-  responses at 2 MiB with a 10 s timeout, and never attaches cookies or tokens — the
+  fetch, never from the webview: the `asset_fetch` command is https-only, validates the
+  ORIGINAL host by resolution (every resolved address public, the client pinned to it),
+  and string-checks every redirect hop against the public-host rules — a hop's NEW
+  hostname is scheme/suffix/literal-IP checked but NOT re-resolved and IP-verified like
+  the original host (a disclosed residual; the per-hop resolution fix is queued). It
+  accepts `image/*` content types only, caps responses at 2 MiB — enforced while
+  STREAMING since pass #141 (the body is rejected at the cap instead of being fully
+  buffered first) — with a 10 s timeout, and never attaches cookies or tokens — the
   image bytes enter the page as `data:` URLs, so the webview CSP (`img-src`/`connect-src`)
   stays pinned and no third party is contacted by the page itself. The image host sees
   the viewer's IP (identical to the official client). Disclosed limit: a profile author
@@ -156,15 +161,17 @@ BLOCKS those never-executed attributes (parse-only; sanitization completes
 and the execute-vectors stay dead). The statement browser test tolerates
 exactly that fingerprint and fails on anything else.
 
-Third-party graph stack (#109): the tools panel’s graph tab is an offline IFRAME embed of
+Third-party graph stack (#109, reworked by #111): the tools panel’s graph tab runs
 [Another Graph Editor](https://github.com/anAcc22/another_graph_editor) (MIT) — the same
-app the official client’s graph tool loads — vendored as a built artifact under
-public/age/ from a pinned upstream commit, with its PWA service-worker registration
-disabled and the Vite base made relative. The CSP frame-src gains self for exactly this
-same-origin embed (no cross-origin frames). It manages its own canvas and storage;
-nothing is fetched at runtime. Licenses and the vendoring recipe are recorded in
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). The pass #108 cytoscape adaptation was
-retired by this swap once the actual upstream was identified.
+app the official client’s graph tool loads — vendored as REACT SOURCE under
+`src/vendor/age/` (the original #109 shape was an offline iframe over a built artifact
+under `public/age/`; #111 retired the iframe and the standalone app shell and the tools
+panel now lazily imports the vendored source, mounted client-side — no cross-origin
+frame). Its only runtime fetches are the canvas fonts served same-origin from
+`public/age/`; nothing else leaves the machine. The remaining `frame-src 'self' …`
+grants in the CSP serve the statement pane’s YouTube embeds, not the graph stack.
+Licenses and the vendoring recipe are recorded in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 Sketch tab (#112): Excalidraw 0.18.1 (MIT) renders as a lazy React component in the
 tools panel; its fonts and locales are bundled (no CDN, no runtime fetches), and the

@@ -63,16 +63,27 @@ fn asset_clients() -> &'static Mutex<HashMap<String, reqwest::Client>> {
 // running size checked per chunk — chunked encoding has no length header to pre-check);
 // UTF-8 lossy matches reqwest text()'s default-charset behavior for the judge's UTF-8.
 const BODY_CAP: usize = 8 * 1024 * 1024;
-async fn read_capped_text(mut resp: reqwest::Response) -> Result<String, String> {
+// pass #141 (wave-8 W8-01): the shared byte-cap pair — read_capped_text's streaming
+// pattern generalized so asset_fetch's 2 MiB image cap rides the same mechanism. The
+// body is consumed as CHUNKS and rejected the moment it would cross the cap: a
+// chunked/unknown-length server used to get bytes().await to allocate the COMPLETE
+// response before the cap ran (the advertised cap did not stop the allocation). The
+// Content-Length short-circuit stays, and every chunk is counted before it lands, so
+// the worst-case allocation is cap + one chunk.
+async fn read_capped_body(mut resp: reqwest::Response, cap: usize) -> Result<Vec<u8>, String> {
     if let Some(len) = resp.content_length() {
-        if len as usize > BODY_CAP { return Err(format!("TOO_LARGE {len}")); }
+        if len as usize > cap { return Err(format!("TOO_LARGE {len}")); }
     }
     let mut buf: Vec<u8> = Vec::new();
     while let Some(chunk) = resp.chunk().await.map_err(|e| format!("body: {e}"))? {
-        if buf.len() + chunk.len() > BODY_CAP { return Err("TOO_LARGE".into()); }
+        if buf.len() + chunk.len() > cap { return Err("TOO_LARGE".into()); }
         buf.extend_from_slice(&chunk);
     }
-    Ok(String::from_utf8_lossy(&buf).into_owned())
+    Ok(buf)
+}
+async fn read_capped_text(resp: reqwest::Response) -> Result<String, String> {
+    // chunked encoding has no length header to pre-check — the running size is checked per chunk
+    Ok(String::from_utf8_lossy(&read_capped_body(resp, BODY_CAP).await?).into_owned())
 }
 
 // pass #18: same-origin HTML GET for the public site (avatar harvest). The webview
@@ -197,9 +208,9 @@ async fn asset_fetch(url: String) -> Result<String, String> {
     let ct = resp.headers().get(reqwest::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok()).unwrap_or("").split(';').next().unwrap_or("").trim().to_lowercase();
     if !ct.starts_with("image/") { return Err("UNSUPPORTED".to_string()); }
-    if let Some(len) = resp.content_length() { if len as usize > MAX { return Err("TOO_LARGE".to_string()); } }
-    let bytes = resp.bytes().await.map_err(|e| format!("body: {e}"))?;
-    if bytes.len() > MAX { return Err("TOO_LARGE".to_string()); }
+    // pass #141 (W8-01): streamed + rejected at the cap (read_capped_body) — the old
+    // bytes().await fully buffered the response before the size check ran.
+    let bytes = read_capped_body(resp, MAX).await?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:{ct};base64,{b64}"))
 }
@@ -297,12 +308,23 @@ async fn update_check() -> Result<String, String> {
     let list = serde_json::from_str::<serde_json::Value>(&body).map_err(|e| format!("parse: {e}"))?;
     let tag = list.as_array().and_then(|a| a.first())
         .and_then(|r| r.get("tag_name")).and_then(|t| t.as_str()).unwrap_or("").to_string();
+    // pass #141 (wave-8 W8-L04): TRI-STATE. An empty/missing/unparseable tag used to
+    // encode as update_available:false — indistinguishable from a current install, so a
+    // malformed feed read as "Up to date". null = no usable evidence; the frontend maps
+    // it to the neutral "unknown" dot (same posture as offline/rate-limited).
     serde_json::to_string(&serde_json::json!({
         "current": current,
         "latest": tag,
-        "update_available": version_gt(&tag, &current),
+        "update_available": update_available_value(&tag, &current),
     }))
     .map_err(|e| format!("encode: {e}"))
+}
+// The tri-state encoded as JSON: Some(bool) → true/false, None → null.
+fn update_available_value(tag: &str, current: &str) -> serde_json::Value {
+    match (version_triple(tag), version_triple(current)) {
+        (Some(_), Some(_)) => serde_json::Value::Bool(version_gt(tag, current)),
+        _ => serde_json::Value::Null,
+    }
 }
 
 // Numeric-triple comparison for delcc's version spellings: "v0.3.31a-alpha" and
@@ -552,6 +574,20 @@ mod asset_tests {
         assert!(!version_gt("v0.3.37a-alpha", ""), "unparseable current never claims an update");
         assert_eq!(version_triple("v0.3.31a-alpha"), Some((0, 3, 31)));
         assert_eq!(version_triple("0.3.36-alpha"), Some((0, 3, 36)));
+    }
+
+    #[test]
+    fn update_check_malformed_metadata_is_unknown_not_up_to_date() {
+        // pass #141 (wave-8 W8-L04): the tri-state. An empty tag (an empty releases
+        // array, a missing tag_name) or an unparseable version used to encode as
+        // update_available:false — the frontend then painted "Up to date" over a
+        // malformed feed. null = no usable evidence; the frontend shows the neutral dot.
+        assert_eq!(update_available_value("", "0.3.44"), serde_json::Value::Null);
+        assert_eq!(update_available_value("not-a-version", "0.3.44"), serde_json::Value::Null);
+        assert_eq!(update_available_value("v0.3.45a-alpha", "garbage"), serde_json::Value::Null);
+        assert_eq!(update_available_value("v0.3.45a-alpha", "0.3.44-alpha"), serde_json::Value::Bool(true));
+        assert_eq!(update_available_value("v0.3.44a-alpha", "0.3.44-alpha"), serde_json::Value::Bool(false));
+        assert_eq!(update_available_value("v0.3.43a-alpha", "0.3.44-alpha"), serde_json::Value::Bool(false));
     }
 
     #[test]

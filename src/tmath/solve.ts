@@ -140,8 +140,13 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   };
   const persistDraftsStore = (): boolean => {
     if (!draftsStore) return false;
-    let ok = false;
-    try { write(draftsStoreKey, JSON.stringify(draftsStore)); ok = true; } catch { ok = false; }
+    // pass #141 (wave-8 W8-02): write() reports honestly now. The old shape —
+    // `try { write(...); ok = true; } catch { ok = false; }` — was DEAD code: write()
+    // never threw, so ok was always true, the in-memory recovery copy was discarded on
+    // every path, and the status line painted "saved" over a storage failure. A failed
+    // persist now retains the recovery copy (the unsavedDrafts map + the beforeunload
+    // warning) and reports the retry state.
+    const ok = write(draftsStoreKey, JSON.stringify(draftsStore));
     keepUnsaved(draftsStoreKey, ok ? null : JSON.stringify(draftsStore));
     return ok;
   };
@@ -152,7 +157,10 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     const d = activeDraft(); d.source = value; d.language = language;
     const ok = persistDraftsStore();
     try { localStorage.setItem(draftKey(language),value); localStorage.setItem(langKey,language); } catch { /* the legacy mirror is best-effort */ }
-    dirty = false;
+    // pass #141 (W8-02): dirty clears only on a CONFIRMED persist — after a failed
+    // save the beforeunload path (line ~1012) still re-saves, still sees dirty, and
+    // still warns instead of waving the source out of the window.
+    if (ok) dirty = false;
     if (!disposed) { const status = $("[data-draft]"); if (status) { status.textContent = ok ? t("problem.draftSaved") : t("problem.unsaved"); status.className = ok ? "tm-muted" : "tm-error"; } const sb = $('[data-action="save-now"]'); if (sb) sb.textContent = ok ? t("problem.saveNow") : t("problem.retrySave"); }
   };
   const changed = () => {
@@ -450,7 +458,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     }
     const dlg = document.createElement("dialog");
     dlg.className = "tm-confirm"; dlg.setAttribute("data-confirm-submit", ""); dlg.setAttribute("aria-labelledby", "tm-confirm-title");
-    dlg.innerHTML = `<h2 id="tm-confirm-title">${text("problem.confirmTitle")}</h2><p>${text("problem.confirmBody", { name: String(problem.name ?? args.code) })}</p><div class="tm-confirm-actions"><button type="button" class="tm-button" data-confirm="back">${text("common.back")}</button><button type="button" class="tm-button primary" data-confirm="yes">${text("problem.confirmYes")}</button></div>`;
+    dlg.innerHTML = `<h2 id="tm-confirm-title">${text("problem.confirmTitle")}</h2><p>${text("problem.confirmBody", { name: esc(String(problem.name ?? args.code)) })}</p><div class="tm-confirm-actions"><button type="button" class="tm-button" data-confirm="back">${text("common.back")}</button><button type="button" class="tm-button primary" data-confirm="yes">${text("problem.confirmYes")}</button></div>`;
     host.appendChild(dlg);
     dlg.addEventListener("close", () => dlg.remove());
     dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });
@@ -862,7 +870,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
       const deleteDraftDialog = (): void => {
         if (disposed || !draftsStore || draftsStore.drafts.length < 2) return;
         const d = activeDraft();
-        const dlg = draftDialog(`<h2>${text("drafts.delete")}</h2><p>${t("drafts.deleteConfirm", { name: d.name })}</p><div class="tm-confirm-actions"><button type="button" class="tm-button" data-d-back>${text("common.back")}</button><button type="button" class="tm-button destructive" data-d-ok>${text("drafts.delete")}</button></div>`);
+        const dlg = draftDialog(`<h2>${text("drafts.delete")}</h2><p>${t("drafts.deleteConfirm", { name: esc(d.name) })}</p><div class="tm-confirm-actions"><button type="button" class="tm-button" data-d-back>${text("common.back")}</button><button type="button" class="tm-button destructive" data-d-ok>${text("drafts.delete")}</button></div>`);
         dlg.querySelector<HTMLButtonElement>('[data-d-ok]')!.onclick = () => {
           draftsStore!.drafts = draftsStore!.drafts.filter(x => x.id !== d.id);
           draftsStore!.active = draftsStore!.drafts[0]!.id;

@@ -17,8 +17,12 @@ export interface Preferences {
 export function read(key: string, fallback = ""): string {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
 }
-export function write(key: string, value: string): void {
-  try { localStorage.setItem(key, value); } catch { /* Session still works without storage. */ }
+// pass #141 (wave-8 W8-02): write() now reports honestly. It used to swallow every
+// setItem failure and return void — callers that MUST persist (the draft store, the
+// window icon) then read success into a silent loss. Best-effort callers may ignore
+// the boolean; persistence-critical ones check it.
+export function write(key: string, value: string): boolean {
+  try { localStorage.setItem(key, value); return true; } catch { return false; }
 }
 export function loadPreferences(): Preferences {
   let p: Partial<Preferences> = {};
@@ -142,11 +146,9 @@ export async function setWindowIcon(file: File): Promise<"applied" | "tooBig" | 
   if (!url.startsWith("data:image/")) return "badIcon";
   const rgba = await iconToRgba(url);
   if (!rgba) return "badIcon";
-  try {
-    write(WINDOW_ICON_KEY, url);
-  } catch {
-    return "storage"; // quota — the honest status line says so
-  }
+  // pass #141 (W8-02): write() reports — a failed persist used to fall through to
+  // "applied" (the dead catch below never ran), claiming an icon that died at restart.
+  if (!write(WINDOW_ICON_KEY, url)) return "storage"; // quota — the honest status line says so
   const { applyIdentity: invokeIdentity } = await import("../lib/transport");
   await invokeIdentity(null, rgba, false);
   return "applied";

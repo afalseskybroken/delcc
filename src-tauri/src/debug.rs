@@ -224,14 +224,21 @@ pub fn build_run_command(input: &Path, output: &Path) -> String {
     format!("run < \"{inp}\" > \"{outp}\"")
 }
 
-/// pass #129 (attack-surface A3 symmetry): candidates carry a trust class. The sibling
-/// pair inherits the allowlist's trust in the compiler itself (same directory — probing
-/// them is the same execution class as running the compiler). Every PATH-derived
-/// candidate is the UNTRUSTED class: same-user-writable, and the version gate alone
-/// admits any binary that prints a plausible number — those ride the confirm-once
-/// consent gate in find_gdb before their `--version` may execute. A bare compiler name
-/// has no real sibling directory (parent is ""), and a CWD-relative "gdb.exe" is not
-/// the toolchain's own gdb — skipped rather than probed.
+/// pass #129 (attack-surface A3 symmetry): candidates carry a trust class. Sibling
+/// candidates inherit whatever trust the COMPILER itself has — same directory, same
+/// execution class as running the compiler. pass #141 (wave-8 W8-06) states the
+/// boundary honestly: the persisted consent records and the Settings overrides name
+/// the COMPILER path only, so approving a compiler also approves its sibling gdb
+/// WITHOUT a second prompt — even when the compiler itself only ran because the user
+/// consented to it. That is a disclosed consent boundary, not an audited one: the
+/// per-executable model (#101) and the sibling rule disagree until the provenance-aware
+/// fix (consent for the exact debugger path whenever the compiler was consent-gated or
+/// overridden — wave-8 Batch B) lands. Every PATH-derived candidate is the UNTRUSTED
+/// class: same-user-writable, and the version gate alone admits any binary that prints
+/// a plausible number — those ride the confirm-once consent gate in find_gdb before
+/// their `--version` may execute. A bare compiler name has no real sibling directory
+/// (parent is ""), and a CWD-relative "gdb.exe" is not the toolchain's own gdb —
+/// skipped rather than probed.
 fn find_gdb_candidates(compiler: &str) -> Vec<(PathBuf, bool)> {
     let mut out = Vec::new();
     // sibling first: the toolchain's own gdb understands its own binaries
@@ -273,6 +280,14 @@ pub fn find_gdb(compiler: &str, consent: &dyn Fn(&str) -> bool) -> Result<(PathB
             Ok(o) => o,
             Err(_) => continue,
         };
+        // pass #141 (wave-8 W8-07, partial — the rest is queued Batch C): probe_one's
+        // doctrine holds here too — a probe must SUCCEED. The old loop read stdout with
+        // no exit check, so any binary that printed a plausible version line on its way
+        // to a nonzero exit was admitted as "gdb".
+        if !out.status.success() {
+            probed.push(format!("{} (probe exited nonzero)", cand.display()));
+            continue;
+        }
         let first = String::from_utf8_lossy(&out.stdout).lines().next().unwrap_or("").to_string();
         match parse_gdb_version(&first) {
             Some((major, ver)) if major >= 8 => return Ok((cand, ver)),

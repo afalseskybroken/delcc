@@ -51,6 +51,23 @@ const sanitizeAbout = (html: string): string => {
 // page itself. Memory cache, FIFO-capped; max 8 remote images per pane.
 const assetCache = new Map<string, string>();
 const IMAGE_CAP = 8;
+// pass #141 (wave-8 W8-L03): the cache used to be COUNT-capped only — sixty near-2 MiB
+// data URLs could pin ~160 MiB of characters before anything evicted. Byte-budgeted now
+// (~24 MiB of data-URL text, the encoded ≈4/3 of the image bytes), oldest evicted first,
+// overwrites accounted.
+const IMAGE_CACHE_BYTES = 24 * 1024 * 1024;
+let assetCacheBytes = 0;
+const cacheAsset = (src: string, du: string): void => {
+  assetCacheBytes -= assetCache.get(src)?.length ?? 0;
+  assetCache.set(src, du);
+  assetCacheBytes += du.length;
+  while (assetCache.size > 60 || assetCacheBytes > IMAGE_CACHE_BYTES) {
+    const oldest = assetCache.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    assetCacheBytes -= assetCache.get(oldest)!.length;
+    assetCache.delete(oldest);
+  }
+};
 const wireAboutImages = (root: HTMLElement): void => {
   const all = [...root.querySelectorAll("img")];
   // pass #96 (adjudication finding): images beyond the cap used to keep their remote src
@@ -79,8 +96,7 @@ const wireAboutImages = (root: HTMLElement): void => {
         img.replaceWith(a);
         return;
       }
-      assetCache.set(src, du);
-      while (assetCache.size > 60) assetCache.delete(assetCache.keys().next().value as string);
+      cacheAsset(src, du);
       if (!img.isConnected) return;
       img.src = du;
       img.classList.remove("tm-about-img-pending");
@@ -259,6 +275,22 @@ export class TmathApp {
   private bannerDismissed = false;
   private updateState: "unknown" | "ok" | "stale" = "unknown"; // pass #134: the footnote dot
   private updateChecked = false;
+  // pass #141 (wave-8 W8-L09): the F11 handler is an instance field so destroy() can
+  // remove it — the boot path used to add an anonymous capture listener that survived
+  // destroy(), so every remount (bootTmath re-entry) stacked one more toggle per press.
+  private f11Key = (e: KeyboardEvent): void => {
+    if (e.key !== "F11") return;
+    e.preventDefault();
+    void (async () => {
+      try {
+        const { shellInvoke } = await import("../lib/transport");
+        const inv = await shellInvoke();
+        if (inv) { await inv("toggle_fullscreen", {}); return; }
+      } catch { /* fall through to the browser path */ }
+      if (document.fullscreenElement) { void document.exitFullscreen().catch(() => {}); }
+      else { void document.documentElement.requestFullscreen().catch(() => {}); }
+    })();
+  };
   private hashChange = () => void this.render();
   private themeChange = () => { if (this.prefs.theme === "system") applyPreferences(this.prefs); };
   private media = matchMedia("(prefers-color-scheme: dark)");
@@ -284,21 +316,10 @@ export class TmathApp {
     if (profile?.locked || profile?.needsReauth) auth.seed(null);
     // pass #127 (a friend's suggestion via He): F11 toggles the window fullscreen —
     // the shell answers Rust-side (the window API needs no capability grant), and
-    // plain-browser dev falls back to the document fullscreen API. Bound ONCE at
-    // boot, capture phase so no view can swallow it.
-    document.addEventListener("keydown", (e: KeyboardEvent) => {
-      if (e.key !== "F11") return;
-      e.preventDefault();
-      void (async () => {
-        try {
-          const { shellInvoke } = await import("../lib/transport");
-          const inv = await shellInvoke();
-          if (inv) { await inv("toggle_fullscreen", {}); return; }
-        } catch { /* fall through to the browser path */ }
-        if (document.fullscreenElement) { void document.exitFullscreen().catch(() => {}); }
-        else { void document.documentElement.requestFullscreen().catch(() => {}); }
-      })();
-    }, true);
+    // plain-browser dev falls back to the document fullscreen API. Capture phase so no
+    // view can swallow it. #141: the handler is the instance field this.f11Key —
+    // destroy() removes it, so remounts no longer stack anonymous listeners.
+    document.addEventListener("keydown", this.f11Key, true);
     auth.onTokenChange(token => {
       // pass #60-#63: this listener REPLACED the baseplate one (onTokenChange is a
       // single slot). The tmath shell has no profile switcher — the active unlocked
@@ -373,6 +394,7 @@ export class TmathApp {
   destroy(): void {
     this.stopped = true; this.generation++; this.disposeView?.(); this.oauth?.abort();
     window.removeEventListener("hashchange", this.hashChange);
+    document.removeEventListener("keydown", this.f11Key, true); // pass #141 (W8-L09): remounts stop stacking
     this.media.removeEventListener("change", this.themeChange);
     auth.onTokenChange(() => {});
   }
@@ -509,8 +531,10 @@ export class TmathApp {
   // ONE check per boot against delcc's own GitHub releases (the honest source — the
   // judge's client-releases feed is the version SHIM's input and can never say "a newer
   // delcc exists"). States: ok (green) / stale (red — the dot opens the releases page) /
-  // unknown (neutral: offline, rate-limited, or an unparseable tag — no evidence, no
-  // claim). Re-renders stamp the cached state; the fetch itself never re-runs.
+  // unknown (neutral: offline, rate-limited, a malformed feed, or an unparseable tag —
+  // no evidence, no claim; #141 made the shell send null for malformed metadata so a
+  // broken feed can no longer read as "up to date"). Re-renders stamp the cached state;
+  // the fetch itself never re-runs.
   private async checkUpdates(): Promise<void> {
     if (this.updateChecked) return;
     this.updateChecked = true;
@@ -519,9 +543,12 @@ export class TmathApp {
       if (!raw) { // browser-dev: no bridge, no evidence — neutral dot, no claim
         this.updateState = "unknown";
       } else {
-        const parsed = JSON.parse(raw) as { update_available?: boolean };
-        this.updateState = parsed.update_available === true ? "stale" : "ok";
-        logInfo(`update check: ${this.updateState === "stale" ? "a newer release exists" : "up to date"}`);
+        const parsed = JSON.parse(raw) as { update_available?: boolean | null };
+        // pass #141 (wave-8 W8-L04): tri-state — the shell sends null when the release
+        // metadata was missing/unparseable. That is NO EVIDENCE (the neutral dot), not
+        // "up to date"; only an explicit false claims a current install.
+        this.updateState = parsed.update_available === true ? "stale" : parsed.update_available === false ? "ok" : "unknown";
+        logInfo(`update check: ${this.updateState === "stale" ? "a newer release exists" : this.updateState === "ok" ? "up to date" : "malformed metadata — no claim"}`);
       }
     } catch (e) {
       this.updateState = "unknown";
@@ -731,18 +758,28 @@ export class TmathApp {
     host.querySelector<HTMLFormElement>("form")!.onsubmit = event => { event.preventDefault(); this.go("contests", {search: new FormData(event.currentTarget as HTMLFormElement).get("search") as string}); };
     // pass #99 (1.1.0 parity): the join buttons blocked on start_time flip open at
     // the hour — one timer per waiting row (clamped to setTimeout's 32-bit range),
-    // chained into the view's disposal so navigation cancels pending flips
+    // chained into the view's disposal so navigation cancels pending flips.
+    // pass #141 (wave-8 W8-L08): a start more than ~24.85 days out used to hit the
+    // clamp and fire EARLY — the fire then marked the row joinable unconditionally.
+    // Each fire now rechecks the clock and reschedules the remainder; only a truly
+    // reached start flips the row.
     const previous = this.disposeView;
     const joinTimers: number[] = [];
     host.querySelectorAll<HTMLElement>("[data-starts-in]").forEach(tag => {
-      const wait = Number(tag.dataset.startsIn) - Date.now();
-      if (!(wait > 0)) return;
-      joinTimers.push(window.setTimeout(() => {
+      const flip = () => {
         tag.removeAttribute("data-starts-in");
         tag.textContent = text("contests.joinable");
         const btn = tag.parentElement?.querySelector<HTMLButtonElement>(".tm-contest-join");
         if (btn) btn.disabled = false;
-      }, Math.min(wait, 2_147_000_000)));
+      };
+      const wait = Number(tag.dataset.startsIn) - Date.now();
+      if (!(wait > 0)) return;
+      const arm = () => {
+        const remaining = Number(tag.dataset.startsIn) - Date.now();
+        if (!(remaining > 0)) { flip(); return; }
+        joinTimers.push(window.setTimeout(arm, Math.min(remaining, 2_147_000_000)));
+      };
+      arm();
     });
     this.disposeView = () => { joinTimers.forEach(id => window.clearTimeout(id)); previous?.(); };
     host.querySelectorAll<HTMLButtonElement>("[data-contest]").forEach(b => b.onclick = async () => {
@@ -1110,9 +1147,9 @@ export class TmathApp {
       // pass #127 (He): the problem title + identifier code ride the tab as a tooltip —
       // the statement pane no longer repeats them as a heading
       const tip = `${String(p.name ?? "")}${p.name ? " · " : ""}${String(p.code).toUpperCase()}`;
-      return `<button type="button" class="tm-contest-tab${active}${score ? " " + score : ""}" data-code="${esc(p.code)}" title="${esc(tip)}" aria-label="${esc(tip)}">${this.probLabel(p, i)}<span class="sr-only">${this.scoreText(p.score_status)}</span></button>`;
+      return `<button type="button" class="tm-contest-tab${active}${score ? " " + score : ""}" data-code="${esc(p.code)}" title="${esc(tip)}" aria-label="${esc(tip)}">${esc(this.probLabel(p, i))}<span class="sr-only">${this.scoreText(p.score_status)}</span></button>`;
     };
-    host.innerHTML = `<div class="tm-workspace"><div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("contests.workspaceEyebrow")}</div><h1>${esc(contest?.name ?? key)}</h1><p class="tm-contest-meta">${esc(modeTxt)}${dlText ? ` · ${text("contests.deadlineAt")}: ${esc(dlText)}` : ""}</p></div><div class="tm-contest-side"><aside class="tm-contest-clock" aria-label="${text("contests.clockLabel")}"><div class="tm-clock-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span data-clock-label>${text("contests.timeUnknown")}</span></div><div class="tm-clock-value" role="timer" aria-label="${text("contests.ariaTimeLeft")}" data-clock>--:--:--</div></aside><button type="button" class="tm-button destructive" data-action="leave">${text("contests.leave")}</button></div></div><div class="tm-contest-strip"><div class="tm-contest-scroll"><nav class="tm-contest-tabs" aria-label="${text("contests.problemsListAria")}">${rows.map(tab).join("")}</nav></div><button type="button" class="tm-icon-button" data-action="refresh-problems" aria-label="${text("contests.refreshList")}" title="${text("contests.refreshList")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button></div>${workspace?.next_problem_requirement != null ? `<p class="tm-ac-banner" role="status">${t("contests.acBanner", { n: workspace.accepted_problem_count ?? 0, r: workspace.next_problem_requirement })}</p>` : ""}<div id="tm-workspace-message" role="status"></div><div id="tm-solve-host"></div></div>`;
+    host.innerHTML = `<div class="tm-workspace"><div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("contests.workspaceEyebrow")}</div><h1>${esc(contest?.name ?? key)}</h1><p class="tm-contest-meta">${esc(modeTxt)}${dlText ? ` · ${text("contests.deadlineAt")}: ${esc(dlText)}` : ""}</p></div><div class="tm-contest-side"><aside class="tm-contest-clock" aria-label="${text("contests.clockLabel")}"><div class="tm-clock-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span data-clock-label>${text("contests.timeUnknown")}</span></div><div class="tm-clock-value" role="timer" aria-label="${text("contests.ariaTimeLeft")}" data-clock>--:--:--</div></aside><button type="button" class="tm-button destructive" data-action="leave">${text("contests.leave")}</button></div></div><div class="tm-contest-strip"><div class="tm-contest-scroll"><nav class="tm-contest-tabs" aria-label="${text("contests.problemsListAria")}">${rows.map(tab).join("")}</nav></div><button type="button" class="tm-icon-button" data-action="refresh-problems" aria-label="${text("contests.refreshList")}" title="${text("contests.refreshList")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button></div>${workspace?.next_problem_requirement != null ? `<p class="tm-ac-banner" role="status">${t("contests.acBanner", { n: esc(String(workspace.accepted_problem_count ?? 0)), r: esc(String(workspace.next_problem_requirement)) })}</p>` : ""}<div id="tm-workspace-message" role="status"></div><div id="tm-solve-host"></div></div>`;
     // Live countdown per the carve: ceil(deadline - now), padded HH:MM:SS, destructive tint at <=300s.
     // pass #60: the countdown runs on the SERVER clock (skew corrected by every poll —
     // live-probed payload carries server_time), and a deadline the server changes is adopted.
@@ -1369,7 +1406,7 @@ export class TmathApp {
       const abs = date(s.rawDate ?? s.date);
       return abs !== "—" ? abs : String(s.rawDate ?? s.date ?? "");
     };
-    const rowHtml = (s: any): string => `<tr><td><button type="button" class="tm-sub-id" data-source="${esc(s.id)}"${s.can_view_source ? "" : " disabled"} title="${text(s.can_view_source ? "subs.viewSource" : "subs.noSourcePermission")}" aria-label="${text("subs.viewSource")} #${esc(s.id)}">#${esc(s.id)}</button></td><td><a href="#/account?user=${encodeURIComponent(String(s.user ?? ""))}"${ratingStyle(s.user_rating)} title="${esc(String(s.user_display_name ?? s.user ?? "—"))} (@${esc(String(s.user ?? ""))})">${esc(s.user_display_name ?? s.user ?? "—")}</a></td><td><a href="#/problems?code=${encodeURIComponent(String(s.problem ?? ""))}">${esc(s.problem_name ?? s.problem ?? "—")}</a></td><td title="${esc(dateTip(s))}">${esc(ago(s.date))}</td><td>${esc(langName(s.language))}</td><td><span class="tm-result-pill${s.result === "AC" ? " ok" : !s.is_terminal ? " pending" : " bad"}">${esc(s.result ?? s.status ?? "—")}${!s.is_terminal && s.current_testcase ? ` · #${esc(s.current_testcase)}` : ""}</span></td><td><strong>${esc(s.points ?? "—")}</strong></td><td class="tm-col-eye"><button class="tm-icon-button" data-sub="${s.id}" aria-expanded="false"${detailEnabled(s) ? "" : " disabled"} title="${detailEnabled(s) ? text("subs.details") : text(s.can_view_detail ? "subs.waitGrading" : "subs.noDetailPermission")}" aria-label="${text("subs.showDetails", { n: String(s.id) })}">${eyeSvg}</button></td></tr>`;
+    const rowHtml = (s: any): string => `<tr><td><button type="button" class="tm-sub-id" data-source="${esc(s.id)}"${s.can_view_source ? "" : " disabled"} title="${text(s.can_view_source ? "subs.viewSource" : "subs.noSourcePermission")}" aria-label="${text("subs.viewSource")} #${esc(s.id)}">#${esc(s.id)}</button></td><td><a href="#/account?user=${encodeURIComponent(String(s.user ?? ""))}"${ratingStyle(s.user_rating)} title="${esc(String(s.user_display_name ?? s.user ?? "—"))} (@${esc(String(s.user ?? ""))})">${esc(s.user_display_name ?? s.user ?? "—")}</a></td><td><a href="#/problems?code=${encodeURIComponent(String(s.problem ?? ""))}">${esc(s.problem_name ?? s.problem ?? "—")}</a></td><td title="${esc(dateTip(s))}">${esc(ago(s.date))}</td><td>${esc(langName(s.language))}</td><td><span class="tm-result-pill${s.result === "AC" ? " ok" : !s.is_terminal ? " pending" : " bad"}">${esc(s.result ?? s.status ?? "—")}${!s.is_terminal && s.current_testcase ? ` · #${esc(s.current_testcase)}` : ""}</span></td><td><strong>${esc(s.points ?? "—")}</strong></td><td class="tm-col-eye"><button class="tm-icon-button" data-sub="${esc(s.id)}" aria-expanded="false"${detailEnabled(s) ? "" : " disabled"} title="${detailEnabled(s) ? text("subs.details") : text(s.can_view_detail ? "subs.waitGrading" : "subs.noDetailPermission")}" aria-label="${text("subs.showDetails", { n: esc(String(s.id)) })}">${eyeSvg}</button></td></tr>`;
     // expanded details survive the 10s poll repaint (audit): the detail row element
     // is kept per submission id and re-inserted after its (repainted) summary row
     const openDetails = new Map<string, { row: HTMLTableRowElement; btn: HTMLButtonElement }>();

@@ -81,9 +81,25 @@ export async function fetchAsset(url: string): Promise<string | null> {
     if (!r.ok) return null;
     const ct = (r.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
     if (!ct.startsWith("image/")) return null;
-    const buf = await r.arrayBuffer();
-    if (buf.byteLength > 2_000_000) return null;
-    const bytes = new Uint8Array(buf);
+    // pass #141 (wave-8 W8-01): stream the body and bail the moment it would cross the
+    // cap — arrayBuffer() used to allocate the complete response BEFORE the size check,
+    // so a chunked server could balloon the dev-page's memory past the advertised cap.
+    const MAX = 2_000_000;
+    const reader = r.body?.getReader();
+    if (!reader) return null;
+    const parts: Uint8Array[] = [];
+    let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      size += value.byteLength;
+      if (size > MAX) { void reader.cancel().catch(() => {}); return null; }
+      parts.push(value);
+    }
+    const bytes = new Uint8Array(size);
+    let off = 0;
+    for (const p of parts) { bytes.set(p, off); off += p.byteLength; }
     let bin = "";
     for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
     return `data:${ct};base64,${btoa(bin)}`;

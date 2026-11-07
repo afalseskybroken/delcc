@@ -184,6 +184,7 @@ pub(crate) struct Inner {
     allowed: Mutex<AllowedBinaries>, // pass #78: the exec allowlist, see validate_binary
     persist_dir: Mutex<Option<PathBuf>>, // pass #96: where the override registry lives
     detect_cache: Mutex<Option<(std::time::Instant, Vec<Toolchain>)>>, // pass #129 (A5): the 60 s detection TTL
+    detect_gate: tauri::async_runtime::Mutex<()>, // pass #141 (W8-L01): concurrent detections coalesce here
 }
 
 // pass #78 (Sonnet S1 leg 2): what `cph_run`/`cph_compile` may execute.
@@ -671,6 +672,23 @@ pub async fn cph_detect(state: tauri::State<'_, CphState>, force: Option<bool>) 
         let cached = lock(&state.0.detect_cache);
         if let Some((at, tcs)) = cached.as_ref() {
             if at.elapsed() < DETECT_TTL {
+                return Ok(tcs.clone());
+            }
+        }
+    }
+    // pass #141 (wave-8 W8-L01): force=true used to skip the TTL entirely — page JS
+    // could issue concurrent forced calls and each would run the full 10–30-process
+    // probe set, bypassing exactly the spawn-loop mitigation the cache provides. ALL
+    // detection now serializes on one async gate: a caller arriving mid-scan waits for
+    // the winner, then reads the cache it just wrote; and a forced rescan is honored at
+    // most once per 3 s (the Settings change-of-mind button keeps working — a loop of
+    // forced calls degrades to the cached answer instead of a spawn storm).
+    const FORCE_MIN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3);
+    let _gate = state.0.detect_gate.lock().await;
+    {
+        let cached = lock(&state.0.detect_cache);
+        if let Some((at, tcs)) = cached.as_ref() {
+            if at.elapsed() < DETECT_TTL || (force && at.elapsed() < FORCE_MIN_INTERVAL) {
                 return Ok(tcs.clone());
             }
         }

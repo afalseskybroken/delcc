@@ -83,7 +83,19 @@ function persist(t: TokenPair | null) {
 export function onTokenChange(f: (t: TokenPair | null) => void) { listener = f; }
 
 function save(t: TokenPair | null) {
-  if (t && t.obtained_at == null) t = { ...t, obtained_at: Date.now() };
+  if (t) {
+    // pass #141 (wave-8 W8-L05): the pair's timing fields are server JSON. A
+    // nonnumeric/absurd access_expires_in used to ride straight into schedule() —
+    // `NaN * 1000` made the refresh delay NaN, and setTimeout(NaN) fires at 0: a tight
+    // refresh loop against the judge. Obtained_at must be a real timestamp too (the
+    // countdown anchors on it). Coerced once, at the single save() funnel.
+    const fix: Partial<TokenPair> = {};
+    if (t.obtained_at == null || !Number.isFinite(Number(t.obtained_at))) fix.obtained_at = Date.now();
+    const exp = Number(t.access_expires_in);
+    if (!Number.isFinite(exp) || exp <= 0) fix.access_expires_in = 3600;
+    else if (exp > 604_800) fix.access_expires_in = 604_800; // a week caps the timer math
+    if (Object.keys(fix).length) t = { ...t, ...fix };
+  }
   cur = t;
   if (t) sessionTokens.add(t.access_token);
   persist(t);

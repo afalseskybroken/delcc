@@ -57,3 +57,25 @@ hooked.sanitizeAbout('a'); hooked.sanitizeAbout('b');
 assert.equal(hooked.__purifyStub.hooks, 0, 'hook registration is module-scope — sanitizeAbout never re-registers');
 aboutChecked++;
 console.log('PASS S7 About-sanitizer fail-closed: '+aboutChecked+' production-function cases');
+
+// pass #141 (wave-8 W8-L02): the judge/user-controlled interpolation sites that reach
+// innerHTML carry esc() — source-shape tripwires (a dropped escape fails the suite).
+// The sites: the submission detail button (data-sub + its aria-label, judge IDs), the
+// contest tab label (server label verbatim), the AC-banner vars (server counts), and
+// the two confirm dialogs whose interpolated names are judge data (submit) / user
+// input (draft name).
+const appSource = fs.readFileSync('src/tmath/app.ts','utf8');
+const solveSource = fs.readFileSync('src/tmath/solve.ts','utf8');
+let shapes=0;
+for (const [name, src, re] of [
+  ['submissions data-sub', appSource, /data-sub="\$\{esc\(s\.id\)\}"/],
+  ['submissions showDetails aria', appSource, /subs\.showDetails", \{ n: esc\(String\(s\.id\)\) \}\)/],
+  ['contest tab label', appSource, />\$\{esc\(this\.probLabel\(p, i\)\)\}</],
+  ['AC banner vars', appSource, /contests\.acBanner", \{ n: esc\(String\(workspace\.accepted_problem_count \?\? 0\)\), r: esc\(String\(workspace\.next_problem_requirement\)\) \}\)/],
+  ['submit confirm name', solveSource, /problem\.confirmBody", \{ name: esc\(String\(problem\.name \?\? args\.code\)\) \}\)/],
+  ['draft delete confirm name', solveSource, /drafts\.deleteConfirm", \{ name: esc\(d\.name\) \}\)/],
+]) {
+  assert.ok(re.test(src), 'escaped shape missing: '+name);
+  shapes++;
+}
+console.log('PASS W8-L02 innerHTML escape shapes: '+shapes+' sites');

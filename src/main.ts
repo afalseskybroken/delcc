@@ -577,6 +577,13 @@ function wireGoogle() {
   btn.onclick = async () => {
     if (gAbort) { gAbort.abort(); return; }              // second click cancels
     gAbort = new AbortController();
+    // pass #141 (wave-8 W8-03): the Google completion used to seed UNCONDITIONALLY —
+    // a sign-in that finished AFTER a password login (or a logout) overwrote the newer
+    // session or resurrected an authenticated one. The session version is captured at
+    // start and re-checked immediately before seed; a mismatch means newer auth intent
+    // won while Google was polling, and the late token is dropped. bpLogin and doLogout
+    // additionally abort the pending poll outright.
+    const sessionAtStart = auth.sessionVersion();
     btn.textContent = "cancel Google sign-in";
     msg("authmsg", "starting Google sign-in…", "muted");
     try {
@@ -592,6 +599,10 @@ function wireGoogle() {
       } catch (e) {
         if (e instanceof GoogleAbort) { msg("authmsg", "google sign-in cancelled.", "muted"); return; }
         throw e;
+      }
+      if (auth.sessionVersion() !== sessionAtStart) {
+        msg("authmsg", "google sign-in finished after a newer login or logout — dropped.", "muted");
+        return;
       }
       authedId = null;                                    // login must not write into the previous profile
       auth.seed(tok);
@@ -666,6 +677,7 @@ let profiles: Profile[] = loadProfiles();
 async function bpLogin(username: string, pw: string) {
   msg("authmsg", "");
   if (!username || !pw) { msg("authmsg", "username and password. that's all baseplate asks.", "err"); return; }
+  gAbort?.abort(); // pass #141 (W8-03): a password login outranks a pending Google poll
   try {
     await auth.login(username, pw);
     await afterLogin(username);
@@ -703,6 +715,7 @@ auth.onTokenChange((t) => {
 // logout must also kill the profile's stored token, else render() -> wireAuth() logs straight back in.
 async function doLogout() {
   bumpView(); // F09: in-flight open/submit continuations die with the session
+  gAbort?.abort(); // pass #141 (W8-03): a pending Google poll must not resurrect a session after logout
   const p = profiles.find((x) => x.id === authedId);
   if (p) { p.token = null; setProfList(upsertProfile(profList(), p)); }
   authedId = null; cancelWatch?.(); cancelWatch = null;

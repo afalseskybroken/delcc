@@ -74,11 +74,19 @@ export async function googleLogin(o: {
     }
   }
   check();
-  logInfo(`google oauth: start ok (window ${st.expires_in}s, poll every ${st.interval || 2}s)`);
+  // pass #141 (wave-8 W8-L05): the window and cadence fields are server JSON. A
+  // nonnumeric expires_in used to make deadline = NaN — `Date.now() > NaN` is false
+  // forever, so the poll loop could never expire — and a nonnumeric interval became
+  // sleep(NaN) = setTimeout(0): a tight loop hammering the judge. Both coerce to a
+  // finite, clamped value (window ≤ 24 h with a 10 min fallback; cadence 1–30 s).
+  const winRaw = Number(st.expires_in);
+  const winSec = Number.isFinite(winRaw) && winRaw > 0 ? Math.min(winRaw, 86_400) : 600;
+  const ivRaw = Number(st.interval);
+  let interval = Number.isFinite(ivRaw) && ivRaw > 0 ? Math.min(Math.max(1, Math.floor(ivRaw)), 30) : 2;
+  logInfo(`google oauth: start ok (window ${winSec}s, poll every ${interval}s)`);
   o.onUrl(st.authorization_url);
   check();
-  const deadline = Date.now() + st.expires_in * 1000;
-  let interval = Math.max(1, st.interval || 2);
+  const deadline = Date.now() + winSec * 1000;
   for (;;) {
     await sleep(interval * 1000, o.signal);
     check();
@@ -106,7 +114,10 @@ export async function googleLogin(o: {
     }
     check();
     if (r?.access_token) { logInfo("google oauth: token received"); return r as TokenPair; } // 200
-    if (Number(r?.interval) > 0) interval = Math.max(1, Number(r.interval)); // 202 pending (also restores the fast cadence after a hiccup)
+    // pass #141 (W8-L05): the server-advertised cadence is clamped like the start one —
+    // a huge interval must not park the poll for days, a garbage one must not tight-loop.
+    const nextIv = Number(r?.interval);
+    if (Number.isFinite(nextIv) && nextIv > 0) interval = Math.min(Math.max(1, Math.floor(nextIv)), 30); // 202 pending (also restores the fast cadence after a hiccup)
     o.onStatus(`waiting for the browser sign-in… (${left(deadline)}s left)`);
     check();
   }
