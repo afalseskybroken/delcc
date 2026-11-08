@@ -178,7 +178,7 @@ export function openToolsPanel(): void {
   <div class="tm-tools-result" data-calc-out>—</div>
   <div class="tm-calc-pad" data-calc-pad><div class="tm-calc-fns"><button type="button" class="tm-button tm-calc-key tm-calc-2nd" data-action="2nd" title="${esc(t("tools.calc2nd"))}">2nd</button><button type="button" class="tm-button tm-calc-key" data-key="sin(">sin(</button><button type="button" class="tm-button tm-calc-key" data-key="cos(">cos(</button><button type="button" class="tm-button tm-calc-key" data-key="tan(">tan(</button><button type="button" class="tm-button tm-calc-key" data-key="asin(">asin(</button><button type="button" class="tm-button tm-calc-key" data-key="ln(">ln(</button><button type="button" class="tm-button tm-calc-key" data-key="log(">log(</button><button type="button" class="tm-button tm-calc-key" data-key="sqrt(">sqrt(</button><button type="button" class="tm-button tm-calc-key" data-key="abs(">abs(</button><button type="button" class="tm-button tm-calc-key" data-key="floor(">floor(</button><button type="button" class="tm-button tm-calc-key" data-key="gcd(">gcd(</button><button type="button" class="tm-button tm-calc-key" data-key="pi">π</button><button type="button" class="tm-button tm-calc-key" data-key="e">e</button><button type="button" class="tm-button tm-calc-key" data-key="tau">τ</button><button type="button" class="tm-button tm-calc-key" data-action="clear">C</button></div><div class="tm-calc-grid"><button type="button" class="tm-button tm-calc-key" data-action="clear">C</button><button type="button" class="tm-button tm-calc-key" data-action="back">⌫</button><button type="button" class="tm-button tm-calc-key" data-key="(">(</button><button type="button" class="tm-button tm-calc-key" data-key=")">)</button><button type="button" class="tm-button tm-calc-key" data-key="/">÷</button><button type="button" class="tm-button tm-calc-key" data-key="7">7</button><button type="button" class="tm-button tm-calc-key" data-key="8">8</button><button type="button" class="tm-button tm-calc-key" data-key="9">9</button><button type="button" class="tm-button tm-calc-key" data-key="^">^</button><button type="button" class="tm-button tm-calc-key" data-key="*">×</button><button type="button" class="tm-button tm-calc-key" data-key="4">4</button><button type="button" class="tm-button tm-calc-key" data-key="5">5</button><button type="button" class="tm-button tm-calc-key" data-key="6">6</button><button type="button" class="tm-button tm-calc-key" data-action="ans">Ans</button><button type="button" class="tm-button tm-calc-key" data-key="-">−</button><button type="button" class="tm-button tm-calc-key" data-key="1">1</button><button type="button" class="tm-button tm-calc-key" data-key="2">2</button><button type="button" class="tm-button tm-calc-key" data-key="3">3</button><button type="button" class="tm-button tm-calc-key" data-key=".">.</button><button type="button" class="tm-button tm-calc-key" data-key="+">+</button><button type="button" class="tm-button tm-calc-key tm-calc-zero" data-key="0">0</button><button type="button" class="tm-button tm-calc-key tm-calc-eq" data-action="eval">=</button></div></div>
   <div class="tm-tools-sub"><button type="button" class="tm-button tm-plot-open" data-plot-open>${esc(t("tools.plotFn"))}</button></div>
-  <div class="tm-plot-panel" data-plot-panel hidden><div class="tm-plot-rows" data-plot-rows></div><div class="tm-tools-row wrap"><button type="button" class="tm-button tm-plot-add" data-plot-add>+ ${esc(t("tools.plotAdd"))}</button><label class="tm-tools-inline">x min <input class="tm-tools-mini" data-plot-xmin value="-10"></label><label class="tm-tools-inline">x max <input class="tm-tools-mini" data-plot-xmax value="10"></label><button type="button" class="tm-button" data-plot-redraw>${esc(t("tools.plot"))}</button></div><canvas class="tm-tools-canvas" data-plot-canvas width="760" height="280"></canvas><div class="tm-tools-sub" data-plot-note></div></div>
+  <div class="tm-plot-panel" data-plot-panel hidden><div class="tm-plot-rows" data-plot-rows></div><div class="tm-tools-row wrap"><button type="button" class="tm-button tm-plot-add" data-plot-add>+ ${esc(t("tools.plotAdd"))}</button><label class="tm-tools-inline">x min <input class="tm-tools-mini" data-plot-xmin value="-10"></label><label class="tm-tools-inline">x max <input class="tm-tools-mini" data-plot-xmax value="10"></label><button type="button" class="tm-button" data-plot-redraw>${esc(t("tools.plot"))}</button></div><canvas class="tm-tools-canvas" data-plot-canvas width="760" height="280" title="${esc(t("tools.plotZoomHint"))}"></canvas><div class="tm-tools-sub" data-plot-note></div></div>
   <div class="tm-tools-history" data-calc-hist></div>
 </div>
 <div class="tm-tools-body" data-pane="bytes" hidden>
@@ -691,12 +691,22 @@ function wireCalc(root: HTMLElement): void {
   };
   plotCanvas.onpointerup = () => { if (dragX !== null) { dragX = null; persistPlot(); } plotCanvas.style.cursor = "grab"; };
   plotCanvas.onpointercancel = () => { dragX = null; plotCanvas.style.cursor = "grab"; };
+  // pass #148 (He: touchpad two-finger "just shattered everything"): every wheel event
+  // used to be a fixed 1.25x step — a two-finger swipe floods dozens of tiny pixel
+  // deltas, so one gesture compounded into a ~800x explosion at the 1e-9 floor. Now:
+  // PLAIN wheel does nothing (the panel scrolls natively — his "sane, intuitive"
+  // swipe), and CTRL+wheel zooms with a DOSE-PROPORTIONAL factor — exp(delta), delta
+  // normalized across deltaMode (touchpads send pixels, line-mode mice lines) — so a
+  // notch feels like the old step and a swipe is a smooth glide. A precision-touchpad
+  // PINCH arrives as ctrl+wheel, so pinch-zoom works with the same path.
   plotCanvas.onwheel = e => {
+    if (!e.ctrlKey) return; // native scroll — never captured, never prevented
     if (plotPanel.hidden || !plotSamples.length) return;
     e.preventDefault();
     const r = plotCanvas.getBoundingClientRect();
     if (!r.width) return;
-    const f = e.deltaY < 0 ? 1 / 1.25 : 1.25;
+    const dy = (e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 100 : e.deltaY);
+    const f = Math.exp(Math.max(-240, Math.min(240, dy)) * 0.002);
     const cx = plotView.xmin + (e.clientX - r.left) / r.width * (plotView.xmax - plotView.xmin);
     const xmin = cx - (cx - plotView.xmin) * f, xmax = cx + (plotView.xmax - cx) * f;
     // the float format itself is the boundary: past ~1e12 of span or under ~1e-9 the

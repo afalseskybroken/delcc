@@ -216,14 +216,25 @@ try {
     const g0 = await plotGeo();
     assert.ok(Math.abs(g0.bitmap[0] - g0.rect[0] * g0.dpr) < 2 && Math.abs(g0.bitmap[1] - g0.rect[1] * g0.dpr) < 2, `plot: the bitmap tracks the box x dpr (bitmap ${g0.bitmap} vs rect ${g0.rect} x dpr ${g0.dpr})`);
 
-    // wheel zoom at the center: the span shrinks, the inputs stay the source of truth
+    // pass #148: PLAIN wheel (a touchpad two-finger swipe) must NOT zoom — the panel
+    // scrolls natively instead of shattering the view
     const box = await page.locator("[data-plot-canvas]").boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.wheel(0, -120);
+    await page.waitForTimeout(400);
+    const gPlain = await plotGeo();
+    assert.equal(gPlain.xmin, g0.xmin, "plain wheel: x min untouched (the two-finger swipe scrolls, never zooms)");
+    assert.equal(gPlain.xmax, g0.xmax, "plain wheel: x max untouched");
+
+    // ctrl+wheel zoom at the center (a touchpad PINCH arrives as ctrl+wheel): the span
+    // shrinks dose-proportionally, the inputs stay the source of truth
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, -120);
+    await page.keyboard.up("Control");
     await page.waitForTimeout(400); // re-sample
     const gz = await plotGeo();
     const spanZ = parseFloat(gz.xmax) - parseFloat(gz.xmin);
-    assert.ok(Math.abs(spanZ - 16) < 0.5, `wheel zoom: the span shrank 20 -> ~16 (got [${gz.xmin}, ${gz.xmax}])`);
+    assert.ok(spanZ < 19.5 && spanZ > 12, `ctrl+wheel zoom: the span shrank dose-proportionally 20 -> ~15.7 (got [${gz.xmin}, ${gz.xmax}])`);
     assert.ok(Math.abs(gz.bitmap[0] - gz.rect[0] * gz.dpr) < 2, "wheel zoom: the bitmap still tracks the box after the re-render");
 
     // drag pan: dragging right moves the window left

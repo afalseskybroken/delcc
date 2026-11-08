@@ -158,6 +158,7 @@ export const viVN: Dict = {
   "tools.plotEye": "Hiện / ẩn đường cong",
   "tools.plotRemove": "Xoá đường cong",
   "tools.plotErrRange": "x max phải lớn hơn x min",
+  "tools.plotZoomHint": "ctrl+lăn hoặc chép tay: thu phóng · kéo: di chuyển · nhấp đúp: đặt lại (lăn thường cuộn bảng này)",
   "tools.plotErrNone": "Không có giá trị hữu hạn trên khoảng này",
   "tools.calc2nd": "2nd — hàm ngược (sin⁻¹, cos⁻¹, tan⁻¹, ln/log, ∛, ceil)",
   "tools.text": "Văn bản",

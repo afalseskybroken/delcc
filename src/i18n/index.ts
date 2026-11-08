@@ -129,6 +129,7 @@ export interface Dict {
   "tools.plotEye": string;
   "tools.plotRemove": string;
   "tools.plotErrRange": string;
+  "tools.plotZoomHint": string;
   "tools.plotErrNone": string;
   "tools.calc2nd": string;
   "tools.text": string;
