@@ -158,7 +158,7 @@ export const zhCN: Dict = {
   "tools.plotEye": "显示 / 隐藏曲线",
   "tools.plotRemove": "移除曲线",
   "tools.plotErrRange": "x max 必须大于 x min",
-  "tools.plotZoomHint": "ctrl+滚轮或双指捏合：缩放 · 拖动：平移 · 双击：重置（普通滚轮滚动本面板）",
+  "tools.plotZoomHint": "滚轮 / ctrl+滚轮 / 双指捏合：缩放 · 拖动：平移 · 双击：重置（触控板小幅滑动滚动本面板）",
   "tools.plotErrNone": "此范围内没有有限值",
   "tools.calc2nd": "2nd — 反函数（sin⁻¹、cos⁻¹、tan⁻¹、ln/log、∛、ceil）",
   "tools.text": "文本",

@@ -216,25 +216,38 @@ try {
     const g0 = await plotGeo();
     assert.ok(Math.abs(g0.bitmap[0] - g0.rect[0] * g0.dpr) < 2 && Math.abs(g0.bitmap[1] - g0.rect[1] * g0.dpr) < 2, `plot: the bitmap tracks the box x dpr (bitmap ${g0.bitmap} vs rect ${g0.rect} x dpr ${g0.dpr})`);
 
-    // pass #148: PLAIN wheel (a touchpad two-finger swipe) must NOT zoom — the panel
-    // scrolls natively instead of shattering the view
+    // pass #149: the wheel is GESTURE-SHAPED. A bare MOUSE notch (big discrete delta)
+    // zooms — the mouse userbase keeps bare-wheel zoom — while a touchpad's TINY
+    // stream deltas scroll through natively (the #148 shatter stays dead).
     const box = await page.locator("[data-plot-canvas]").boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    // a touchpad-sized delta (-4 px) must NOT zoom
+    await page.evaluate(() => {
+      const c = document.querySelector("[data-plot-canvas]");
+      const r = c.getBoundingClientRect();
+      c.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true,
+        clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, deltaY: -4, deltaMode: 0 }));
+    });
+    await page.waitForTimeout(300);
+    const gSwipe = await plotGeo();
+    assert.equal(gSwipe.xmin, g0.xmin, "tiny bare delta: x min untouched (the touchpad stream scrolls, never zooms)");
+    assert.equal(gSwipe.xmax, g0.xmax, "tiny bare delta: x max untouched");
+    // a bare MOUSE notch (-120 px) zooms dose-proportionally: 20 -> ~15.7
     await page.mouse.wheel(0, -120);
     await page.waitForTimeout(400);
-    const gPlain = await plotGeo();
-    assert.equal(gPlain.xmin, g0.xmin, "plain wheel: x min untouched (the two-finger swipe scrolls, never zooms)");
-    assert.equal(gPlain.xmax, g0.xmax, "plain wheel: x max untouched");
+    const gNotch = await plotGeo();
+    const spanN = parseFloat(gNotch.xmax) - parseFloat(gNotch.xmin);
+    assert.ok(spanN < 19.5 && spanN > 12, `bare notch: the span shrank dose-proportionally 20 -> ~15.7 (got [${gNotch.xmin}, ${gNotch.xmax}])`);
 
-    // ctrl+wheel zoom at the center (a touchpad PINCH arrives as ctrl+wheel): the span
-    // shrinks dose-proportionally, the inputs stay the source of truth
+    // ctrl+wheel zoom at the center (a touchpad PINCH arrives as ctrl+wheel on
+    // precision pads): the span shrinks further, the inputs stay the source of truth
     await page.keyboard.down("Control");
     await page.mouse.wheel(0, -120);
     await page.keyboard.up("Control");
     await page.waitForTimeout(400); // re-sample
     const gz = await plotGeo();
     const spanZ = parseFloat(gz.xmax) - parseFloat(gz.xmin);
-    assert.ok(spanZ < 19.5 && spanZ > 12, `ctrl+wheel zoom: the span shrank dose-proportionally 20 -> ~15.7 (got [${gz.xmin}, ${gz.xmax}])`);
+    assert.ok(spanZ < spanN - 1, `ctrl+wheel zoom: the span shrank further (${spanN} -> ${spanZ})`);
     assert.ok(Math.abs(gz.bitmap[0] - gz.rect[0] * gz.dpr) < 2, "wheel zoom: the bitmap still tracks the box after the re-render");
 
     // drag pan: dragging right moves the window left

@@ -691,21 +691,22 @@ function wireCalc(root: HTMLElement): void {
   };
   plotCanvas.onpointerup = () => { if (dragX !== null) { dragX = null; persistPlot(); } plotCanvas.style.cursor = "grab"; };
   plotCanvas.onpointercancel = () => { dragX = null; plotCanvas.style.cursor = "grab"; };
-  // pass #148 (He: touchpad two-finger "just shattered everything"): every wheel event
-  // used to be a fixed 1.25x step — a two-finger swipe floods dozens of tiny pixel
-  // deltas, so one gesture compounded into a ~800x explosion at the 1e-9 floor. Now:
-  // PLAIN wheel does nothing (the panel scrolls natively — his "sane, intuitive"
-  // swipe), and CTRL+wheel zooms with a DOSE-PROPORTIONAL factor — exp(delta), delta
-  // normalized across deltaMode (touchpads send pixels, line-mode mice lines) — so a
-  // notch feels like the old step and a swipe is a smooth glide. A precision-touchpad
-  // PINCH arrives as ctrl+wheel, so pinch-zoom works with the same path.
+  // pass #149 (He: "mouse have bare wheel being zoom instead of scroll, that's
+  // something we have to consider") — building on #148's touchpad fix: the wheel is
+  // now GESTURE-SHAPED. A mouse notch is a big discrete jump (Chrome pixel-mode
+  // ~100-120, line-mode 3x16=48); a touchpad two-finger swipe is a STREAM of tiny
+  // pixel deltas. So: bare wheel zooms ONLY when the normalized delta is notch-sized
+  // (|dy| >= 40) — dose-proportional, so even a fast flick that crosses the line adds
+  // at most a ~1.1x nudge instead of an explosion; smaller bare deltas are the
+  // touchpad's and scroll through natively. CTRL+wheel zooms at any size (his box's
+  // ctrl+swipe), and a pinch that emits ctrl+wheel rides the same path.
   plotCanvas.onwheel = e => {
-    if (!e.ctrlKey) return; // native scroll — never captured, never prevented
+    const dy = (e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 100 : e.deltaY);
+    if (!e.ctrlKey && Math.abs(dy) < 40) return; // the touchpad's stream — native scroll
     if (plotPanel.hidden || !plotSamples.length) return;
     e.preventDefault();
     const r = plotCanvas.getBoundingClientRect();
     if (!r.width) return;
-    const dy = (e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 100 : e.deltaY);
     const f = Math.exp(Math.max(-240, Math.min(240, dy)) * 0.002);
     const cx = plotView.xmin + (e.clientX - r.left) / r.width * (plotView.xmax - plotView.xmin);
     const xmin = cx - (cx - plotView.xmin) * f, xmax = cx + (plotView.xmax - cx) * f;

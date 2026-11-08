@@ -159,7 +159,7 @@ export const enUS: Dict = {
   "tools.plotEye": "Show / hide curve",
   "tools.plotRemove": "Remove curve",
   "tools.plotErrRange": "x max must be greater than x min",
-  "tools.plotZoomHint": "ctrl+wheel or pinch: zoom · drag: pan · double-click: reset (plain wheel scrolls this panel)",
+  "tools.plotZoomHint": "wheel / ctrl+wheel / pinch: zoom · drag: pan · double-click: reset (small touchpad swipes scroll this panel)",
   "tools.plotErrNone": "No finite values on this range",
   "tools.calc2nd": "2nd — inverse functions (sin⁻¹, cos⁻¹, tan⁻¹, ln/log, ∛, ceil)",
   "tools.text": "Text",
