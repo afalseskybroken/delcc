@@ -46,6 +46,15 @@ try {
   await page.route("**/*", r => { const u = new URL(r.request().url()); return u.hostname === "127.0.0.1" ? r.continue() : r.abort(); });
   await page.goto(`${server.resolvedUrls.local[0]}__tmath_tools_test__`);
   await page.evaluate(async () => { window.tools = await import("/src/tmath/tools.ts"); });
+  // pass #145 continued (CI's first run): vite transforms the ~40-module AGE graph ON
+  // DEMAND at the first dynamic import — on a 2-core runner that exceeded the 40s
+  // mount wait (no page error, no AGE error surface, no canvas: the transform was
+  // still running). Pre-warm the lazy chunk trees here, where there is no timeout;
+  // the behavioral asserts below stay strict against a warm module graph.
+  await page.evaluate(async () => {
+    await import("/src/vendor/age");
+    await import("/src/tmath/sketch");
+  });
 
   const drawAndAssert = async (label) => {
     try {
