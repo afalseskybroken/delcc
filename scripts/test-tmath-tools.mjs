@@ -154,6 +154,40 @@ try {
     console.log("PASS tools close/reopen: the AGE host re-mounts into the live panel every cycle (1 connected scope, 3 cycles)");
     console.log("PASS tools resize: maximized panel tracks the window with no inner clip (grow 1920x1080, hard shrink 1280x420, restore), bitmap tracks the box, painted graph re-clamped");
   } catch (err) { await fail("resize cycle", err); }
+
+  // ---- pass #146: the hex column is a NIBBLE STREAM (He's "2 bytes?!" bug) ----
+  try {
+    await page.click("[data-tools-close]");
+    await page.waitForSelector(".tm-tools-panel", { state: "detached", timeout: 10000 });
+    await page.evaluate(() => window.tools.openToolsPanel());
+    await page.evaluate(() => document.querySelector('.tm-tools-tabs [data-tab="bytes"]').click());
+    await page.waitForSelector('[data-pane="bytes"]', { state: "visible", timeout: 10000 });
+    const hexCase = async (input, wantDetail, wantHex) => {
+      await page.evaluate((v) => {
+        const el = document.querySelector("[data-bytes-hex]");
+        el.value = v;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }, input);
+      // the editor repaint is debounced 200ms behind an async import — wait for the
+      // byte count the regex demands to appear before asserting the settled state
+      const wantText = wantDetail.source.replaceAll("\\b", "");
+      await page.waitForFunction(
+        (w) => (document.querySelector("[data-bytes-detail]")?.textContent ?? "").includes(w),
+        wantText, { timeout: 8000 },
+      );
+      const got = await page.evaluate(() => ({
+        detail: document.querySelector("[data-bytes-detail]").textContent,
+        hex: document.querySelector("[data-bytes-hex]").value,
+      }));
+      assert.match(got.detail, wantDetail, `hex "${input}": byte count`);
+      assert.equal(got.hex, wantHex, `hex "${input}": auto-separation`);
+    };
+    await hexCase("ffffff", /\b3 bytes\b/, "ff ff ff"); // He's exact case: 3 ff = 3 bytes
+    await hexCase("ff ff ff", /\b3 bytes\b/, "ff ff ff"); // already-spaced input unchanged
+    await hexCase("fffff", /\b2 bytes\b/, "ff ff f"); // a trailing lone nibble stays visible, half a byte
+    await hexCase("0xFF 00", /\b2 bytes\b/, "ff 00"); // 0x prefixes still honored
+    console.log("PASS tools bytes: the hex column is a nibble stream (ffffff = ff ff ff = 3 bytes, auto-separated every 2 chars, odd nibble visible)");
+  } catch (err) { await fail("bytes nibble stream", err); }
 } finally {
   await browser?.close();
   await server.close();

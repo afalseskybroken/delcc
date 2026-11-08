@@ -680,18 +680,25 @@ function wireBytes(root: HTMLElement): void {
   // (Apply edits can never race a pending repaint).
   let hexCore: typeof import("@hexcanvas/core") | null = null;
   let hexLoadTimer: ReturnType<typeof setTimeout> | null = null;
+  // pass #146: the bytes the NEXT paint must show. paintEditor's own capture can be
+  // stale — two in-flight imports (the open's paint + the first edit's paint) resolve
+  // out of order, and the first buffer init used to win with its OPEN-TIME bytes (the
+  // regression lock's single synthetic keystroke displayed "0 bytes" and stayed there
+  // until the next one). The paint always rebuilds from the latest columns instead.
+  let latestBytes: Uint8Array<ArrayBufferLike> = new Uint8Array();
   const paintEditor = (bytes: Uint8Array): void => {
+    latestBytes = bytes;
     void Promise.all([import("@hexcanvas/element"), import("@hexcanvas/core")]).then(([el, core]) => {
       if (!dump.isConnected) return; // the panel closed while loading
       hexCore = core;
-      if (!hexBuffer) hexBuffer = new core.MemoryBinaryBuffer(bytes.slice());
+      hexBuffer = new core.MemoryBinaryBuffer(latestBytes.slice());
       const editor = document.createElement("hexcanvas-editor") as HexEditorElement;
       dump.textContent = "";
       dump.appendChild(editor);
       (editor as { source: unknown }).source = core.fromBinaryBuffer(hexBuffer);
       detail.textContent = t("tools.bytesCount", { n: String(hexBuffer.length) });
     }).catch(() => {
-      detail.textContent = t("tools.bytesCount", { n: String(bytes.length) }) + " — hex editor unavailable";
+      detail.textContent = t("tools.bytesCount", { n: String(latestBytes.length) }) + " — hex editor unavailable";
     });
   };
   const loadEditor = (bytes: Uint8Array): void => {
@@ -707,14 +714,42 @@ function wireBytes(root: HTMLElement): void {
   };
   const syncFromHex = (): void => {
     const cleaned = hex.value.replace(/0x/gi, " ").replace(/[^0-9a-fA-F\s]/g, " ");
-    const pairs = cleaned.split(/\s+/).filter(Boolean);
-    if (pairs.length % 2 === 1) pairs.pop();
-    const bytes = new Uint8Array(pairs.map(p => parseInt(p, 16)));
+    // pass #146 (He: "HOW THE FUCK COULD IT BE 2 BYTES WHILE ARE 3 INSTANCE OF [FF]?"):
+    // a whitespace-separated token was treated as ONE whole byte — "ffffff" (three ff)
+    // went through parseInt as 0xFFFFFF and the Uint8Array truncation kept the low
+    // byte, so three ff became ONE FF (two lines of it: exactly the 2 bytes in his
+    // dump). The hex column is a NIBBLE STREAM: every 2 hex chars are one byte, however
+    // they are spaced; a trailing lone nibble is half a byte and is dropped.
+    const nibbles = cleaned.replace(/\s+/g, "");
+    const byteList: number[] = [];
+    for (let i = 0; i + 1 < nibbles.length; i += 2) byteList.push(parseInt(nibbles.slice(i, i + 2), 16));
+    const bytes = new Uint8Array(byteList);
     text.value = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
     loadEditor(bytes);
   };
+  // pass #146 (He: "make the separation happen automatically every 2 char"): the hex
+  // column reformats ITSELF as you type — every 2 hex chars get a space, so "ffffff"
+  // becomes "ff ff ff" on screen and can never read as one number again. Line breaks
+  // are preserved (Enter stays a separator) and the caret rides its nibble offset
+  // through the rewrite, so typing mid-text does not jump.
+  const formatHex = (): void => {
+    const el = hex;
+    const caret = el.selectionStart ?? el.value.length;
+    const nibbleCount = (s: string): number => s.replace(/[^0-9a-fA-F]/g, "").length;
+    const target = nibbleCount(el.value.slice(0, caret));
+    // the SAME stream the parser sees: 0x prefixes are stripped before grouping, or a
+    // formatted "0 FF 00" would re-parse as the nibbles 0f f0 on the next keystroke
+    el.value = el.value.split("\n").map(line =>
+      line.replace(/0x/gi, " ").replace(/[^0-9a-fA-F]+/g, " ").trim().replace(/([0-9a-fA-F]{2})/g, "$1 ").replace(/ {2,}/g, " ").trimEnd().toLowerCase()
+    ).join("\n");
+    let seen = 0, pos = 0;
+    const v = el.value;
+    while (pos < v.length && seen < target) { if (/[0-9a-fA-F]/.test(v[pos])) seen++; pos++; }
+    el.setSelectionRange(pos, pos);
+  };
+  const hexChanged = (): void => { syncFromHex(); formatHex(); };
   text.oninput = syncFromText;
-  hex.oninput = syncFromHex;
+  hex.oninput = hexChanged;
   syncFromText();
   root.querySelectorAll<HTMLButtonElement>("[data-conv]").forEach(b => b.onclick = () => {
     const kind = b.dataset.conv!;
@@ -727,7 +762,7 @@ function wireBytes(root: HTMLElement): void {
       else if (kind === "htmdec") { const d = document.createElement("div"); d.innerHTML = text.value; text.value = d.textContent ?? ""; }
       else if (kind === "utf8hex") text.value = [...bytesOf()].map(x => x.toString(16).padStart(2, "0")).join(" ");
       else if (kind === "binstr") text.value = [...bytesOf()].map(x => x.toString(2).padStart(8, "0")).join(" ");
-      else if (kind === "lower") { hex.value = hex.value.toLowerCase(); syncFromHex(); return; }
+      else if (kind === "lower") { hex.value = hex.value.toLowerCase(); hexChanged(); return; }
       else if (kind === "applyhex") { // pass #114: the editor's edits flow back to the columns
         if (!hexBuffer) return;
         const bytes = hexBuffer.toUint8Array();
