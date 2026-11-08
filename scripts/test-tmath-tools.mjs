@@ -188,6 +188,64 @@ try {
     await hexCase("0xFF 00", /\b2 bytes\b/, "ff 00"); // 0x prefixes still honored
     console.log("PASS tools bytes: the hex column is a nibble stream (ffffff = ff ff ff = 3 bytes, auto-separated every 2 chars, odd nibble visible)");
   } catch (err) { await fail("bytes nibble stream", err); }
+
+  // ---- pass #147: the f(x) plot — constant-size numbers + zoom/pan ----
+  try {
+    await page.click("[data-tools-close]");
+    await page.waitForSelector(".tm-tools-panel", { state: "detached", timeout: 10000 });
+    await page.evaluate(() => window.tools.openToolsPanel());
+    await page.evaluate(() => document.querySelector('.tm-tools-tabs [data-tab="calc"]').click());
+    await page.waitForSelector('[data-pane="calc"]', { state: "visible", timeout: 10000 });
+    await page.click("[data-plot-open]");
+    await page.waitForSelector("[data-plot-canvas]", { state: "visible", timeout: 10000 });
+    await page.waitForTimeout(600); // first render + sample
+
+    const plotGeo = () => page.evaluate(() => {
+      const c = document.querySelector("[data-plot-canvas]");
+      const r = c.getBoundingClientRect();
+      return {
+        bitmap: [c.width, c.height], rect: [Math.round(r.width), Math.round(r.height)],
+        dpr: devicePixelRatio,
+        xmin: document.querySelector("[data-plot-xmin]").value,
+        xmax: document.querySelector("[data-plot-xmax]").value,
+      };
+    });
+
+    // the mechanism lock: the bitmap follows the box x dpr — labels draw in CSS px,
+    // so their SIZE is constant no matter how big the panel is
+    const g0 = await plotGeo();
+    assert.ok(Math.abs(g0.bitmap[0] - g0.rect[0] * g0.dpr) < 2 && Math.abs(g0.bitmap[1] - g0.rect[1] * g0.dpr) < 2, `plot: the bitmap tracks the box x dpr (bitmap ${g0.bitmap} vs rect ${g0.rect} x dpr ${g0.dpr})`);
+
+    // wheel zoom at the center: the span shrinks, the inputs stay the source of truth
+    const box = await page.locator("[data-plot-canvas]").boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, -120);
+    await page.waitForTimeout(400); // re-sample
+    const gz = await plotGeo();
+    const spanZ = parseFloat(gz.xmax) - parseFloat(gz.xmin);
+    assert.ok(Math.abs(spanZ - 16) < 0.5, `wheel zoom: the span shrank 20 -> ~16 (got [${gz.xmin}, ${gz.xmax}])`);
+    assert.ok(Math.abs(gz.bitmap[0] - gz.rect[0] * gz.dpr) < 2, "wheel zoom: the bitmap still tracks the box after the re-render");
+
+    // drag pan: dragging right moves the window left
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 160, box.y + box.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForTimeout(400);
+    const gp = await plotGeo();
+    const centerZ = (parseFloat(gz.xmin) + parseFloat(gz.xmax)) / 2;
+    const centerP = (parseFloat(gp.xmin) + parseFloat(gp.xmax)) / 2;
+    assert.ok(centerP < centerZ, `drag pan: the window center moved left (${centerZ} -> ${centerP})`);
+
+    // double-click resets to the default window
+    await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(400);
+    const gr = await plotGeo();
+    assert.equal(gr.xmin, "-10", "dblclick reset: x min back to -10");
+    assert.equal(gr.xmax, "10", "dblclick reset: x max back to 10");
+
+    console.log("PASS tools plot: bitmap tracks the box x dpr (constant-size numbers), wheel zoom 20->16 around the cursor, drag pan shifts the window, dblclick resets");
+  } catch (err) { await fail("plot zoom", err); }
 } finally {
   await browser?.close();
   await server.close();

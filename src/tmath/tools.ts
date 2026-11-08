@@ -156,6 +156,10 @@ import "../vendor/age/age.css";
 // ---------- the panel ----------
 let pushAge: (() => void) | null = null; // pass #111: the AGE bridge push, set when the panes wire
 let pushSketch: (() => void) | null = null; // pass #112: the Excalidraw sketch mount/update
+// pass #147: pane wiring can register window-resize responders (the plot's bitmap
+// re-fit joins #145's panel re-clamp) — the close handler drains this list so a
+// reopen never stacks listeners from a dead panel.
+const panelResizeCleanups: (() => void)[] = [];
 export function openToolsPanel(): void {
   // pass #109 (He, live note "make the theme"): AGE reads darkMode from localStorage at its
   // own mount — same origin, so we set it from delcc's current scheme before the iframe loads.
@@ -276,6 +280,7 @@ export function openToolsPanel(): void {
     void import("../vendor/age").then(m => m.unmountAge()).catch(() => {});
     void import("./sketch").then(m => m.unmountSketch()).catch(() => {});
     window.removeEventListener("resize", reclamp);
+    panelResizeCleanups.splice(0).forEach(f => f());
     panel?.remove();
     panel = null;
   };
@@ -514,7 +519,19 @@ function wireCalc(root: HTMLElement): void {
   let plotView = { xmin: -10, xmax: 10, ymin: -1, ymax: 1 };
   const drawPlot = (crossX?: number): void => {
     const ctx = plotCanvas.getContext("2d")!;
-    const W = plotCanvas.width, H = plotCanvas.height;
+    // pass #147 (He: "the scaling on the graph is off — the numbers should stay
+    // constant regardless of the scale"): the bitmap was a FIXED 760x280 that CSS
+    // stretched to the panel, so every tick label was bitmap-scaled smear on a wide
+    // window. The bitmap now follows the element box times devicePixelRatio and all
+    // math runs in CSS pixels — the font stays a constant 10px at any panel size.
+    const rect = plotCanvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const bw = Math.max(1, Math.round(rect.width * dpr));
+    const bh = Math.max(1, Math.round(rect.height * dpr));
+    if (!rect.width || !rect.height) return;
+    if (plotCanvas.width !== bw || plotCanvas.height !== bh) { plotCanvas.width = bw; plotCanvas.height = bh; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const W = rect.width, H = rect.height;
     const { xmin, xmax, ymin, ymax } = plotView;
     const px = (x: number): number => (x - xmin) / (xmax - xmin) * W;
     const py = (y: number): number => H - (y - ymin) / (ymax - ymin) * H;
@@ -641,10 +658,65 @@ function wireCalc(root: HTMLElement): void {
   };
   plotXmin.onchange = plotXmax.onchange = () => { persistPlot(); renderPlot(); };
   plotPanel.querySelector<HTMLButtonElement>("[data-plot-redraw]")!.onclick = () => renderPlot();
+  // pass #147 (He: "add graph zooming (will need it)"): wheel zooms X around the
+  // cursor, drag pans X, double-click resets to the default window. The x-min/x-max
+  // inputs stay the SINGLE source of truth — zoom/pan rewrite them (persisted, so
+  // Plot and the note stay truthful) — and every step re-samples the curves over the
+  // new window, because the sample cache is range-bound. Y keeps the auto-fit (the
+  // outlier-resistant range is a feature; a y-zoom would fight it).
+  const setRange = (a: number, b: number): void => {
+    plotXmin.value = String(parseFloat(a.toPrecision(12)));
+    plotXmax.value = String(parseFloat(b.toPrecision(12)));
+  };
+  let dragX: number | null = null;
+  let panRaf = false;
+  const panTo = (clientX: number): void => {
+    const r = plotCanvas.getBoundingClientRect();
+    if (!r.width || dragX === null) return;
+    const dx = (clientX - dragX) / r.width * (plotView.xmax - plotView.xmin);
+    if (Math.abs(clientX - dragX) < 2) return; // a click is not a pan
+    dragX = clientX;
+    setRange(plotView.xmin - dx, plotView.xmax - dx);
+    if (!panRaf) { // re-sampling 600 points per curve per event is fine; per FRAME is the ceiling
+      panRaf = true;
+      requestAnimationFrame(() => { panRaf = false; renderPlot(); });
+    }
+  };
+  plotCanvas.style.cursor = "grab";
+  plotCanvas.onpointerdown = e => {
+    if (plotPanel.hidden || !plotSamples.length) return;
+    dragX = e.clientX;
+    plotCanvas.setPointerCapture(e.pointerId);
+    plotCanvas.style.cursor = "grabbing";
+  };
+  plotCanvas.onpointerup = () => { if (dragX !== null) { dragX = null; persistPlot(); } plotCanvas.style.cursor = "grab"; };
+  plotCanvas.onpointercancel = () => { dragX = null; plotCanvas.style.cursor = "grab"; };
+  plotCanvas.onwheel = e => {
+    if (plotPanel.hidden || !plotSamples.length) return;
+    e.preventDefault();
+    const r = plotCanvas.getBoundingClientRect();
+    if (!r.width) return;
+    const f = e.deltaY < 0 ? 1 / 1.25 : 1.25;
+    const cx = plotView.xmin + (e.clientX - r.left) / r.width * (plotView.xmax - plotView.xmin);
+    const xmin = cx - (cx - plotView.xmin) * f, xmax = cx + (plotView.xmax - cx) * f;
+    // the float format itself is the boundary: past ~1e12 of span or under ~1e-9 the
+    // ticks and samples stop being meaningful — stop there instead of degrading
+    if (!(xmax - xmin > 1e-9) || xmax - xmin > 1e12) return;
+    setRange(xmin, xmax);
+    persistPlot();
+    renderPlot();
+  };
+  plotCanvas.ondblclick = () => {
+    setRange(-10, 10);
+    persistPlot();
+    renderPlot();
+  };
   // the crosshair: a vertical line + live per-curve values at the pointer, evaluated
   // straight from the expressions — the curves themselves re-draw from the sample cache
   plotCanvas.onpointermove = e => {
-    if (plotPanel.hidden || !plotSamples.length) return;
+    if (plotPanel.hidden) return;
+    if (dragX !== null) { panTo(e.clientX); return; } // the pan owns the pointer while held
+    if (!plotSamples.length) return;
     const r = plotCanvas.getBoundingClientRect();
     if (!r.width) return;
     const x = plotView.xmin + (e.clientX - r.left) / r.width * (plotView.xmax - plotView.xmin);
@@ -657,6 +729,11 @@ function wireCalc(root: HTMLElement): void {
     plotNote.textContent = parts.join("  ·  ");
   };
   plotCanvas.onpointerleave = () => { if (!plotPanel.hidden) renderPlot(); };
+  // pass #147: the plot re-fits its bitmap when the panel resizes — the grips and the
+  // maximize toggle dispatch window resize, a real window resize fires it natively
+  const onPlotResize = (): void => { if (plotPanel.isConnected && !plotPanel.hidden && plotSamples.length) drawPlot(); };
+  window.addEventListener("resize", onPlotResize);
+  panelResizeCleanups.push(() => window.removeEventListener("resize", onPlotResize));
 }
 
 // ---------- bytes & encodings wiring ----------
