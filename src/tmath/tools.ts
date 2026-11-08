@@ -246,6 +246,26 @@ export function openToolsPanel(): void {
     rz.onpointermove = move;
     rz.onpointerup = () => { rz.onpointermove = null; rz.onpointerup = null; };
   };
+  // pass #145 (He, "GENUINELY UI BREAKING"): the grips bake viewport-clamped px into
+  // the panel's inline style; after the WINDOW resizes (maximize, restore) those px
+  // can overflow the viewport or waste the new space — a gripped panel stayed frozen
+  // at its old size inside a grown window (probe-verified). Re-clamp on every window
+  // resize: keep the user's size when it still fits, clamp when it doesn't, and keep
+  // a dragged panel reachable. The maximized class is CSS-pinned and skips this.
+  const reclamp = (): void => {
+    const p = panel;
+    if (!p || p.classList.contains("maximized")) return;
+    const r = p.getBoundingClientRect();
+    if (p.style.width || p.style.height) {
+      p.style.width = `${Math.max(560, Math.min(r.width, window.innerWidth - 40))}px`;
+      p.style.height = `${Math.max(340, Math.min(r.height, window.innerHeight - 88))}px`;
+    }
+    if (p.style.left || p.style.top) {
+      p.style.left = `${Math.max(0, Math.min(window.innerWidth - 120, parseFloat(p.style.left)))}px`;
+      p.style.top = `${Math.max(0, Math.min(window.innerHeight - 60, parseFloat(p.style.top)))}px`;
+    }
+  };
+  window.addEventListener("resize", reclamp);
   panel.querySelector<HTMLElement>("[data-tools-close]")!.onclick = () => {
     // pass #142 (wave-8 W8-11): close DISPOSES the live roots. The AGE and sketch React
     // roots are module-level and used to survive the panel removal — a reopen mounted
@@ -255,6 +275,7 @@ export function openToolsPanel(): void {
     // lazy chunks stay lazy.
     void import("../vendor/age").then(m => m.unmountAge()).catch(() => {});
     void import("./sketch").then(m => m.unmountSketch()).catch(() => {});
+    window.removeEventListener("resize", reclamp);
     panel?.remove();
     panel = null;
   };
@@ -264,7 +285,16 @@ export function openToolsPanel(): void {
   maxBtn.onclick = () => {
     const p = panel!;
     const maximized = p.classList.toggle("maximized");
-    if (maximized) { p.style.left = ""; p.style.top = ""; p.style.right = ""; p.style.bottom = ""; } // a dragged position must not fight the pinned inset
+    if (maximized) {
+      p.style.left = ""; p.style.top = ""; p.style.right = ""; p.style.bottom = ""; // a dragged position must not fight the pinned inset
+      // pass #145: an inline grip size would beat the class's width:auto (over-
+      // constrained left+right+width) — park it for the restore, the pinned inset
+      // owns the size while maximized
+      if (p.style.width || p.style.height) { p.dataset.userW = p.style.width; p.dataset.userH = p.style.height || ""; p.style.width = ""; p.style.height = ""; }
+    } else {
+      if (p.dataset.userW) { p.style.width = p.dataset.userW; p.style.height = p.dataset.userH ?? ""; delete p.dataset.userW; delete p.dataset.userH; }
+      reclamp(); // the parked size must fit the viewport it returns to
+    }
     maxBtn.textContent = maximized ? "⤡" : "⤢";
     maxBtn.title = maximized ? t("tools.restore") : t("tools.maximize");
     maxBtn.setAttribute("aria-label", maxBtn.title);

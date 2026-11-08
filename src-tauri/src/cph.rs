@@ -186,9 +186,14 @@ pub(crate) fn resume_process(pid: u32) -> bool {
                     // a CREATE_SUSPENDED process owns exactly one thread — its entry
                     let h: HANDLE = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
                     if !h.is_null() {
-                        ResumeThread(h);
+                        // pass #145 (wave-9 W9-02): ResumeThread reports failure as
+                        // u32::MAX — a failed resume used to be reported as success and
+                        // the child sat suspended until the run timeout (the honest
+                        // kill-and-error path in spawn_tracked_suspended never fired).
+                        if ResumeThread(h) != u32::MAX {
+                            resumed = true;
+                        }
                         CloseHandle(h);
-                        resumed = true;
                         break;
                     }
                 }
@@ -511,7 +516,11 @@ pub(crate) fn probe_with_limit(bin: &str, args: &[&str], timeout: Duration, cap:
         }
     }
     if status.is_none() {
-        let _ = child.kill();
+        // pass #145 (wave-9 W9-03): kill the TREE, not the direct child — a probe
+        // target that spawned its own children (`cmd /c ping` in the regression test)
+        // used to orphan them past the deadline; taskkill /T reaches the descendants
+        // the same way the engine paths already do.
+        kill_tree(child.id());
         // pass #143 (self-sweep F2): the post-kill reap cannot block the detect worker
         // either — try_wait under its own deadline. A child that survives even the kill
         // (the never-seen corner: kill() of our own child failing) is abandoned as

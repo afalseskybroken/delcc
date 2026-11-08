@@ -726,6 +726,12 @@ export function updateGraph(testCases: TestCases) {
 export function resizeGraph(width: number, height: number) {
   canvasWidth = width;
   canvasHeight = height;
+  // pass #145 (He, maximize break): the dims used to be the ONLY thing a resize
+  // updated — node positions stayed in the old space, so a shrunken canvas left
+  // nodes stranded outside the bounds (unreachable, undraggable; the probe showed
+  // an identical painted bounding box across every resize). Re-clamp misplaced
+  // nodes; in-bounds layouts and manual positioning are left alone.
+  resetMisplacedNodes();
 }
 
 export function updateDirected(d: boolean) {

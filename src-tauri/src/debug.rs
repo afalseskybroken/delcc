@@ -362,10 +362,15 @@ struct ReaderLine(LineKind);
 // with the session thread) and raises a flag the wait paths turn into an honest error.
 const DEBUG_OUTPUT_FILE_CAP: u64 = 32 * 1024 * 1024;
 const OUTPUT_WATCH_INTERVAL: Duration = Duration::from_millis(500);
+// pass #145 (wave-9 W9-01): how long a missing output file means "the inferior has
+// not started yet" instead of "the session is gone". The gdb lane pre-creates the
+// file, so this is a never-case in practice — the belt to that brace.
+const OUTPUT_WATCH_GRACE: Duration = Duration::from_secs(10);
 
 fn spawn_output_watcher(out_path: PathBuf, engine_pid: u32, overflow: std::sync::Arc<std::sync::atomic::AtomicBool>, shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>) {
     use std::sync::atomic::Ordering;
     std::thread::spawn(move || {
+        let started = std::time::Instant::now();
         while !shutdown.load(Ordering::SeqCst) {
             std::thread::sleep(OUTPUT_WATCH_INTERVAL);
             if shutdown.load(Ordering::SeqCst) {
@@ -379,6 +384,13 @@ fn spawn_output_watcher(out_path: PathBuf, engine_pid: u32, overflow: std::sync:
                         break;
                     }
                 }
+                // pass #145 (W9-01): a NotFound inside the grace window is "the inferior
+                // has not started yet" — the gdb lane's stdout.txt only appears when
+                // `run … > stdout.txt` executes, and a slow gdb boot used to retire the
+                // watcher before that (the 32 MiB guard silently disarmed for the whole
+                // session). After the grace, any error means the session dir is gone —
+                // the watcher retires.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound && started.elapsed() < OUTPUT_WATCH_GRACE => {}
                 // the session dir is gone — the session ended, the watcher retires
                 Err(_) => break,
             }
@@ -826,6 +838,11 @@ fn start_gdb(params: StartParams, consent: &dyn Fn(&str) -> bool) -> Result<Debu
     let out_path = dir.join("stdout.txt");
     let cleanup = |e: String| { let _ = std::fs::remove_dir_all(&dir); e };
     std::fs::write(&in_path, &params.stdin_text).map_err(|e| cleanup(format!("write stdin: {e}")))?;
+    // pass #145 (wave-9 W9-01): pre-create the output file exactly as the pdb lane does
+    // — the watcher's first tick lands +500 ms after spawn, but this file only appeared
+    // when gdb's `run … > stdout.txt` started the inferior (after the break-insert
+    // round trips), so a slow boot raced and lost and the guard never armed.
+    std::fs::File::create(&out_path).map_err(|e| cleanup(format!("open output: {e}")))?;
 
     let gdb_str = gdb_path.to_string_lossy().into_owned();
     let mut cmd = crate::cph::new_cmd(&gdb_str);
@@ -1424,6 +1441,61 @@ mod tests {
         let _ = child.wait();
         let _ = std::fs::remove_dir_all(&dir);
         assert!(flagged, "the watcher raised the overflow flag");
+        assert!(dead, "the engine tree was killed within the poll window");
+    }
+
+    // pass #145 (wave-9 W9-01): the gdb lane's stdout.txt only appears when the
+    // inferior starts — the watcher must ride out the first NotFound ticks and still
+    // kill at the cap once the file exists. (Pre-#145 the watcher retired on ANY
+    // metadata error: a slow gdb boot silently disarmed the 32 MiB guard for the
+    // whole session. The pre-create in start_gdb closes the race; the bounded
+    // not-yet grace is the belt to that brace, and this test locks it.)
+    #[cfg(windows)]
+    #[test]
+    fn output_watcher_survives_a_late_file_and_still_kills_at_the_cap() {
+        use std::io::Write;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let dir = std::env::temp_dir().join(format!("delcc-w9-01-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("stdout.txt");
+        let mut child = crate::cph::new_cmd("cmd")
+            .args(["/c", "ping", "-n", "60", "127.0.0.1"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("the sacrificial engine spawns");
+        let pid = child.id();
+        let overflow = std::sync::Arc::new(AtomicBool::new(false));
+        let shutdown = std::sync::Arc::new(AtomicBool::new(false));
+        spawn_output_watcher(out.clone(), pid, overflow.clone(), shutdown.clone());
+        // the file does not exist yet — two-plus watcher ticks ride out the gap
+        assert!(!out.exists());
+        std::thread::sleep(Duration::from_millis(1200));
+        assert!(!overflow.load(Ordering::SeqCst), "no flag before the file exists");
+        // the inferior "starts": the file appears and grows past the cap
+        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&out).unwrap();
+        let chunk = vec![b'x'; 1024 * 1024];
+        for _ in 0..34 {
+            let _ = f.write_all(&chunk);
+        }
+        drop(f);
+        let deadline = Instant::now() + Duration::from_secs(8);
+        let (mut dead, mut flagged) = (false, false);
+        while Instant::now() < deadline {
+            flagged = overflow.load(Ordering::SeqCst);
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                dead = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        shutdown.store(true, Ordering::SeqCst);
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(flagged, "the watcher raised the overflow flag after the late file");
         assert!(dead, "the engine tree was killed within the poll window");
     }
 

@@ -41,10 +41,23 @@ index 6d5a20c..ef6d375 100644
    }, []);
  
 diff --git a/src/components/animateGraph.ts b/src/components/animateGraph.ts
-index c5f6f9a..3b74822 100644
+index c5f6f9a..5248e39 100644
 --- a/src/components/animateGraph.ts
 +++ b/src/components/animateGraph.ts
-@@ -1271,7 +1271,7 @@ export function animateGraph(
+@@ -726,6 +726,12 @@ export function updateGraph(testCases: TestCases) {
+ export function resizeGraph(width: number, height: number) {
+   canvasWidth = width;
+   canvasHeight = height;
++  // pass #145 (He, maximize break): the dims used to be the ONLY thing a resize
++  // updated — node positions stayed in the old space, so a shrunken canvas left
++  // nodes stranded outside the bounds (unreachable, undraggable; the probe showed
++  // an identical painted bounding box across every resize). Re-clamp misplaced
++  // nodes; in-bounds layouts and manual positioning are left alone.
++  resetMisplacedNodes();
+ }
+ 
+ export function updateDirected(d: boolean) {
+@@ -1271,7 +1277,7 @@ export function animateGraph(
    mainRenderer: GraphRenderer,
    indicatorRenderer: GraphRenderer,
    ctxAnnotation: CanvasRenderingContext2D,
@@ -53,7 +66,7 @@ index c5f6f9a..3b74822 100644
    generateRandomCoords();
  
    canvasAnnotation.addEventListener("pointerdown", (event) => {
-@@ -1350,7 +1350,10 @@ export function animateGraph(
+@@ -1350,7 +1356,10 @@ export function animateGraph(
      ctxAnnotation.putImageData(lastState as ImageData, 0, 0);
    };
  
@@ -65,7 +78,7 @@ index c5f6f9a..3b74822 100644
      const isCtrl = event.ctrlKey || event.metaKey;
      const isZ = event.key.toLowerCase() === "z";
      const inInput = document.activeElement instanceof HTMLTextAreaElement;
-@@ -1367,7 +1370,8 @@ export function animateGraph(
+@@ -1367,7 +1376,8 @@ export function animateGraph(
  
        undoMS = curMS;
      }
@@ -75,7 +88,7 @@ index c5f6f9a..3b74822 100644
  
    canvas.addEventListener("pointerdown", (event) => {
      event.preventDefault();
-@@ -1447,9 +1451,19 @@ export function animateGraph(
+@@ -1447,9 +1457,19 @@ export function animateGraph(
      canvas.style.cursor = "default";
    });
  
@@ -97,7 +110,7 @@ index c5f6f9a..3b74822 100644
  
        mainRenderer.clearRect(0, 0, canvasWidth + 20, canvasHeight + 20);
        indicatorRenderer.clearRect(0, 0, canvasWidth + 20, canvasHeight + 20);
-@@ -1487,4 +1501,10 @@ export function animateGraph(
+@@ -1487,4 +1507,10 @@ export function animateGraph(
      }, 1000 / FPS);
    };
    animate();

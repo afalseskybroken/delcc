@@ -66,7 +66,16 @@
 .tm-tools-col.narrow .tm-tools-input { min-width: 0; width: 100%; box-sizing: border-box; }
 /* pass #109 (He's live notes): left-edge resize grip + maximize uses the viewport height */
 .tm-tools-resize { position: absolute; left: 0; top: 0; bottom: 0; width: 7px; cursor: ew-resize; z-index: 5; }
-.tm-tools-panel.maximized .tm-graph-box { height: calc(100vh - 250px); }
+/* pass #145 (He, "GENUINELY UI BREAKING" on window maximize): the maximized body kept
+   the floating panel's 640px cap while the graph box grew viewport-relative
+   (calc(100vh - 250px)) — the box outgrew its own scroll container and the canvas
+   bottom clipped behind an inner scrollbar (repro: maximized panel, window taller
+   than ~890 CSS px: box 830 vs body 640 at 1080). A maximized panel now behaves like
+   a user-height one: the body flex-fills the pinned panel, the graph columns fill
+   the body, and the box fills its column — every layer tracks the window together. */
+.tm-tools-panel.maximized .tm-tools-body { max-height: none; flex: 1 1 0; min-height: 0; }
+.tm-tools-panel.maximized .tm-tools-body[data-pane="graph"] .tm-tools-cols { flex: 1 1 0; min-height: 0; }
+.tm-tools-panel.maximized .tm-graph-box { height: auto; flex: 1 1 0; min-height: 240px; }
 /* pass #110 (He: "we need vertical" + "color scheme fit us"): top-left corner resizes both
    axes; with a user-set height the bodies flex-fill and the AGE iframe grows with them. */
 .tm-tools-resize-corner { position: absolute; left: 0; top: 0; width: 16px; height: 16px; cursor: nwse-resize; z-index: 6; }

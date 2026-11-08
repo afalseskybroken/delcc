@@ -56,6 +56,11 @@ jobs:
         run: node scripts/test-tmath-statement.mjs
       - name: CSP boot-gate (browser, real boot path, system Chrome)
         run: node scripts/test-tmath-boot.mjs
+      # pass #145 (wave-9 W9-04): the W8-11 lifecycle lock joins CI — the audit flagged
+      # it as "a regression lock not wired into CI". Failure output self-diagnoses
+      # (captured page errors + console + the AGE error surface).
+      - name: tools close/reopen + resize (browser, offline fixture, system Chrome)
+        run: node scripts/test-tmath-tools.mjs
 
   rust:
     runs-on: windows-latest
