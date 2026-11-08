@@ -250,6 +250,30 @@ try {
     assert.ok(spanZ < spanN - 1, `ctrl+wheel zoom: the span shrank further (${spanN} -> ${spanZ})`);
     assert.ok(Math.abs(gz.bitmap[0] - gz.rect[0] * gz.dpr) < 2, "wheel zoom: the bitmap still tracks the box after the re-render");
 
+    // pass #150: TWO-POINTER PINCH — the web-standard path for touchscreens and for
+    // touchpad drivers that surface multi-finger contact as raw pointer streams (the
+    // ones whose pinch "did nothing"). Dispatched at the driver level via CDP.
+    await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2); // reset first
+    await page.waitForTimeout(400);
+    const cdp = await page.context().newCDPSession(page);
+    const cy = box.y + box.height / 2;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [
+      { x: box.x + box.width / 2 - 100, y: cy }, { x: box.x + box.width / 2 + 100, y: cy },
+    ] });
+    for (let d = 115; d <= 220; d += 15) { // incremental spread — each step inside the per-event ratio clamp
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [
+        { x: box.x + box.width / 2 - d, y: cy }, { x: box.x + box.width / 2 + d, y: cy },
+      ] });
+      await page.waitForTimeout(60);
+    }
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await page.waitForTimeout(400); // the rAF re-sample
+    const gPinch = await plotGeo();
+    const spanPinch = parseFloat(gPinch.xmax) - parseFloat(gPinch.xmin);
+    assert.ok(spanPinch < 18, `two-pointer pinch: the span shrank 20 -> ${spanPinch.toFixed(1)} (the pointer-stream path zooms)`);
+    assert.ok(Math.abs(gPinch.bitmap[0] - gPinch.rect[0] * gPinch.dpr) < 2, "pinch: the bitmap still tracks the box");
+    await cdp.detach();
+
     // drag pan: dragging right moves the window left
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();

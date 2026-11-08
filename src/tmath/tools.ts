@@ -683,14 +683,93 @@ function wireCalc(root: HTMLElement): void {
     }
   };
   plotCanvas.style.cursor = "grab";
+  // pass #150 (He: "make the experience smoother for one with drivers that doesn't
+  // emit Ctrl + Wheel for pinch-based scrolling"): the web-standard pinch outputs are
+  // (a) Chromium/WebView2's synthetic ctrl+wheel — which his driver skips — and
+  // (b) POINTER EVENTS with two active pointers (the MDN touchscreen-pinch path; some
+  // Windows touchpad drivers surface multi-finger contact exactly that way, which is
+  // very plausibly the "nothing" his pinch produced — two pointer streams nobody
+  // watched). So the plot now speaks (b) natively: two active pointers pinch-zoom
+  // around their midpoint and pan with its travel, the same incremental re-baselining
+  // map UIs use. touch-action:none hands multi-pointer contact to US instead of the
+  // browser's page-pan/zoom (wheel scrolling is not touch-action-governed, so the
+  // #148/#149 scroll-through and notch-zoom matrix is untouched).
+  const plotPointers = new Map<number, { x: number; y: number }>();
+  let pinchBase: { dist: number; mid: { x: number; y: number } } | null = null;
+  let pinchDirty = false;
+  const pinchTo = (): void => {
+    const r = plotCanvas.getBoundingClientRect();
+    if (!r.width || !pinchBase || plotPointers.size < 2) return;
+    const [a, b] = [...plotPointers.values()];
+    const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    // per-event ratio clamp: pointer jitter must not read as a zoom spike
+    const ratio = Math.max(0.9, Math.min(1.1, dist / pinchBase.dist));
+    const span = plotView.xmax - plotView.xmin;
+    const span2 = span / ratio;
+    if (!(span2 > 1e-9) || span2 > 1e12) { pinchBase = { dist, mid }; return; }
+    const cx = plotView.xmin + (mid.x - r.left) / r.width * span;
+    const pan = (mid.x - pinchBase.mid.x) / r.width * span;
+    let xmin = cx - (cx - plotView.xmin) * (span2 / span) - pan;
+    let xmax = cx + (plotView.xmax - cx) * (span2 / span) - pan;
+    if (!(xmax - xmin > 1e-9) || xmax - xmin > 1e12) { pinchBase = { dist, mid }; return; }
+    setRange(xmin, xmax);
+    pinchBase = { dist, mid };
+    pinchDirty = true;
+    if (!panRaf) { // the sample cache is range-bound — one re-sample per frame
+      panRaf = true;
+      requestAnimationFrame(() => { panRaf = false; renderPlot(); });
+    }
+  };
   plotCanvas.onpointerdown = e => {
     if (plotPanel.hidden || !plotSamples.length) return;
-    dragX = e.clientX;
     plotCanvas.setPointerCapture(e.pointerId);
-    plotCanvas.style.cursor = "grabbing";
+    plotPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (plotPointers.size >= 2) { // the pinch owns the pointer; the drag-pan stands down
+      dragX = null;
+      const [a, b] = [...plotPointers.values()];
+      pinchBase = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
+      plotCanvas.style.cursor = "move";
+    } else {
+      dragX = e.clientX;
+      plotCanvas.style.cursor = "grabbing";
+    }
   };
-  plotCanvas.onpointerup = () => { if (dragX !== null) { dragX = null; persistPlot(); } plotCanvas.style.cursor = "grab"; };
-  plotCanvas.onpointercancel = () => { dragX = null; plotCanvas.style.cursor = "grab"; };
+  plotCanvas.onpointermove = e => {
+    if (plotPointers.has(e.pointerId)) plotPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinchBase && plotPointers.size >= 2) { pinchTo(); return; }
+    if (dragX !== null) { panTo(e.clientX); return; } // the pan owns the pointer while held
+    if (plotPanel.hidden) return;
+    if (!plotSamples.length) return;
+    const r = plotCanvas.getBoundingClientRect();
+    if (!r.width) return;
+    const x = plotView.xmin + (e.clientX - r.left) / r.width * (plotView.xmax - plotView.xmin);
+    drawPlot(x);
+    const parts = [`x = ${fmtVal(x)}`];
+    plotFns.forEach((f, i) => {
+      if (!f.on || !f.expr.trim()) return;
+      try { parts.push(`${PLOT_NAMES[i]} = ${fmtVal(evalExpr(f.expr, deg, x))}`); } catch { parts.push(`${PLOT_NAMES[i]} = —`); }
+    });
+    plotNote.textContent = parts.join("  ·  ");
+  };
+  const releasePointer = (e: PointerEvent): void => {
+    plotPointers.delete(e.pointerId);
+    if (plotPointers.size < 2) {
+      if (pinchBase && pinchDirty) persistPlot(); // a pinch that moved the view is a user edit
+      pinchBase = null;
+      pinchDirty = false;
+    }
+    if (plotPointers.size === 1) { // two fingers down to one: re-arm the drag-pan on the survivor
+      const [p] = [...plotPointers.values()];
+      dragX = p.x;
+    } else if (plotPointers.size === 0) {
+      dragX = null;
+      plotCanvas.style.cursor = "grab";
+    }
+  };
+  plotCanvas.onpointerup = releasePointer;
+  plotCanvas.onpointercancel = releasePointer;
+  plotCanvas.onpointerleave = e => { releasePointer(e); if (!plotPanel.hidden && !dragX && !pinchBase) renderPlot(); };
   // pass #149 (He: "mouse have bare wheel being zoom instead of scroll, that's
   // something we have to consider") — building on #148's touchpad fix: the wheel is
   // now GESTURE-SHAPED. A mouse notch is a big discrete jump (Chrome pixel-mode
@@ -722,24 +801,6 @@ function wireCalc(root: HTMLElement): void {
     persistPlot();
     renderPlot();
   };
-  // the crosshair: a vertical line + live per-curve values at the pointer, evaluated
-  // straight from the expressions — the curves themselves re-draw from the sample cache
-  plotCanvas.onpointermove = e => {
-    if (plotPanel.hidden) return;
-    if (dragX !== null) { panTo(e.clientX); return; } // the pan owns the pointer while held
-    if (!plotSamples.length) return;
-    const r = plotCanvas.getBoundingClientRect();
-    if (!r.width) return;
-    const x = plotView.xmin + (e.clientX - r.left) / r.width * (plotView.xmax - plotView.xmin);
-    drawPlot(x);
-    const parts = [`x = ${fmtVal(x)}`];
-    plotFns.forEach((f, i) => {
-      if (!f.on || !f.expr.trim()) return;
-      try { parts.push(`${PLOT_NAMES[i]} = ${fmtVal(evalExpr(f.expr, deg, x))}`); } catch { parts.push(`${PLOT_NAMES[i]} = —`); }
-    });
-    plotNote.textContent = parts.join("  ·  ");
-  };
-  plotCanvas.onpointerleave = () => { if (!plotPanel.hidden) renderPlot(); };
   // pass #147: the plot re-fits its bitmap when the panel resizes — the grips and the
   // maximize toggle dispatch window resize, a real window resize fires it natively
   const onPlotResize = (): void => { if (plotPanel.isConnected && !plotPanel.hidden && plotSamples.length) drawPlot(); };
