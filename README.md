@@ -57,6 +57,13 @@ compile/run with per-case limits; multi-profile quick-login with silent
 refresh; i18n (EN / VI / ZH). Errors surface as human text per status —
 never a bare code.
 
+Offline tools (local-only, nothing leaves the machine): calculator with an
+f(x) plot — wheel/pinch/buttons zoom, drag pan, constant-size axis numbers;
+bytes & encodings with a real hex editor whose column auto-separates every
+2 hex chars as you type; the graph tab (algorithm graph layout) with
+wheel-zoom, two-finger pan, and a one-click reset — node dragging stays
+world-correct at any zoom; and a persistent sketch (Excalidraw).
+
 ## Contract (read-only)
 
 The API surface is read-only from delcc's side — the app never invents
@@ -70,6 +77,13 @@ workspace (private by design); the public canon is the judge's live spec:
 ## Theming
 Unthemed on purpose. `src/app.css` is the guest-themer lane
 (Claude Sonnet 5.5) — structure stays, palette is theirs.
+
+## Audits
+
+Independent LLM auditors sweep the tree; findings are adjudicated against
+source and fixed before release. The honest history — including what each
+auditor missed and the standing disclosures — lives in
+[docs/AUDITS.md](docs/AUDITS.md).
 
 ## Notices
 

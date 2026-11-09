@@ -32,16 +32,27 @@ agent work mergeable. Human contributors: [CONTRIBUTING.md](CONTRIBUTING.md).
   `node --experimental-vm-modules scripts/test-tmath-md.mjs`,
   `node --experimental-vm-modules tools/verify-session-integrity.mjs`,
   `node --test scripts/security-markup.test.mjs`, then `npx vite build`,
-  then `cargo build` (in `src-tauri/`) for Rust-side changes.
+  then the browser suites (offline fixture, system Chrome):
+  `node scripts/test-tmath-statement.mjs`, `node scripts/test-tmath-boot.mjs`,
+  `node scripts/test-tmath-tools.mjs`, then `npm audit --omit=dev` (the
+  documented advisory baseline must not grow), then `cargo test` and
+  `cargo clippy -- -D warnings` (in `src-tauri/`) — the whole battery, frontend
+  and Rust, on every pass that could touch it. This is also the CI matrix;
+  a suite that is green locally but missing from `.github/workflows/ci.yml`
+  is a regression lock that does not exist.
 - **Never trust a piped exit code.** `cmd | tail; echo $?` yields tail's
   status. Redirect to a file and read it. This exact trap has produced a false
   BUILD_OK and a hidden type error before.
 - **Build order: vite before cargo.** The Rust `generate_context!` macro
   embeds `../dist`; a missing or half-written dist fails cargo with a
   misleading proc-macro error.
-- `lint-versions` guards the versioning law: three machine fields carry
-  `X.Y.Z-tag`; both READMEs carry the human release name (`v0.2.23a-alpha`
-  spelling). Two spellings on purpose — never "fix" either into the other.
+- `lint-versions` guards the versioning law: SEVEN files carry the version —
+  `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`,
+  `src-tauri/Cargo.lock`, `package-lock.json` (machine `X.Y.Z-tag`), plus both
+  READMEs (the human release name, `v0.2.23a-alpha` spelling). Two spellings
+  on purpose — never "fix" either into the other. Missing the lock files is
+  the classic bump mistake (pass #151 hit it; lint-versions passing without
+  them was the tell that the law had drifted).
 - Layouts: `DELCC_LAYOUT` env at compile time (`baseplate` default, `wip`,
   `tmath`). i18n is shared: three locales (en-US, vi-VN, zh-CN) plus the
   `Dict` interface must all agree (`lint-i18n`).
@@ -58,9 +69,15 @@ agent work mergeable. Human contributors: [CONTRIBUTING.md](CONTRIBUTING.md).
   referenced from CI or fresh-clone instructions (its path validator keeps a
   historical allowance for `tools/claude11/...` bundle paths — deliberate,
   for old relay chunks).
-- Playwright-dependent suites (`scripts/test-tmath-solve.mjs`,
-  `scripts/test-tmath-statement.mjs`) are optional lane checks, not part of
-  the canonical gate battery.
+- Playwright-dependent suites run against an offline Vite fixture with
+  system Chrome (`channel: "chrome"` — no browser downloads). The canonical
+  three are CI gates since #102/#144: `test-tmath-statement.mjs`,
+  `test-tmath-boot.mjs`, `test-tmath-tools.mjs`. The old solve-view suite was
+  dropped in #102 (frozen at a UI long gone) — do not resurrect it blindly.
+  The tools suite pre-warms its lazy chunk trees with EXPLICIT entry-file
+  URLs (a browser-native extensionless import re-resolves the whole tree
+  under unhashed URLs, and a cold dep-optimizer pass RELOADS the page —
+  both learned the hard way in #145's CI duel).
 - `todo.md`, `states.md` and the API-doc mirrors are maintainer-private; they
   are referenced, not shipped. Annotate, don't delete.
 
@@ -72,6 +89,21 @@ agent work mergeable. Human contributors: [CONTRIBUTING.md](CONTRIBUTING.md).
 - Rust-side behaviors verified against the live judge (e.g. literal query
   parameters like `scope=` on `/submissions`, the 504-hanging unscoped
   `/submissions`) are probe-verified facts — do not "simplify" them away.
+
+## Cutting a release (the maintainer's word, then this)
+
+- A tag `vX.Y.Za-alpha` targets the release commit by its FULL SHA — the
+  short form is rejected by the API (`Release.target_commitish is invalid`).
+- Three assets, the 45a pattern: `delcc.exe` (the release build),
+  `delcc-vX.Y.Za-alpha.zip` (the same binary zipped — for hosts that block
+  raw executables), `hash.txt` (`delcc.exe SHA256=<UPPERCASE HEX>`).
+- The release build: `CARGO_TARGET_DIR='C:\rust-target' DELCC_LAYOUT=tmath
+  cargo build --release` from `src-tauri/` (the dev box needs
+  `RUST_MIN_STACK=16777216`; normal machines do not).
+- **A post-release fix bumps the version.** The fix-forward precedent applies
+  ONLY to unreleased versions (#143 inside 0.3.45, #145-#150 inside 0.3.46);
+  once the tag is public, the next defect ships as the next version (#151 ->
+  0.3.47, #152 -> 0.3.48).
 
 ## Changes that need the maintainer first
 

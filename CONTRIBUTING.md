@@ -33,8 +33,13 @@ node --experimental-vm-modules scripts/test-tmath-md.mjs
 node --experimental-vm-modules tools/verify-session-integrity.mjs
 node --test scripts/security-markup.test.mjs
 npx vite build
+node scripts/test-tmath-statement.mjs   # browser, offline fixture, system Chrome
+node scripts/test-tmath-boot.mjs        # browser, real boot path
+node scripts/test-tmath-tools.mjs       # browser, the tools panel (5 blocks)
+npm audit --omit=dev                    # the documented advisory baseline must not grow
 # then, for Rust changes:
-cargo build -j 1        # in src-tauri/; release profile carries the ship flags
+cargo test -j 2                         # in src-tauri/
+cargo clippy -j 2 -- -D warnings        # warnings are failures
 ```
 
 Never trust a piped exit code (`cmd | tail; echo $?` reports *tail's* status).
@@ -42,10 +47,13 @@ Redirect to a file and read it.
 
 - `lint-i18n` — every UI string key must exist in **en-US, vi-VN and zh-CN**
   and in the `Dict` interface in `src/i18n/index.ts`. Three locales, not two.
-- `lint-versions` — `package.json`, `src-tauri/Cargo.toml`,
-  `src-tauri/tauri.conf.json` must carry the same `X.Y.Z-tag` machine version,
-  and both README files' "What works" heading the matching human release name
-  (`v0.2.23a-alpha` style). Update all five lines when bumping.
+- `lint-versions` — SEVEN files carry the version: `package.json`,
+  `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.lock`,
+  `package-lock.json` (the same `X.Y.Z-tag` machine version), and both README
+  files' "What works" heading with the matching human release name
+  (`v0.2.23a-alpha` style). Update all seven when bumping — the two lock
+  files are the classic miss (lint-versions once passed while they lagged;
+  the law has since been tightened).
 - `security-markup` — guards the escape-first doctrine. If your change touches
   HTML sinks, extend the suite in the same pass.
 
@@ -83,6 +91,16 @@ The maintainer ledger (`todo.md`, `states.md`), the API-doc mirrors
 staging are workspace-private. If a doc here references them, treat the live
 OpenAPI spec as the public canon. Do not "fix" such references by deleting
 them — annotate instead (see README §Contract for the pattern).
+
+## Cutting a release
+
+A release is the maintainer's call. The mechanical pattern: tag
+`vX.Y.Za-alpha` targeting the release commit by its **full SHA** (the short
+form is rejected by the API), with three assets — `delcc.exe` (the release
+build), `delcc-vX.Y.Za-alpha.zip` (the same binary zipped, for hosts that
+block raw executables), and `hash.txt` (`delcc.exe SHA256=<UPPERCASE HEX>`).
+A post-release defect ships as the next version; fix-forward is only for
+unreleased versions.
 
 ## Pull requests
 

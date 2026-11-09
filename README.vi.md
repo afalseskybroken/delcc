@@ -62,6 +62,13 @@ bộ với giới hạn theo từng test; multi-profile quick-login với silent
 i18n (EN / VI / ZH). Lỗi luôn hiện dưới dạng câu chữ dễ hiểu theo từng mã
 trạng thái — không bao giờ là mã trần.
 
+Công cụ ngoại tuyến (chỉ cục bộ, không gì rời máy): máy tính với đồ thị f(x) —
+thu phóng bằng lăn chuột/chép tay hoặc các nút +/−/⟲, kéo để di chuyển, số trục
+luôn cùng cỡ chữ; byte & mã hóa với trình soạn hex tự tách cặp mỗi 2 ký tự hex
+khi bạn gõ; tab đồ thị (bố cục đồ thị thuật toán) với zoom bằng lăn chuột, pan
+hai ngón, và nút đặt lại một chạm — kéo node vẫn đúng ở mọi mức zoom; và vẽ
+nháp lưu cục bộ (Excalidraw).
+
 ## Hợp đồng API (chỉ đọc)
 
 Bề mặt API là **chỉ-đọc** từ phía delcc — app không tự bịa endpoint. Checklist

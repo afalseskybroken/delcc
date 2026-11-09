@@ -33,8 +33,13 @@ node --experimental-vm-modules scripts/test-tmath-md.mjs
 node --experimental-vm-modules tools/verify-session-integrity.mjs
 node --test scripts/security-markup.test.mjs
 npx vite build
+node scripts/test-tmath-statement.mjs   # browser, fixture ngoại tuyến, Chrome hệ thống
+node scripts/test-tmath-boot.mjs        # browser, đường boot thật
+node scripts/test-tmath-tools.mjs       # browser, panel công cụ (5 khối)
+npm audit --omit=dev                    # baseline advisory đã ghi nhận không được tăng
 # với thay đổi Rust:
-cargo build -j 1        # trong src-tauri/; profile release mang các flag đóng gói
+cargo test -j 2                         # trong src-tauri/
+cargo clippy -j 2 -- -D warnings        # warning là lỗi
 ```
 
 Tuyệt đối đừng tin exit code sau đường ống (`cmd | tail; echo $?` trả về exit
@@ -46,7 +51,8 @@ của *tail*). Redirect vào file rồi đọc file.
   `src-tauri/tauri.conf.json` phải cùng mang phiên bản máy `X.Y.Z-tag`, và
   heading "Tính năng hiện có" ở cả hai file README phải mang đúng tên release
   dạng người-đọc tương ứng (kiểu `v0.2.23a-alpha`). Bump phiên bản = cập nhật
-  đủ 5 chỗ.
+  đủ 7 file — gồm cả hai lock file (`Cargo.lock`, `package-lock.json`), điểm
+  ra mất hay gần nhất.
 - `security-markup` — canh doctrine escape-first. Nếu thay đổi đụng vào các
   điểm chèn HTML, mở rộng bộ test trong cùng pass.
 
