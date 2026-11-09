@@ -37,6 +37,13 @@
    is viewport-proportioned now and the bitmap follows it times devicePixelRatio;
    tick labels draw at a constant 10px at any panel size. */
 .tm-tools-canvas[data-plot-canvas] { height: clamp(220px, 36vh, 420px); touch-action: none; }
+/* pass #151 (He: the touchpad population whose drivers emit nothing we can catch):
+   the zoom button stack overlays the canvas's top-right — +/- step the same 1.25x
+   dose as a wheel notch, the round arrow resets. Works on every hardware ever made. */
+.tm-plot-canvas-wrap { position: relative; }
+.tm-plot-zoom { position: absolute; right: 10px; top: 8px; z-index: 5; display: flex; flex-direction: column; gap: 4px; }
+.tm-plot-zoom-key { min-width: 26px; width: 26px; height: 26px; min-height: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; line-height: 1; background: color-mix(in srgb, var(--tmath-card) 78%, transparent); }
+.tm-plot-zoom-key:hover { background: var(--tmath-card); }
 .tm-tools-history { display: flex; flex-wrap: wrap; gap: 6px; }
 .tm-tools-hist { padding: 3px 8px; border: 1px solid var(--tmath-border); border-radius: 999px; background: transparent; color: var(--tmath-muted-foreground); font: 12px var(--tmath-font-mono, monospace); cursor: pointer; }
 .tm-tools-hist:hover { color: var(--tmath-foreground); border-color: var(--tmath-primary); }

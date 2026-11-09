@@ -292,7 +292,26 @@ try {
     assert.equal(gr.xmin, "-10", "dblclick reset: x min back to -10");
     assert.equal(gr.xmax, "10", "dblclick reset: x max back to 10");
 
-    console.log("PASS tools plot: bitmap tracks the box x dpr (constant-size numbers), wheel zoom 20->16 around the cursor, drag pan shifts the window, dblclick resets");
+    // pass #151: the ZOOM BUTTONS — the path every hardware can speak (He's pad emits
+    // nothing but scroll-wheels; the buttons don't care)
+    await page.click("[data-plot-zoom-in]");
+    await page.waitForTimeout(400);
+    const gb = await plotGeo();
+    const spanB = parseFloat(gb.xmax) - parseFloat(gb.xmin);
+    assert.ok(Math.abs(spanB - 16) < 0.5, `zoom in button: the span stepped 20 -> ~16 (got ${spanB})`);
+    assert.ok(Math.abs((parseFloat(gb.xmin) + parseFloat(gb.xmax)) / 2) < 0.1, "zoom in button: center-anchored");
+    await page.click("[data-plot-zoom-out]");
+    await page.waitForTimeout(400);
+    const gc = await plotGeo();
+    const spanC = parseFloat(gc.xmax) - parseFloat(gc.xmin);
+    assert.ok(Math.abs(spanC - 20) < 1, `zoom out button: the span stepped back to ~20 (got ${spanC})`);
+    await page.click("[data-plot-zoom-reset]");
+    await page.waitForTimeout(400);
+    const gd = await plotGeo();
+    assert.equal(gd.xmin, "-10", "reset button: x min back to -10");
+    assert.equal(gd.xmax, "10", "reset button: x max back to 10");
+
+    console.log("PASS tools plot: bitmap tracks the box x dpr (constant-size numbers), wheel zoom 20->16 around the cursor, drag pan shifts the window, dblclick resets, zoom buttons (+/-/reset) work");
   } catch (err) { await fail("plot zoom", err); }
 } finally {
   await browser?.close();

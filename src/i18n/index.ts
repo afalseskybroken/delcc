@@ -130,6 +130,9 @@ export interface Dict {
   "tools.plotRemove": string;
   "tools.plotErrRange": string;
   "tools.plotZoomHint": string;
+  "tools.plotZoomIn": string;
+  "tools.plotZoomOut": string;
+  "tools.plotReset": string;
   "tools.plotErrNone": string;
   "tools.calc2nd": string;
   "tools.text": string;
