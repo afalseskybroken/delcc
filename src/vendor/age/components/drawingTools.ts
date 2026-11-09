@@ -48,6 +48,78 @@ export interface GraphRenderer {
   getImage(): string; // 返回数据URL或SVG字符串
 }
 
+// pass #152 (He: "the other goal, being zooming inside AGE"): a GraphRenderer wrapper
+// that maps world -> screen (sx = x*scale + ox) for every coordinate primitive, so the
+// whole vendored render stack gains a view transform without touching any of its draw
+// code. Line widths scale with the view (map-style); clearRect stays IDENTITY-space
+// (the frame clears the whole canvas before the transform applies). The SVG export
+// wraps the same way, so a zoomed view exports zoomed.
+export class TransformedRenderer implements GraphRenderer {
+  private inner: GraphRenderer;
+  private getView: () => { scale: number; ox: number; oy: number };
+
+  constructor(inner: GraphRenderer, getView: () => { scale: number; ox: number; oy: number }) {
+    this.inner = inner;
+    this.getView = getView;
+  }
+
+  get lineWidth(): number { return this.inner.lineWidth; }
+  set lineWidth(v: number) { this.inner.lineWidth = v; }
+  get strokeStyle(): string { return this.inner.strokeStyle; }
+  set strokeStyle(v: string) { this.inner.strokeStyle = v; }
+  get fillStyle(): string { return this.inner.fillStyle; }
+  set fillStyle(v: string) { this.inner.fillStyle = v; }
+  get textBaseline(): CanvasTextBaseline { return this.inner.textBaseline; }
+  set textBaseline(v: CanvasTextBaseline) { this.inner.textBaseline = v; }
+  get textAlign(): CanvasTextAlign { return this.inner.textAlign; }
+  set textAlign(v: CanvasTextAlign) { this.inner.textAlign = v; }
+  get font(): string { return this.inner.font; }
+  set font(v: string) { this.inner.font = v; }
+  get lineCap(): CanvasLineCap { return this.inner.lineCap; }
+  set lineCap(v: CanvasLineCap) { this.inner.lineCap = v; }
+  get globalCompositeOperation(): GlobalCompositeOperation { return this.inner.globalCompositeOperation; }
+  set globalCompositeOperation(v: GlobalCompositeOperation) { this.inner.globalCompositeOperation = v; }
+
+  clearRect(x: number, y: number, width: number, height: number): void {
+    this.inner.clearRect(x, y, width, height);
+  }
+  setLineDash(segments: number[]): void { this.inner.setLineDash(segments); }
+  beginPath(): void { this.inner.beginPath(); }
+  closePath(): void { this.inner.closePath(); }
+  moveTo(x: number, y: number): void {
+    const v = this.getView();
+    this.inner.moveTo(x * v.scale + v.ox, y * v.scale + v.oy);
+  }
+  lineTo(x: number, y: number): void {
+    const v = this.getView();
+    this.inner.lineTo(x * v.scale + v.ox, y * v.scale + v.oy);
+  }
+  arc(x: number, y: number, radius: number, startAngle: number, endAngle: number, counterclockwise?: boolean): void {
+    const v = this.getView();
+    this.inner.arc(x * v.scale + v.ox, y * v.scale + v.oy, radius * v.scale, startAngle, endAngle, counterclockwise);
+  }
+  bezierCurveTo(cp1x: number, cp1y: number, cp2x: number, cp2y: number, x: number, y: number): void {
+    const v = this.getView();
+    this.inner.bezierCurveTo(
+      cp1x * v.scale + v.ox, cp1y * v.scale + v.oy,
+      cp2x * v.scale + v.ox, cp2y * v.scale + v.oy,
+      x * v.scale + v.ox, y * v.scale + v.oy,
+    );
+  }
+  stroke(): void {
+    // widths scale with the view — a 2px edge is 2px at scale 1 and 4px at scale 2
+    this.inner.lineWidth = this.lineWidth * this.getView().scale;
+    this.inner.stroke();
+    this.inner.lineWidth = this.lineWidth;
+  }
+  fill(): void { this.inner.fill(); }
+  fillText(text: string, x: number, y: number, maxWidth?: number): void {
+    const v = this.getView();
+    this.inner.fillText(text, x * v.scale + v.ox, y * v.scale + v.oy, maxWidth === undefined ? undefined : maxWidth * v.scale);
+  }
+  getImage(): string { return this.inner.getImage(); }
+}
+
 export class CanvasRenderer implements GraphRenderer {
   private ctx: CanvasRenderingContext2D;
 

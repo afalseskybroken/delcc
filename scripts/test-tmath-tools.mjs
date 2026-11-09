@@ -313,6 +313,37 @@ try {
 
     console.log("PASS tools plot: bitmap tracks the box x dpr (constant-size numbers), wheel zoom 20->16 around the cursor, drag pan shifts the window, dblclick resets, zoom buttons (+/-/reset) work");
   } catch (err) { await fail("plot zoom", err); }
+
+  // ---- pass #152: the AGE graph zoom (wheel notch = zoom, tiny delta = pan, badge = reset) ----
+  try {
+    await page.evaluate(() => document.querySelector('.tm-tools-tabs [data-tab="graph"]').click());
+    await page.waitForTimeout(300);
+    const ageView = () => page.evaluate(async () => {
+      const age = await import("/src/vendor/age/index.ts");
+      return age.getGraphView();
+    });
+    const av0 = await ageView();
+    assert.equal(av0.scale, 1, "age: the view starts at identity");
+
+    const ageBox = await page.locator('[data-pane="graph"] .tm-age-host').boundingBox();
+    await page.mouse.move(ageBox.x + ageBox.width / 2, ageBox.y + ageBox.height / 2);
+    await page.mouse.wheel(0, -120); // a notch zooms around the cursor
+    await page.waitForTimeout(250);
+    const av1 = await ageView();
+    assert.ok(av1.scale > 1.05, `age: a wheel notch zooms the view (${av0.scale} -> ${av1.scale})`);
+
+    await page.mouse.wheel(0, 6); // a tiny two-finger-style delta pans
+    await page.waitForTimeout(150);
+    const av2 = await ageView();
+    assert.ok(Math.abs(av2.oy - av1.oy) > 0.5 || Math.abs(av2.ox - av1.ox) > 0.5, `age: a tiny delta pans (the touchpad stream) (oy ${av1.oy} -> ${av2.oy})`);
+
+    await page.click("[data-graph-zoom-reset]");
+    await page.waitForTimeout(150);
+    const av3 = await ageView();
+    assert.equal(av3.scale, 1, "age: the reset badge returns the identity view");
+
+    console.log("PASS tools age zoom: notch zooms the view, tiny delta pans, the reset badge returns identity");
+  } catch (err) { await fail("age zoom", err); }
 } finally {
   await browser?.close();
   await server.close();

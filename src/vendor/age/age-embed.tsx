@@ -131,6 +131,8 @@ export function updateAge(data: AgeData): void {
   if (root) render(data);
 }
 
+export { resetGraphView, getGraphView, zoomGraphView, panGraphView } from "./components/animateGraph";
+
 export function unmountAge(): void {
   root?.unmount();
   root = null;

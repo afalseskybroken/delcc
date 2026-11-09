@@ -32,7 +32,7 @@ open-source libraries, credited here with their licenses.
   (`parseGraphInput.ts`, both parsers, order and dedup semantics unchanged), and
   `animateGraph`/`GraphCanvas` gained a cancellation return so the 90 FPS render
   loop and its window keydown listener stop on unmount; the patch file
-  (patches/age-c11b36ad.patch) was REGENERATED in pass #144 and again in pass #145 (the resizeGraph re-clamp) to fold these hunks
+  (patches/age-c11b36ad.patch) was REGENERATED in passes #144, #145 (the resizeGraph re-clamp) and #152 (the view transform + wheel gestures) to fold these hunks
   in — it applies to a pristine c11b36ad checkout and reproduces the vendored
   sources byte-for-byte.
 - **[Excalidraw](https://github.com/excalidraw/excalidraw)** (MIT, 0.18.1) — the

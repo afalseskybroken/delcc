@@ -30,7 +30,7 @@ import { buildMSTs } from "./graphMSTs";
 
 import { drawLine, drawArrow, drawBridge, drawEdgeLabel } from "./drawingTools";
 import { drawCircle, drawHexagon, drawOctagon } from "./drawingTools";
-import { GraphRenderer } from "./drawingTools";
+import { GraphRenderer, TransformedRenderer } from "./drawingTools";
 
 import { FILL_PALETTE_LIGHT } from "./palettes";
 import { FILL_PALETTE_DARK } from "./palettes";
@@ -271,6 +271,45 @@ let nodeLabels = new Map<string, string>();
 let labelOffset = 0;
 
 let draggedNodes: string[] = [];
+
+// pass #152 (He: "zooming inside AGE"): the view transform — screen = world*scale + o.
+// The renderer wrapper maps world->screen at draw time; the pointer paths invert it
+// (mouseWorld) so hit-testing and node dragging stay in world coordinates. The
+// annotation layer is bitmap-based SCREEN space and stays untransformed (pen marks
+// do not follow zooms — v1 semantics, disclosed in the delcc ledger).
+let viewScale = 1;
+let viewOX = 0;
+let viewOY = 0;
+const VIEW_SCALE_MIN = 0.2;
+const VIEW_SCALE_MAX = 5;
+const screenToWorld = (sx: number, sy: number): { x: number; y: number } => ({
+  x: (sx - viewOX) / viewScale,
+  y: (sy - viewOY) / viewScale,
+});
+// zoom keeping the world point under (cursorX, cursorY) stationary; clamped — past
+// the bounds the view simply stops, matching the plot's float-boundary behavior
+export function zoomGraphView(f: number, cursorX: number, cursorY: number): void {
+  const scale2 = Math.max(VIEW_SCALE_MIN, Math.min(VIEW_SCALE_MAX, viewScale * f));
+  if (scale2 === viewScale) return;
+  const wx = (cursorX - viewOX) / viewScale;
+  const wy = (cursorY - viewOY) / viewScale;
+  viewOX = cursorX - wx * scale2;
+  viewOY = cursorY - wy * scale2;
+  viewScale = scale2;
+}
+// pan by screen-pixel deltas; content follows the fingers (natural scroll)
+export function panGraphView(dx: number, dy: number): void {
+  viewOX -= dx;
+  viewOY -= dy;
+}
+export function resetGraphView(): void {
+  viewScale = 1;
+  viewOX = 0;
+  viewOY = 0;
+}
+export function getGraphView(): { scale: number; ox: number; oy: number } {
+  return { scale: viewScale, ox: viewOX, oy: viewOY };
+}
 let coloredEdge: string | undefined = undefined;
 let prevColoredEdgeMS = 0;
 
@@ -1388,9 +1427,12 @@ export function animateGraph(
       x: event.offsetX,
       y: event.offsetY,
     };
+    // pass #152: node geometry lives in WORLD coordinates — invert the view for the
+    // hit-test (mousePos stays SCREEN for the annotation canvas paths)
+    const worldDown = screenToWorld(event.offsetX, event.offsetY);
 
     nodes.map((u) => {
-      if (euclidDist(nodeMap.get(u)!.pos, mousePos) <= nodeRadius) {
+      if (euclidDist(nodeMap.get(u)!.pos, worldDown) <= nodeRadius) {
         draggedNodes.push(u);
       }
     });
@@ -1408,11 +1450,12 @@ export function animateGraph(
       x: event.offsetX,
       y: event.offsetY,
     };
+    const worldHover = screenToWorld(event.offsetX, event.offsetY);
 
     if (draggedNodes.length === 0) {
       let hasNode = false;
       nodes.map((u) => {
-        if (euclidDist(nodeMap.get(u)!.pos, mousePos) <= nodeRadius) {
+        if (euclidDist(nodeMap.get(u)!.pos, worldHover) <= nodeRadius) {
           hasNode = true;
         }
       });
@@ -1457,6 +1500,31 @@ export function animateGraph(
     canvas.style.cursor = "default";
   });
 
+  // pass #152: the wheel gesture matrix, mirroring the f(x) plot's (#148/#149) —
+  // a mouse NOTCH (big discrete delta) zooms around the cursor, CTRL+wheel zooms
+  // dose-proportionally, and the TOUCHPAD's tiny two-finger stream — the ONLY
+  // gesture his driver emits — PANS the canvas (content follows the fingers). The
+  // webview cannot see any other two-finger gesture (WebView2Feedback #5179), so
+  // scroll-as-pan is what makes his pad useful here.
+  // attached to the HOST element, not the main canvas: the scope stacks an annotation
+  // layer above the graph, and a wheel listener on the main canvas would never see a
+  // user wheel (the topmost layer receives it; siblings do not bubble to each other)
+  const wheelTarget = (canvas.parentElement ?? canvas) as HTMLElement;
+  wheelTarget.addEventListener("wheel", (event: WheelEvent) => {
+    event.preventDefault();
+    const dy = (event.deltaMode === 1 ? event.deltaY * 16 : event.deltaMode === 2 ? event.deltaY * 100 : event.deltaY);
+    const dx = (event.deltaMode === 1 ? event.deltaX * 16 : event.deltaMode === 2 ? event.deltaX * 100 : event.deltaX);
+    if (!event.ctrlKey && Math.abs(dy) < 40 && Math.abs(dx) < 40) {
+      panGraphView(dx, dy); // the touchpad's stream — pan, content follows the fingers
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    // the sign flips relative to the plot: there f scales the SPAN (dy<0 shrinks the
+    // span = zoom in), here f scales the VIEW (dy<0 must GROW the scale)
+    const f = Math.exp(-Math.max(-240, Math.min(240, dy)) * 0.002);
+    zoomGraphView(f, event.clientX - rect.left, event.clientY - rect.top);
+  }, { passive: false });
+
   // pass #142 (wave-8 W8-11): the recursive setTimeout → requestAnimationFrame chain is
   // cancellable — every generation checks the flag, and the returned cleanup kills the
   // pending timer, the in-flight frame, and the window keydown listener. The tools
@@ -1473,6 +1541,9 @@ export function animateGraph(
 
       mainRenderer.clearRect(0, 0, canvasWidth + 20, canvasHeight + 20);
       indicatorRenderer.clearRect(0, 0, canvasWidth + 20, canvasHeight + 20);
+      // pass #152: the graph renders through the view transform (world->screen);
+      // the indicator layer stays screen-space (the pen/erase cursors follow the mouse)
+      const viewRenderer = new TransformedRenderer(mainRenderer, getGraphView);
 
       resetMisplacedNodes();
 
@@ -1482,9 +1553,10 @@ export function animateGraph(
       }
 
       draggedNodes.map((u) => {
+        const worldDrag = screenToWorld(mousePos.x, mousePos.y);
         nodeMap.get(u)!.pos = {
-          x: clamp(mousePos.x, nodeRadius, canvasWidth - nodeRadius),
-          y: clamp(mousePos.y, nodeRadius, canvasHeight - nodeRadius),
+          x: clamp(worldDrag.x, nodeRadius, canvasWidth - nodeRadius),
+          y: clamp(worldDrag.y, nodeRadius, canvasHeight - nodeRadius),
         };
       });
 
@@ -1493,7 +1565,7 @@ export function animateGraph(
         nodesToConceal,
       );
 
-      renderGraphToRenderer(mainRenderer);
+      renderGraphToRenderer(viewRenderer);
       renderEraseIndicator(indicatorRenderer);
       renderPenIndicator(indicatorRenderer);
 

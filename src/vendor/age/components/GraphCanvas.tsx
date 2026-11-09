@@ -9,7 +9,8 @@ import { updateDirected } from "./animateGraph";
 import { updateSettings } from "./animateGraph";
 import { animateGraph } from "./animateGraph";
 
-import { resizeGraph } from "./animateGraph";
+import { resizeGraph, getGraphView } from "./animateGraph";
+import { TransformedRenderer } from "./drawingTools";
 import { updateGraph } from "./animateGraph";
 import { renderGraphToRenderer } from "./animateGraph";
 
@@ -129,7 +130,8 @@ export function GraphCanvas({
       canvasMain.height / pixelRatio,
     );
 
-    renderGraphToRenderer(svgRenderer);
+    // pass #152: the export renders the CURRENT view (a zoomed canvas exports zoomed)
+    renderGraphToRenderer(new TransformedRenderer(svgRenderer, getGraphView));
 
     const svgContent = svgRenderer.getImage();
     const blob = new Blob([svgContent], { type: "image/svg+xml" });

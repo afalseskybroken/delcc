@@ -190,7 +190,7 @@ export function openToolsPanel(): void {
 <div class="tm-tools-body" data-pane="graph" hidden>
   <div class="tm-tools-cols"><div class="tm-tools-col narrow"><b>${esc(t("tools.graphEdges"))}</b><textarea class="tm-tools-area mono" data-graph-edges spellcheck="false" placeholder="1 2 4&#10;2 3 2&#10;3 1 5">1 2 4
 2 3 2
-3 1 5</textarea><input class="tm-tools-input" data-graph-roots spellcheck="false" placeholder="${esc(t("tools.graphRootPh"))}" aria-label="${esc(t("tools.graphRoot"))}" title="${esc(t("tools.graphRoot"))}"><button type="button" class="tm-button primary" data-graph-draw>${esc(t("tools.graphDraw"))}</button><div class="tm-tools-sub">${esc(t("tools.graphHint"))}</div><div class="tm-tools-checks"><label class="tm-tools-inline"><input type="checkbox" data-graph-directed> ${esc(t("tools.graphDirected"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-tree> ${esc(t("tools.treeLayout"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-lock> ${esc(t("tools.lockPositions"))}</label></div><label class="tm-tools-inline">${esc(t("tools.graphRelabel"))} <select class="tm-drafts-select" data-graph-relabel><option value="0">${esc(t("tools.graphRelabelKeep"))}</option><option value="-1">${esc(t("tools.graphRelabelZero"))}</option><option value="1">${esc(t("tools.graphRelabelOne"))}</option></select></label></div><div class="tm-tools-col"><div class="tm-graph-box" data-graph-box><div class="tm-age-host" data-graph-host></div><div class="tm-graph-badge" data-graph-stats></div><p class="tm-age-error" data-age-error hidden role="alert"></p></div></div></div>
+3 1 5</textarea><input class="tm-tools-input" data-graph-roots spellcheck="false" placeholder="${esc(t("tools.graphRootPh"))}" aria-label="${esc(t("tools.graphRoot"))}" title="${esc(t("tools.graphRoot"))}"><button type="button" class="tm-button primary" data-graph-draw>${esc(t("tools.graphDraw"))}</button><div class="tm-tools-sub">${esc(t("tools.graphHint"))}</div><div class="tm-tools-checks"><label class="tm-tools-inline"><input type="checkbox" data-graph-directed> ${esc(t("tools.graphDirected"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-tree> ${esc(t("tools.treeLayout"))}</label><label class="tm-tools-inline"><input type="checkbox" data-graph-lock> ${esc(t("tools.lockPositions"))}</label></div><label class="tm-tools-inline">${esc(t("tools.graphRelabel"))} <select class="tm-drafts-select" data-graph-relabel><option value="0">${esc(t("tools.graphRelabelKeep"))}</option><option value="-1">${esc(t("tools.graphRelabelZero"))}</option><option value="1">${esc(t("tools.graphRelabelOne"))}</option></select></label></div><div class="tm-tools-col"><div class="tm-graph-box" data-graph-box><div class="tm-age-host" data-graph-host></div><div class="tm-graph-badge" data-graph-stats></div><button type="button" class="tm-button tm-graph-zoom-reset" data-graph-zoom-reset title="${esc(t("tools.plotReset"))}" aria-label="${esc(t("tools.plotReset"))}">⟲</button><p class="tm-age-error" data-age-error hidden role="alert"></p></div></div></div>
 </div></div>`;
   // pass #112: the sketch pane is appended in JS as a DIRECT child of the panel — the
   // template nesting bit us twice (a pane inside the graph pane body vanishes with it).
@@ -951,6 +951,13 @@ function wireGraph(root: HTMLElement): () => void {
   const roots = root.querySelector<HTMLInputElement>("[data-graph-roots]")!;
   const relabel = root.querySelector<HTMLSelectElement>("[data-graph-relabel]")!;
   const stats = root.querySelector<HTMLElement>("[data-graph-stats]")!;
+  // pass #152: the AGE view reset — the vendored graph now carries a zoom/pan view
+  // (wheel notch = zoom around cursor, ctrl+wheel = dose-proportional zoom, the
+  // touchpad's tiny two-finger scroll stream = pan) and this badge returns it to the
+  // identity view. The title reuses the plot's reset key.
+  root.querySelector<HTMLButtonElement>("[data-graph-zoom-reset]")!.onclick = () => {
+    void import("../vendor/age").then(m => { m.resetGraphView?.(); }).catch(() => {});
+  };
   const ageData = (): import("../vendor/age").AgeData => ({
     edgesText: edges.value,
     rootsText: roots.value, // pass #114: roots/isolated — tree layering depth-start
