@@ -101,9 +101,15 @@ as "TMATH Code Client", matching the official client's title for seamless use).
 | i18n key drift (3 locales + Dict interface) | `node scripts/lint-i18n.mjs` |
 | Version consistency (manifests + README release names) | `node scripts/lint-versions.mjs` |
 | Markdown statement rendering | `node --experimental-vm-modules scripts/test-tmath-md.mjs` |
-| Unwrap bundle security | maintainer-local only — gitignored relay tooling, not runnable on CI/fresh clones |
+| Unwrap bundle security | `node scripts/test-unwrap-bundle.mjs` (13) — maintainer-local: imports the gitignored `tools/unwrap-bundle.mjs` |
 | Session integrity | `node --experimental-vm-modules tools/verify-session-integrity.mjs` |
 | Security markup | `node --test scripts/security-markup.test.mjs` |
+| Statement renderer (browser) | `node scripts/test-tmath-statement.mjs` — offline Vite fixture, system Chrome |
+| CSP boot gate (browser) | `node scripts/test-tmath-boot.mjs` |
+| Tools panel lifecycle (browser) | `node scripts/test-tmath-tools.mjs` |
+| Dependency advisories | `npm audit --omit=dev` — the documented baseline must not grow |
+| Rust unit tests | `cargo test -j 2` in `src-tauri/` |
+| Rust lints | `cargo clippy -j 2 -- -D warnings` — warnings are failures |
 
 Pass #75 note: the former auxiliary rows (transport-probe, CPH stop-semantics
 scratch recipe, solve-jsdom) lived under `tools/claude11/verify/` — that lane

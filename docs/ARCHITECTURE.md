@@ -148,18 +148,24 @@ CPH uses per-run temp dirs. Full inventory and gaps: SECURITY.md.
 
 ## Verification gates (the house list)
 
-Run before calling anything done (Pass #38's gate list is the precedent):
+Run before calling anything done — the same battery CI runs (pass #153 made the
+browser suites canonical). Real exit codes only; never trust a pipe.
 
 1. `npx tsc --noEmit` — 0 errors
-2. `node scripts/lint-i18n.mjs` — exit 0
-3. `npm run build` — tsc + vite, clean (watch for the stale-dist pattern:
-   confirm no dev vite running before cargo builds)
-4. `cargo build` in `src-tauri/` — **verify the real exit code** (see the
-   versioning section's pipe-eaten-exit warning; this cost a night once)
-5. `cargo test` via the scratch crate for cph tests (recipe in the test header;
-   note the box-environment caveat about g++/python3 documented in the queue)
-6. `node tools/claude11/verify/transport-probe.test.ts src/lib/transport.ts`
-7. Session integrity: `tools/verify-session-integrity.mjs`
+2. `node scripts/lint-i18n.mjs` — key parity across en-US / vi-VN / zh-CN + `Dict`
+3. `node scripts/lint-versions.mjs` — the seven version-carrying files agree
+4. `node --experimental-vm-modules scripts/test-tmath-md.mjs`
+5. `node --experimental-vm-modules tools/verify-session-integrity.mjs`
+6. `node --test scripts/security-markup.test.mjs`
+7. `npx vite build` — **before** cargo (the `generate_context!` macro embeds `dist`)
+8. Browser suites, offline fixture + system Chrome: `scripts/test-tmath-statement.mjs`,
+   `scripts/test-tmath-boot.mjs`, `scripts/test-tmath-tools.mjs`
+9. `npm audit --omit=dev` — the documented advisory baseline must not grow
+10. `cargo test -j 2` and `cargo clippy -j 2 -- -D warnings` in `src-tauri/` —
+    local clippy MUST carry `-D warnings`; a bare run can finish clean and still
+    fail CI
+11. The oracle: stage the built exe inside the workspace and hash it immediately
+    (the worktree rule — see AGENTS.md)
 
 ## Methodology (the part worth inheriting)
 

@@ -6,7 +6,7 @@ delcc's promise is simple: **you can read everything it does.** This file is the
 auditable summary. If the code and this file disagree, one of them is a bug —
 file it, and fix whichever is wrong.
 
-## The complete network surface (as of 0.3.37-alpha)
+## The complete network surface (as of 0.3.49-alpha)
 
 | Destination | When | Why |
 |---|---|---|
@@ -124,7 +124,7 @@ stored session (secure-store blob and localStorage keys).
   `delcc-window-title` / `delcc-window-icon` in localStorage; the icon never
   leaves the device (canvas → RGBA → the window manager, no network)
 
-## Local process surface (as of 0.3.26-alpha)
+## Local process surface (as of 0.3.49-alpha)
 
 Everything that executes a program stays behind the pass-#78 binary allowlist
 (`validate_binary`): detector candidates ∪ live-detected toolchains ∪
@@ -157,6 +157,10 @@ while Ctrl is held):
   the queue (jdb lane / inspector CDP lane). Nothing pretends.
 - a debug session holds the single Job slot, so no second compile/run can
   start under it; session stdin/stdout are files in the session temp dir;
+- process-tree kills spawn the SYSTEM `taskkill.exe` by absolute path (pass
+  #154): Rust's Windows executable lookup starts in the app's own directory, so
+  a planted `taskkill.exe` beside `delcc.exe` could otherwise win. System32 is
+  resolved from `SystemRoot`; the bare name is only a fallback.
 - the version-tap and window-identity features open only the GitHub Releases
   page through `open_url` (github.com was already on the allowlist).
 

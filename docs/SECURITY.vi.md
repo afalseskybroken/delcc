@@ -94,7 +94,9 @@ năng khoá chặn việc dùng profile sau một hash, và đăng xuất xoá s
 - token + profile đã lưu: blob mã hoá DPAPI tại
   `%APPDATA%\vn.delcc.app\secure\*.bin` (như trên)
 - build dir CPH: temp dir mỗi lần chạy (`delcc-cph-*`), bị xoá trên mọi đường
-  chạy; cache dir bị xoá khi app thoát qua `cleanup()`
+  chạy; cache dir bị xoá khi app thoát qua `cleanup()`. Dừng chạy gọi `taskkill.exe` bằng đường dẫn tuyệt đối từ
+  `%SystemRoot%\System32` (chỉ dùng tên trần khi không lấy được biến môi trường),
+  nên một `taskkill.exe` đặt cạnh app không thể che khuất nó (#154)
 
 ## Cảnh báo phụ thuộc (tính tới 0.3.20-alpha)
 

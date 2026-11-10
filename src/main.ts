@@ -522,7 +522,7 @@ function paintSubsTable(subs: any[]) {
     const toCph = mine ? ` <a class="muted" data-cph="${x.id}" data-pcode="${esc(x.problem)}" title="pull this submission's test cases into CPH">→ CPH</a>` : "";
     return `<tr><td><a data-sub="${x.id}">${esc(x.id)}</a></td><td>${esc(x.problem)}${toCph}</td><td>${esc(x.user_display_name || x.user)}</td>` +
       `<td class="muted">${esc(x.language || "")}</td><td>${esc(plain(x.result || x.status))}</td>` +
-      `<td>${x.points ?? ""}</td><td class="muted">${esc(tc)}</td><td class="muted">${x.time ?? ""}</td><td class="muted">${x.memory ?? ""}</td></tr>`;
+      `<td>${esc(x.points ?? "")}</td><td class="muted">${esc(tc)}</td><td class="muted">${esc(x.time ?? "")}</td><td class="muted">${esc(x.memory ?? "")}</td></tr>`;
   }).join("") || `<tr><td class="muted">none</td></tr>`;
   tb.querySelectorAll("a[data-sub]").forEach((a) =>
     (a as HTMLElement).onclick = (e) => { e.preventDefault(); void toggleSubDetail(+(a as HTMLElement).dataset.sub!, a.closest("tr")!); });
@@ -556,10 +556,10 @@ async function toggleSubDetail(id: number, tr: Element) {
       return;
     }
     const caseRows = d.cases.map((c: any) =>
-      `<tr><td>${c.case_id ?? ""}</td><td class="muted">${c.batch_id ?? ""}</td><td>${esc(plain(c.status))}</td>` +
-      `<td class="muted">${c.time ?? ""}</td><td class="muted">${c.memory ?? ""}</td><td>${c.points ?? ""}/${c.total ?? ""}</td></tr>`).join("");
+      `<tr><td>${esc(c.case_id ?? "")}</td><td class="muted">${esc(c.batch_id ?? "")}</td><td>${esc(plain(c.status))}</td>` +
+      `<td class="muted">${esc(c.time ?? "")}</td><td class="muted">${esc(c.memory ?? "")}</td><td>${esc(c.points ?? "")}/${esc(c.total ?? "")}</td></tr>`).join("");
     row.innerHTML = `<td colspan="${cols}">` +
-      `<div class="row"><b>#${id}</b> · ${esc(plain(d.result || d.status))} · ${d.case_points}/${d.case_total}pts</div>` +
+      `<div class="row"><b>#${esc(id)}</b> · ${esc(plain(d.result || d.status))} · ${esc(d.case_points)}/${esc(d.case_total)}pts</div>` +
       `<table class="sub-cases"><thead><tr><th>case</th><th>batch</th><th>status</th><th>time</th><th>mem</th><th>pts</th></tr></thead><tbody>${caseRows}</tbody></table>` +
       `</td>`;
   } catch (e) {
@@ -1351,7 +1351,7 @@ void (async () => {
     // UI" report) — paint the failure so it is at least visible and reportable.
     try { await bootTmath(); } catch (e) {
       const app = document.getElementById("app");
-      if (app) app.innerHTML = `<main style="margin:8vh auto;max-width:640px;font:14px/1.6 system-ui,sans-serif;color:#eee"><h1 style="font-size:18px">delcc failed to start</h1><pre style="white-space:pre-wrap;background:#111;padding:12px;border-radius:8px">${String(e instanceof Error ? (e.stack ?? e.message) : e)}</pre><p style="color:#888">Report this to the maintainer — the UI never mounted.</p></main>`;
+      if (app) app.innerHTML = `<main style="margin:8vh auto;max-width:640px;font:14px/1.6 system-ui,sans-serif;color:#eee"><h1 style="font-size:18px">delcc failed to start</h1><pre style="white-space:pre-wrap;background:#111;padding:12px;border-radius:8px">${esc(String(e instanceof Error ? (e.stack ?? e.message) : e))}</pre><p style="color:#888">Report this to the maintainer — the UI never mounted.</p></main>`;
       document.title = "delcc — boot failure";
       throw e;
     }

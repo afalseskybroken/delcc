@@ -43,7 +43,16 @@ pub(crate) fn new_cmd(bin: &str) -> Command {
 pub(crate) fn kill_tree(pid: u32) {
     #[cfg(windows)]
     {
-        let mut c = new_cmd("taskkill");
+        // pass #154 (wave-9 adjudication): taskkill by ABSOLUTE path. Rust's Windows
+        // executable lookup starts in the app's own directory, so a planted
+        // taskkill.exe beside delcc.exe would run instead of the system one. The
+        // planted-file class is already "control of the install dir", but the system
+        // path is free: System32 first, the bare name only if SystemRoot is unset.
+        let sys = std::env::var_os("SystemRoot")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("C:\\Windows"));
+        let tk = sys.join("System32").join("taskkill.exe");
+        let mut c = if tk.is_file() { new_cmd(tk.to_string_lossy().as_ref()) } else { new_cmd("taskkill") };
         c.args(["/PID", &pid.to_string(), "/T", "/F"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         let _ = c.status();
     }

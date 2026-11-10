@@ -99,8 +99,14 @@ tiêu đề client chính thức để dùng liền mạch).
 | Lệch khoá i18n (3 locale + interface Dict) | `node scripts/lint-i18n.mjs` |
 | Nhất quán phiên bản (manifests + tên release README) | `node scripts/lint-versions.mjs` |
 | Render markdown của đề bài | `node --experimental-vm-modules scripts/test-tmath-md.mjs` |
-| Bảo mật unwrap bundle | chỉ ở máy maintainer — công cụ relay bị gitignore, không chạy được trên CI/clone mới |
+| Bảo mật unwrap bundle | `node scripts/test-unwrap-bundle.mjs` (13) — chỉ ở máy maintainer: import `tools/unwrap-bundle.mjs` bị gitignore |
 | Toàn vẹn phiên đăng nhập | `node --experimental-vm-modules tools/verify-session-integrity.mjs` |
+| Bộ browser (statement) | `node scripts/test-tmath-statement.mjs` — fixture Vite offline, Chrome hệ thống |
+| Gate khởi động CSP (browser) | `node scripts/test-tmath-boot.mjs` |
+| Vòng đời panel Tools (browser) | `node scripts/test-tmath-tools.mjs` |
+| Advisory phụ thuộc | `npm audit --omit=dev` — baseline đã ghi không được tăng |
+| Test Rust | `cargo test -j 2` trong `src-tauri/` |
+| Lint Rust | `cargo clippy -j 2 -- -D warnings` — warning là lỗi |
 | Security markup | `node --test scripts/security-markup.test.mjs` |
 
 Ghi chú pass #75: các dòng phụ trước đây (transport-probe, công thức
@@ -119,9 +125,9 @@ yếu tố máy.
 
 1. Pass entry vào `todo.md` (what / why / gates / hashes).
 2. Toàn bộ gate trên xanh; output `vite build` mới (co chừng stale-dist).
-3. Bump version theo luật hai cách viết: tên release `delcc-v0.2.1a-alpha`,
-   trường máy `0.2.1-alpha` (package.json, Cargo.toml, tauri.conf.json — cả ba
-   phải khớp nhau).
+3. Bump version theo luật hai cách viết: tên release `delcc-v0.3.49a-alpha`,
+   trường máy `0.3.49-alpha`, trong **bảy** file mang phiên bản — để
+   `node scripts/lint-versions.mjs` phân xử (nó đọc cả bảy; trí nhớ bạn thì không).
 4. Stage `../ship-staging/delcc-v<name>/`: binary, README.txt (EN+VI, what's-new,
    network use trung thực, limitations), `hash.txt` (SHA256 của exe + zip).
 5. Zip, ghi cả hai hash vào pass entry.

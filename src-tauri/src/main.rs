@@ -165,7 +165,12 @@ fn public_https_host(url: &reqwest::Url) -> bool {
 async fn pinned_client(url: &reqwest::Url) -> Result<reqwest::Client, String> {
     let raw_host = url.host_str().ok_or("FORBIDDEN")?.to_string();
     let host = raw_host.trim_matches(|c| c == '[' || c == ']').trim_end_matches('.').to_string();
-    let cached = asset_clients().lock().unwrap_or_else(|e| e.into_inner()).get(&host.to_lowercase()).cloned();
+    // pass #154 (own audit): the cache key carries the PORT. Keyed by host alone, a
+    // cached client pinned for :443 was handed to an https://host:8443/ image and the
+    // request connected to the pinned :443 address — the wrong endpoint, silently.
+    let port = url.port_or_known_default().unwrap_or(443);
+    let cache_key = format!("{}:{}", host.to_lowercase(), port);
+    let cached = asset_clients().lock().unwrap_or_else(|e| e.into_inner()).get(&cache_key).cloned();
     if let Some(c) = cached {
         return Ok(c);
     }
@@ -180,7 +185,7 @@ async fn pinned_client(url: &reqwest::Url) -> Result<reqwest::Client, String> {
         .redirect(reqwest::redirect::Policy::none());
     let host_is_literal = host.parse::<std::net::IpAddr>().is_ok();
     if !host_is_literal {
-        let target = format!("{host}:{}", url.port_or_known_default().unwrap_or(443));
+        let target = format!("{host}:{port}");
         let addrs: Vec<std::net::SocketAddr> = tauri::async_runtime::spawn_blocking(move || {
             use std::net::ToSocketAddrs;
             target.to_socket_addrs().map(|it| it.collect()).map_err(|e| e.to_string())
@@ -192,12 +197,17 @@ async fn pinned_client(url: &reqwest::Url) -> Result<reqwest::Client, String> {
         if let Some(bad) = addrs.iter().find(|a| !is_public_ip(a.ip())) {
             return Err(format!("FORBIDDEN non-public address {bad}"));
         }
-        builder = builder.resolve(&host, addrs[0]);
+        // pass #154 (wave-9 P3 adjudication): pin EVERY validated address, not only the
+        // first. Verifying all answers and then using one threw away working addresses
+        // and turned a dead first A-record into a fetch failure. All of them are public
+        // (the loop above refused otherwise), so pinning the full set keeps the
+        // resolve-once-and-verify posture while letting the connector fail over.
+        builder = builder.resolve_to_addrs(&host, &addrs);
     }
     let client = builder.build().map_err(|e| format!("client: {e}"))?;
     let mut cache = asset_clients().lock().unwrap_or_else(|e| e.into_inner());
     if cache.len() >= 16 { cache.clear(); }
-    cache.insert(host.to_lowercase(), client.clone());
+    cache.insert(cache_key, client.clone());
     drop(cache);
     Ok(client)
 }
@@ -549,11 +559,18 @@ fn identity_apply(window: tauri::WebviewWindow, title: Option<String>, icon: Opt
         if ic.width == 0 || ic.height == 0 || ic.width > 512 || ic.height > 512 {
             return Err("icon: dimensions must be 1..=512 px".into());
         }
+        let expected = ic.width as usize * ic.height as usize * 4;
+        // pass #154 (own audit): reject an oversized base64 payload BEFORE decoding it.
+        // The dimension check alone ran only after the whole string had been allocated
+        // and decoded, so the "≤ 512×512" bound did not bound the work.
+        let max_encoded = expected.div_ceil(3) * 4 + 4;
+        if ic.rgba.len() > max_encoded {
+            return Err("icon: base64 payload larger than the declared dimensions".into());
+        }
         use base64::Engine;
         let rgba = base64::engine::general_purpose::STANDARD
             .decode(&ic.rgba)
             .map_err(|e| format!("icon: bad base64: {e}"))?;
-        let expected = ic.width as usize * ic.height as usize * 4;
         if rgba.len() != expected {
             return Err(format!("icon: RGBA payload {} bytes, expected {expected}", rgba.len()));
         }

@@ -10,7 +10,8 @@ auditor missed.
 | 1–7 | Claude Sonnet 5.5 | diff-driven, per pass | findings fixed in-pass; wave 7 came back clean |
 | 8 | Kimi K3.1 Pro (via Qoder) | **whole-tree** sweep | 12 Medium + 18 Low, all 12 Mediums adjudicator-confirmed and fixed (#141–#144) |
 | re-audit | Claude Sonnet 5.5 | whole repo at `105f1f0` | 4 code findings, all confirmed in source and fixed (#145); its own calibration note: diff-driven waves miss what whole-tree catches |
-| tree-scoped | Claude Sonnet 5.5 | whole tree at `edb9553` | commissioned; pending the auditor's quota |
+| 9 (tree-scoped) | Claude Sonnet 5.5 | whole tree at `edb9553` | 2 P2 findings confirmed and fixed (#154): unescaped boot-failure screen and raw server numerics; CI least-privilege + SHA pin; `taskkill` absolute path; all-validated-address pinning. Its four wave-8 items re-verified fixed in source |
+| 10 (tree-scoped) | Buffy (Freebuff agent) | whole tree at `bc3530b` | 3 new findings: position-agnostic `taskkill` launch, host-only pin cache ignoring port, unbounded icon base64 decode; plus the wave-9 P2 batch fixed. The unscoped-`/submissions` question stays OPEN (needs maintainer scope call) |
 
 ## Standing disclosures (not findings — owned limitations)
 

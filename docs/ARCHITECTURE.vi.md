@@ -148,18 +148,25 @@ SECURITY.vi.md.
 
 ## Verification gates (danh sách chuẩn của nhà)
 
-Chạy trước khi gọi là xong (Pass #38 là tiền lệ):
+Chạy trước khi gọi là xong — cùng bộ gate mà CI chạy (pass #153 đưa các bộ
+browser thành chuẩn). Chỉ tin exit code thật; đừng bao giờ tin đường ống.
+Thứ tự quan trọng: vite TRƯỚC cargo (macro `generate_context!` nhúng `dist`).
 
 1. `npx tsc --noEmit` — 0 lỗi
-2. `node scripts/lint-i18n.mjs` — exit 0
-3. `npm run build` — tsc + vite, sạch (co chừng stale-dist: xác nhận không có
-   vite dev đang chạy trước khi cargo build)
-4. `cargo build` trong `src-tauri/` — **xác minh exit code thật** (xem cảnh báo
-   pipe-eaten-exit ở mục versioning; nó từng phí mất một đêm)
-5. `cargo test` qua scratch crate cho cph test (công thức ở header test; lưu ý
-   caveat môi trường về g++/python3 đã ghi trong queue)
-6. (đã bỏ — transport-probe thuộc lane payload bị xoá ở pass #75)
-7. Session integrity: `tools/verify-session-integrity.mjs`
+2. `node scripts/lint-i18n.mjs` — parity khoá en-US / vi-VN / zh-CN + `Dict`
+3. `node scripts/lint-versions.mjs` — bảy file mang phiên bản phải khớp
+4. `node --experimental-vm-modules scripts/test-tmath-md.mjs`
+5. `node --experimental-vm-modules tools/verify-session-integrity.mjs`
+6. `node --test scripts/security-markup.test.mjs`
+7. `npx vite build` — **trước** cargo
+8. Ba bộ browser (fixture offline + Chrome hệ thống): `scripts/test-tmath-statement.mjs`,
+   `scripts/test-tmath-boot.mjs`, `scripts/test-tmath-tools.mjs` — thiếu Chrome là
+   gate THẤT BẠI, không phải bỏ qua
+9. `npm audit --omit=dev` — baseline advisory đã ghi không được tăng
+10. `cargo test -j 2` và `cargo clippy -j 2 -- -D warnings` trong `src-tauri/` —
+    clippy local BẮT BUỘC có `-D warnings`; chạy trần có thể xanh mà CI vẫn đỏ
+11. Oracle: stage exe đã build ngay trong workspace và hash lập tức (luật
+    worktree — xem AGENTS.md)
 
 ## Phương pháp luận (phần đáng được kế thừa)
 
