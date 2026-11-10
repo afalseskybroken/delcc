@@ -12,6 +12,7 @@ auditor missed.
 | re-audit | Claude Sonnet 5.5 | whole repo at `105f1f0` | 4 code findings, all confirmed in source and fixed (#145); its own calibration note: diff-driven waves miss what whole-tree catches |
 | 9 (tree-scoped) | Claude Sonnet 5.5 | whole tree at `edb9553` | 2 P2 findings confirmed and fixed (#154): unescaped boot-failure screen and raw server numerics; CI least-privilege + SHA pin; `taskkill` absolute path; all-validated-address pinning. Its four wave-8 items re-verified fixed in source |
 | 10 (tree-scoped) | Buffy (Freebuff agent) | whole tree at `bc3530b` | 3 new findings: position-agnostic `taskkill` launch, host-only pin cache ignoring port, unbounded icon base64 decode; plus the wave-9 P2 batch fixed. The unscoped-`/submissions` question stays OPEN (needs maintainer scope call) |
+| 11 (Qoder-routed) | independent | diff + trust-boundary sweep at `ad0c472` | 10 Medium confirmed in source with reproductions; 6 fixed in #156 (DNS-pin canonicalization, fail-closed Job, Stop-during-step, javac toolchain, PDB slice-first, bounded event queue) + 2 Lows; 4 architecture-scale findings ruled for the next tranche (bare-name pinning, probe containment, worker-side regex matching, session-owner binding); the unscoped-`/submissions` question CLOSED by He's ruling in #155 |
 
 ## Standing disclosures (not findings — owned limitations)
 
