@@ -307,7 +307,12 @@ struct AllowedBinaries {
     overrides: HashMap<String, String>,         // lang_key -> Settings-registered path
     confirmed_fixed: HashSet<String>,           // pass #101: planted-root/extension candidates the user confirmed
     refused_fixed: HashSet<String>,             // pass #123 (wave-4 N6b): sticky refusal — the path is never re-asked and never re-run; Settings' explicit override is the way to change one's mind
+    // pass #158 (wave-c C6): the per-path consent-dialog cooldown — bounds the
+    // prompt-fatigue loop (the page could otherwise open one modal per call).
+    // In-memory only: a restart forgets the cooldown, never the consent.
+    last_dialog: std::collections::HashMap<String, std::time::Instant>,
 }
+
 
 #[derive(Default, Clone)]
 pub struct CphState(Arc<Inner>);
@@ -353,11 +358,18 @@ impl CphState {
     pub fn load_persisted_overrides(&self) {
         let Some(dir) = lock(&self.0.persist_dir).clone() else { return; };
         let Ok(text) = fs::read_to_string(dir.join("cph-overrides.json")) else { return; };
+        // pass #158 (wave-c C4c + wave-11 W11-L04): the registry file is load-VALIDATED —
+        // entries are capped (a corrupted or hand-planted megabyte list cannot bloat the
+        // allowlist) and shapes are enforced (strings only, the seven real language keys
+        // for overrides).
+        const MAX_ENTRIES: usize = 128;
+        const MAX_PATH_LEN: usize = 260;
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { return; };
         let mut allowed = lock(&self.0.allowed);
         let fill = |map: &serde_json::Map<String, serde_json::Value>, allowed: &mut AllowedBinaries| {
             for (lang, path) in map {
                 if let Some(p) = path.as_str() {
+                    if p.len() > MAX_PATH_LEN || !LANG_KEYS.contains(&lang.as_str()) { continue; }
                     allowed.overrides.entry(lang.clone()).or_insert_with(|| p.to_string());
                 }
             }
@@ -368,15 +380,15 @@ impl CphState {
                     fill(m, &mut allowed);
                 }
                 if let Some(list) = o.get("confirmed_fixed").and_then(|l| l.as_array()) {
-                    for p in list {
-                        if let Some(s) = p.as_str() {
+                    for p in list.iter().take(MAX_ENTRIES) {
+                        if let Some(s) = p.as_str().filter(|s| !s.is_empty() && s.len() <= MAX_PATH_LEN) {
                             allowed.confirmed_fixed.insert(s.to_string());
                         }
                     }
                 }
                 if let Some(list) = o.get("refused_fixed").and_then(|l| l.as_array()) {
-                    for p in list {
-                        if let Some(s) = p.as_str() {
+                    for p in list.iter().take(MAX_ENTRIES) {
+                        if let Some(s) = p.as_str().filter(|s| !s.is_empty() && s.len() <= MAX_PATH_LEN) {
                             allowed.refused_fixed.insert(s.to_string());
                         }
                     }
@@ -390,15 +402,24 @@ impl CphState {
     /// Write the registry after every confirmed change (tmp + rename — a crash mid-write
     /// must never leave a half file that silently loses the user's confirmations).
     fn save_persisted_overrides(&self) {
+        // pass #158 (wave-c C4c + wave-11 W11-L04): the save is SERIALIZED (concurrent
+        // saves shared one .tmp path — a competing rename could lose the latest
+        // acceptance/refusal) and failures are LOGGED, not swallowed.
+        static SAVE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = SAVE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let Some(dir) = lock(&self.0.persist_dir).clone() else { return; };
         let (map, fixed, refused) = { let a = lock(&self.0.allowed); (a.overrides.clone(), a.confirmed_fixed.clone(), a.refused_fixed.clone()) };
-        if fs::create_dir_all(&dir).is_err() { return; }
+        if fs::create_dir_all(&dir).is_err() {
+            eprintln!("cph: the override registry dir could not be created — the registry stays in memory");
+            return;
+        }
         let doc = serde_json::json!({ "overrides": map, "confirmed_fixed": fixed, "refused_fixed": refused });
         let Ok(json) = serde_json::to_string_pretty(&doc) else { return; };
         let tmp = dir.join("cph-overrides.json.tmp");
-        if fs::write(&tmp, json).is_ok() {
-            let _ = fs::rename(&tmp, dir.join("cph-overrides.json"));
+        if fs::write(&tmp, json).is_ok() && fs::rename(&tmp, dir.join("cph-overrides.json")).is_ok() {
+            return;
         }
+        eprintln!("cph: the override registry write FAILED — consents may not survive a restart");
     }
 
     /// Flags the running job; the poll loop in `capture` kills its process tree within ~15 ms.
@@ -453,6 +474,18 @@ fn new_tmp_dir(job_id: u64) -> Result<PathBuf, String> {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let tmp: PathBuf = std::env::temp_dir().join(format!("delcc-cph-{stamp}-{job_id}"));
+    // pass #158 (wave-c C7): unix shared /tmp gets an EXCLUSIVE, owner-only create —
+    // the old create_dir_all followed a symlink race and left a world-readable dir.
+    // Windows %TEMP% is per-user; create_dir_all stays there.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&tmp)
+            .map_err(|e| format!("tmp dir: {e}"))?;
+    }
+    #[cfg(not(unix))]
     fs::create_dir_all(&tmp).map_err(|e| format!("tmp dir: {e}"))?;
     Ok(tmp)
 }
@@ -706,7 +739,15 @@ fn push_fixed(out: &mut Vec<Toolchain>, planted: &mut Vec<PlantedCandidate>, pla
         return;
     }
     for c in candidates {
-        if !c.is_file() {
+        // pass #158 (wave-c C5): existence checks in ATTACKER-PLANTABLE roots follow
+        // symlinks — a planted symlink to a UNC path makes Windows contact the remote
+        // server (an NTLM leak) during mere detection. Reparse points are refused;
+        // only real local files qualify.
+        if let Ok(md) = std::fs::symlink_metadata(&c) {
+            if md.file_type().is_symlink() || !md.is_file() {
+                continue;
+            }
+        } else {
             continue;
         }
         if plant {
@@ -728,7 +769,11 @@ fn glob_dirs(dir: &std::path::Path, prefix: &str) -> Vec<std::path::PathBuf> {
         Ok(rd) => rd
             .filter_map(|e| e.ok())
             .map(|e| e.path())
-            .filter(|p| p.is_dir() && p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(prefix)))
+            // pass #158 (wave-c C5): symlink-aware — reparse points are skipped
+            .filter(|p| {
+                std::fs::symlink_metadata(p).map(|m| m.is_dir() && !m.file_type().is_symlink()).unwrap_or(false)
+                    && p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(prefix))
+            })
             .collect(),
         Err(_) => Vec::new(),
     };
@@ -1005,7 +1050,12 @@ pub async fn cph_detect(state: tauri::State<'_, CphState>, force: Option<bool>) 
         if refused {
             continue; // sticky refusal — do not ask again, do not run
         }
-        if !confirmed && !confirm_override(&cand.lang_key, &path_str) {
+        // pass #158 (wave-c C6): the blocking dialog leaves the async runtime
+        if !confirmed && !tauri::async_runtime::spawn_blocking({
+            let lang_key = cand.lang_key.clone();
+            let path_str = path_str.clone();
+            move || confirm_override(&lang_key, &path_str)
+        }).await.unwrap_or(false) {
             let mut allowed = lock(&state.0.allowed);
             if allowed.refused_fixed.insert(path_str) {
                 drop(allowed);
@@ -1123,14 +1173,19 @@ fn confirm_rc_is_yes(rc: i32) -> bool {
 // root cause was precisely a flag/mapping mismatch (OK/Cancel buttons paired with an
 // IDYES check). Values: MB_YESNO=0x4, MB_ICONQUESTION=0x20, MB_SETFOREGROUND=0x10000,
 // MB_TOPMOST=0x40000 (windows_sys constants).
-const OVERRIDE_DIALOG_FLAGS: u32 = 0x4 | 0x20 | 0x10000 | 0x40000;
+// pass #158 (wave-c C2): MB_DEFBUTTON2 (0x100) joins the flags — the consent dialog
+// defaults to NO, so a keystroke racing a planted-candidate dialog (He typing while
+// cph_detect raises it) REFUSES instead of accepting. Enter/Space now refuse.
+const OVERRIDE_DIALOG_FLAGS: u32 = 0x4 | 0x20 | 0x10000 | 0x40000 | 0x100;
 
 #[cfg(all(windows, not(test)))]
 fn confirm_override(lang_key: &str, bin: &str) -> bool {
+    // pass #158 (wave-c C3): the FIXED warning leads; the page-influenced text follows,
+    // pre-sanitized by dialog_safe at the command boundary.
     confirm_dialog(
         "delcc \u{2014} toolchain override",
         &format!(
-            "Allow \u{201c}{bin}\u{201d} to be used as the {lang_key} toolchain?\r\n\r\nOnly confirm a path you chose yourself in delcc Settings. Refuse anything else."
+            "Only confirm a path you chose yourself in delcc Settings. Refuse anything else.\r\n\r\nAllow \u{201c}{bin}\u{201d} to be used as the {lang_key} toolchain?"
         ),
     )
 }
@@ -1214,9 +1269,25 @@ pub(crate) fn consent_debugger(state: &CphState, bin: &str) -> bool {
     true
 }
 
+// pass #158 (wave-c C3): the dialog text is BOUNDARY SURFACE — the page controls
+// lang_key and binary, and confirm_override formats them straight into a MessageBoxW
+// body. A long string or embedded CR/LF could rewrite the prompt or push the warning
+// out of view. The language key is whitelisted to the seven real lanes; the binary is
+// control-stripped and capped; the fixed warning leads the body.
+pub const LANG_KEYS: [&str; 7] = ["cpp", "python", "java", "rust", "go", "pascal", "javascript"];
+fn dialog_safe(s: &str) -> String {
+    let cleaned: String = s.chars().filter(|c| !c.is_control()).take(260).collect();
+    cleaned
+}
 #[tauri::command]
 pub async fn cph_set_override(state: tauri::State<'_, CphState>, lang_key: String, binary: String) -> Result<(), String> {
-    let bin = binary.trim().to_string();
+    if !LANG_KEYS.contains(&lang_key.as_str()) {
+        return Err(format!("CPH: unknown language '{}`", dialog_safe(&lang_key)));
+    }
+    let bin = {
+        let trimmed = binary.trim().to_string();
+        dialog_safe(&trimmed)
+    };
     if bin.is_empty() {
         let changed = { lock(&state.0.allowed).overrides.remove(&lang_key).is_some() };
         if changed { state.save_persisted_overrides(); }
@@ -1233,7 +1304,23 @@ pub async fn cph_set_override(state: tauri::State<'_, CphState>, lang_key: Strin
             return Ok(());
         }
     }
-    if !confirm_override(&lang_key, &bin) {
+    // pass #158 (wave-c C6): the blocking MessageBoxW leaves the async runtime, and a
+    // per-path cooldown bounds the prompt-fatigue loop (the page could otherwise open
+    // one modal per call). The cooldown gates only the DIALOG, not the registration.
+    let dialog_inner = state.0.clone();
+    let bin_for_dialog = bin.clone();
+    let lang_for_dialog = lang_key.clone();
+    let confirmed = tauri::async_runtime::spawn_blocking(move || {
+        let since = { lock(&dialog_inner.allowed).last_dialog.get(&bin_for_dialog).copied() };
+        if let Some(t) = since {
+            if t.elapsed() < std::time::Duration::from_secs(5) {
+                return false;
+            }
+        }
+        { lock(&dialog_inner.allowed).last_dialog.insert(bin_for_dialog.clone(), std::time::Instant::now()); }
+        confirm_override(&lang_for_dialog, &bin_for_dialog)
+    }).await.map_err(|e| format!("join: {e}"))?;
+    if !confirmed {
         return Err(format!(
             "CPH: the {lang_key} toolchain override was not confirmed — nothing registered"
         ));
@@ -1773,6 +1860,24 @@ fn compile_blocking(inner: Arc<Inner>, req: CphCompileRequest) -> Result<CphComp
 }
 
 fn run_blocking(inner: Arc<Inner>, req: CphRunRequest) -> Result<CphRunResponse, String> {
+    // pass #158 (wave-c C8): the request is bounded Rust-side — the frontend clamps
+    // are UI politeness, not a boundary. The pool's real bound (40 cases x 100k chars)
+    // has headroom at 64 x 256 KiB; memory_limit_mb is capped at 8192 so a huge value
+    // cannot silently disable the cap.
+    if req.cases.len() > 64 {
+        return Err("CPH: too many cases (max 64)".into());
+    }
+    for case in &req.cases {
+        if case.input.len() > 256 * 1024 {
+            return Err("CPH: a case input exceeds 256 KiB".into());
+        }
+        if let Some(mb) = case.memory_limit_mb {
+            if mb > 8192 { return Err("CPH: memory_limit_mb is capped at 8192".into()); }
+        }
+    }
+    if let Some(mb) = req.memory_limit_mb {
+        if mb > 8192 { return Err("CPH: memory_limit_mb is capped at 8192".into()); }
+    }
     validate_binary(&inner, &req.lang_key, &req.binary)?; // pass #78: before any slot or process is touched
     let guard = JobGuard::begin(&inner)?;
     let job: &ActiveJob = &guard.job;
@@ -2038,7 +2143,7 @@ mod tests {
         // The raw-value const must stay identical to the real windows_sys constants —
         // this runs on every Windows machine (dev box AND the windows-latest CI job).
         use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONQUESTION, MB_OKCANCEL, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO};
-        assert_eq!(OVERRIDE_DIALOG_FLAGS, MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST);
+        assert_eq!(OVERRIDE_DIALOG_FLAGS, MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST | 0x100 /* MB_DEFBUTTON2: the default button is NO (pass #158, wave-c C2) */);
         assert_eq!(OVERRIDE_DIALOG_FLAGS & MB_OKCANCEL, 0);
         assert_eq!(MB_YESNO, 0x4);
         assert_eq!(windows_sys::Win32::UI::WindowsAndMessaging::IDYES, 6);
