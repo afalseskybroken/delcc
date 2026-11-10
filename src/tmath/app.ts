@@ -1267,13 +1267,29 @@ export class TmathApp {
     // workspace: the URL's explicit scope= always wins; otherwise that contest's OWN scope
     // memory wins; otherwise (first join) the current contest is the default. Outside a
     // contest the behavior is unchanged (remembered global scope, else Global).
+    // pass #155 (He's W10-07 ruling — "Default to Public. When in contest, jump the
+    // default to the current contest. All users. Then log the last scope they choose.
+    // Default to that from now on. Flush the default when it is over"): two changes to
+    // that shape. (a) OUTSIDE a contest the fallback default is PUBLIC
+    // (scope=public_practice), not the unscoped /submissions call — the wave-10 audit's
+    // open question: GETTING_STARTED §6b records an operational 504 hang on the
+    // unscoped feed, and the doctrine says always pass a scope; the default now obeys
+    // it. Global stays a user-selectable choice (choosing it remembers it — an
+    // owned default, not an unasked-for one). (b) The contest-jump default FLUSHES
+    // when the contest is over: a finished contest no longer hijacks the default —
+    // the remembered global scope (else Public) applies, exactly as outside. The
+    // URL's explicit scope= and the per-contest memory still win over both; the
+    // user can always pick the finished contest's scope explicitly.
     const contestScopes = (typeof remembered.contestScopes === "object" && remembered.contestScopes !== null
       ? remembered.contestScopes : {}) as Record<string, string>;
+    const contestOver = !!this.contest
+      && typeof (this.contest as { end_time?: unknown }).end_time === "string"
+      && Date.parse((this.contest as { end_time: string }).end_time) < Date.now();
     const scopeRaw = params.has("scope")
       ? params.get("scope")!
-      : this.contest
+      : this.contest && !contestOver
         ? (typeof contestScopes[this.contest.key] === "string" ? contestScopes[this.contest.key]! : `contest:${this.contest.key}`)
-        : (rememberedScope || "global");
+        : (rememberedScope || "public");
     const contestKey = scopeRaw.startsWith("contest:") ? scopeRaw.slice(8) : "";
     const isContestScope = !!contestKey;
     const serverScope = scopeRaw === "public" ? "public_practice" : ""; // /submissions scope enum: null | public_practice
@@ -1846,9 +1862,26 @@ export class TmathApp {
   private async contestRankings(host: HTMLElement, params: URLSearchParams, alive: () => boolean): Promise<void> {
     const key = this.contest!.key;
     let entries: any[] = [], problems: ContestProblem[] = [], denied = false;
+    // pass #155: adopt the judge's leaderboard long-poll when the contest offers it
+    // (ContestDetailSchema.can_poll_leaderboard, shipped 2026-11-10). The poll fetch
+    // races a 25 s ceiling; a lost race (or any poll error) falls back to the plain
+    // fetch ONCE before the denial logic sees anything — a held poll can never read
+    // as 403/404, and the plain fetch keeps the pre-#155 behavior verbatim.
+    const canPoll = (this.contest as { can_poll_leaderboard?: unknown }).can_poll_leaderboard === true;
+    const fetchBoard = async (): Promise<any[]> => {
+      if (!canPoll) return api.leaderboard(auth.accessToken()!, key);
+      try {
+        return await Promise.race([
+          api.leaderboard(auth.accessToken()!, key, true),
+          new Promise<never>((_, rej) => setTimeout(() => rej(new Error("poll ceiling")), 25_000)),
+        ]) as any[];
+      } catch {
+        return api.leaderboard(auth.accessToken()!, key);
+      }
+    };
     try {
       const [lb, ps] = await Promise.all([
-        api.leaderboard(auth.accessToken()!, key),
+        fetchBoard(),
         api.contestProblems(auth.accessToken()!, key).catch(() => [] as ContestProblem[]),
       ]);
       entries = list(lb); problems = ps;

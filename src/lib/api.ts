@@ -230,8 +230,12 @@ export const api = {
   // pass #59: contest standings — BARE ARRAY of LeaderboardEntrySchema (rank is a STRING;
   // problem_cells[i] carries has_data/penalty/points/time/status like "full-score").
   // Problem headers (labels + max points) are NOT in this payload — pair with contestProblems.
-  leaderboard: (t: string, key: string): Promise<any[]> =>
-    raw(`/contests/${encodeURIComponent(key)}/leaderboard`, { token: t }),
+  // pass #155: poll=true = the judge's long-poll (the response is held until the
+  // board changes; gated by ContestDetailSchema.can_poll_leaderboard). The caller
+  // races it against its own timeout and falls back to the plain fetch — a held
+  // poll must never read as an error.
+  leaderboard: (t: string, key: string, poll = false): Promise<any[]> =>
+    raw(`/contests/${encodeURIComponent(key)}/leaderboard${poll ? "?poll=true" : ""}`, { token: t }),
   contestProblem: (t: string, key: string, code: string, withHeaders = false): Promise<ContestProblemDetail> =>
     raw(`/contests/${encodeURIComponent(key)}/problems/${encodeURIComponent(code)}`, { token: t, submitHeaders: withHeaders }),
   problems: (t: string, o: { page?: number; page_size?: number; search?: string; type?: string; group?: string; progress?: "attempted" | "unattempted" } = {}): Promise<ProblemListItem[]> => {
