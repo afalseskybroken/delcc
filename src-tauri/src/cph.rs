@@ -183,7 +183,10 @@ pub(crate) fn resume_process(pid: u32) -> bool {
     use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
     unsafe {
         let snap: HANDLE = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-        if snap.is_null() {
+        // pass #156 (wave-11 W11-L03): the documented failure sentinel is
+        // INVALID_HANDLE_VALUE (-1), not null — the null check alone let an invalid
+        // handle reach Thread32First and get closed below.
+        if snap.is_null() || snap as usize == usize::MAX {
             return false;
         }
         let mut entry: THREADENTRY32 = std::mem::zeroed();
@@ -227,6 +230,19 @@ pub(crate) fn spawn_tracked_suspended(
     let job = match memory_limit_mb {
         Some(mb) => job::Job::attach(&child, mb),
         None => job::Job::track(&child),
+    };
+    // pass #156 (wave-11 W11-02): attachment failure is FAIL-CLOSED. A None here
+    // means Job creation, limit setting, or assignment failed — resuming anyway ran
+    // the child without the promised memory cap or kill-on-close containment (the
+    // spawn-to-assign race fix only holds when assignment SUCCEEDS). Kill and reap
+    // the still-suspended child; user code never runs uncontained.
+    let job = match job {
+        Some(j) => Some(j),
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("job assignment failed — the run was refused uncontained".into());
+        }
     };
     if !resume_process(child.id()) {
         let _ = child.kill();
@@ -712,9 +728,14 @@ fn detect_all() -> (Vec<Toolchain>, Vec<PlantedCandidate>) {
     push(&mut out, "go", "Go", probe_one(&["go"], &["version"]));
     push(&mut out, "pascal", "Pascal", probe_one(&["fpc"], &["-iV"]));
     push(&mut out, "javascript", "Node.js", probe_one(&["node"], &["--version"]));
-    // java needs both compiler and runtime; only claim it when both answer.
+    // java needs both compiler and runtime; only claim it when the compiler answers.
+    // pass #156 (wave-11 W11-04): the toolchain binary is JAVAC — the PATH branch
+    // stored the runtime's probe, so the compile passed javac's arguments to `java`
+    // and exited 1 (reproduced by the wave-11 auditor on an ordinary PATH JDK). The
+    // run path derives the sibling java.exe from the binary's directory (pass #123's
+    // sibling rule) or falls back to bare `java` — the runtime needs no field.
     if probe_one(&["javac"], &["-version"]).is_some() {
-        push(&mut out, "java", "Java", probe_one(&["java"], &["-version"]));
+        push(&mut out, "java", "Java", probe_one(&["javac"], &["-version"]));
     }
     let local = std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from);
     let profile = std::env::var_os("USERPROFILE").map(std::path::PathBuf::from);

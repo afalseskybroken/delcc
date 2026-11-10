@@ -225,6 +225,19 @@ async fn asset_fetch(url: String) -> Result<String, String> {
     const MAX: usize = 2 * 1024 * 1024;
     const MAX_HOPS: usize = 3;
     let mut current: reqwest::Url = url.parse().map_err(|_| "INVALID_ARGUMENT".to_string())?;
+    // pass #156 (wave-11 W11-01): canonicalize the host IN the URL. pinned_client
+    // trims a trailing dot for validation and for the resolve override's key, but
+    // reqwest's override map is keyed by the EXACT request host (0.13.5
+    // dns/resolve.rs does a plain get) — a dotted request host missed the pin and
+    // resolved live, re-opening the resolve-check/connect gap the #142 gate closed.
+    // Normalizing here makes the validation, the cache key, the DNS pin, and the
+    // bytes on the wire agree on one host.
+    let trimmed = current.host_str().map(|h| h.trim_end_matches('.').to_string());
+    if let Some(trimmed) = trimmed {
+        if current.host_str().map(|h| h != trimmed).unwrap_or(false) {
+            let _ = current.set_host(Some(trimmed.as_str()));
+        }
+    }
     if !public_https_host(&current) { return Err("FORBIDDEN".to_string()); }
     let mut resp = None;
     for hops in 0..=MAX_HOPS {

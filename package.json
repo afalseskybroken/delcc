@@ -1,7 +1,7 @@
 {
   "name": "delcc-app",
   "private": true,
-  "version": "0.3.50-alpha",
+  "version": "0.3.51-alpha",
   "type": "module",
   "license": "PolyForm-Noncommercial-1.0.0",
   "scripts": {

@@ -197,7 +197,8 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     // pass #106: the debug panel's own buttons follow the session state
     host.querySelectorAll<HTMLButtonElement>("[data-debug-step]").forEach(b => b.disabled = !debugging || debugBusy || debugExited);
     const debugStopBtn = host.querySelector<HTMLButtonElement>('[data-action="debug-stop"]');
-    if (debugStopBtn) debugStopBtn.disabled = !debugging || debugBusy;
+    // pass #156: the panel Stop follows the main button — live during a busy step
+    if (debugStopBtn) debugStopBtn.disabled = !debugging || stopInFlight;
     paintSubmissionsLeft();
     const editorPresent = !!editor && !$("[data-monaco]").hidden;
     (["editor-undo","editor-redo","editor-find"] as const).forEach(a => { const b = host.querySelector<HTMLButtonElement>(`[data-action="${a}"]`); if (b) b.disabled = !editorPresent; });
@@ -434,15 +435,23 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     }
   }
 
+  let stopInFlight = false;
   async function stopDebug(): Promise<void> {
-    if (!debugging || debugBusy || disposed) return;
+    // pass #156 (wave-11 W11-03): debugBusy no longer blocks Stop — the busy flag is
+    // exactly the in-flight-step case #144's backend interrupt exists for (the sliced
+    // recv unwinds the wait and the step errors honestly), but stopDebug itself
+    // returned early on it, so neither Stop button ever sent the interrupt. A
+    // re-entrant click while the stop is in flight is ignored (stopInFlight); the
+    // step's late result lands on debugging=false and is discarded.
+    if (!debugging || stopInFlight || disposed) return;
+    stopInFlight = true;
     debugBusy = true; controls();
     try { await cph.debugStop(); } catch { /* the session is torn down either way */ }
-    debugging = false; debugExited = false;
+    debugging = false; debugExited = false; debugBusy = false;
     editor?.debugLine(null);
     const panel = host.querySelector<HTMLElement>("[data-debug-panel]");
     if (panel) panel.hidden = true;
-    debugBusy = false; controls();
+    stopInFlight = false; controls();
   }
 
   // official iE: submit goes through a confirm dialog (Radix Dialog; Esc / outside click = back)

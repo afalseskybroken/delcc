@@ -361,6 +361,8 @@ struct ReaderLine(LineKind);
 // (taskkill /T reaches gdb + the inferior through the external pid — no shared handles
 // with the session thread) and raises a flag the wait paths turn into an honest error.
 const DEBUG_OUTPUT_FILE_CAP: u64 = 32 * 1024 * 1024;
+// pass #156 (wave-11 W11-10): the per-session gdb event-record ceiling (drop-oldest)
+const DEBUG_EVENTS_CAP: usize = 512;
 const OUTPUT_WATCH_INTERVAL: Duration = Duration::from_millis(500);
 // pass #145 (wave-9 W9-01): how long a missing output file means "the inferior has
 // not started yet" instead of "the session is gone". The gdb lane pre-creates the
@@ -458,7 +460,7 @@ pub struct Session {
     dir: PathBuf,
     out_path: PathBuf,
     seq: i32,
-    events: VecDeque<String>,
+    events: VecDeque<String>, // pass #156: bounded at DEBUG_EVENTS_CAP, drop-oldest
     overflow: std::sync::Arc<std::sync::atomic::AtomicBool>,
     watcher_stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     #[cfg(windows)]
@@ -632,7 +634,17 @@ impl Session {
                     return Ok(values);
                 }
                 RecvOutcome::Got(ReaderLine(LineKind::Result(_, _, _))) => {} // stale/async record — skip
-                RecvOutcome::Got(ReaderLine(LineKind::Event(raw))) => self.events.push_back(raw),
+                RecvOutcome::Got(ReaderLine(LineKind::Event(raw))) => {
+                    // pass #156 (wave-11 W11-10): bound the event queue — transact()
+                    // drains records into it with no other limit, so a malfunctioning
+                    // approved debugger could grow host memory through any transaction.
+                    // 512 records, drop-oldest: ops consume FIFO and only need recent
+                    // events to find the next *stopped.
+                    if self.events.len() >= DEBUG_EVENTS_CAP {
+                        self.events.pop_front();
+                    }
+                    self.events.push_back(raw);
+                }
                 RecvOutcome::Got(ReaderLine(LineKind::Other)) => {}
                 RecvOutcome::Got(ReaderLine(LineKind::Eof)) => return Err(self.engine_death()),
                 RecvOutcome::TimedOut => {
@@ -1187,7 +1199,13 @@ impl PdbSession {
     /// cannot serialize an unbounded line; the reader's line cap and the JSON cap here
     /// are the second and third fences.
     fn query_locals(&mut self) -> (Vec<DebugLocal>, bool) {
-        const EXPR: &str = "__import__('json').dumps([[str(k), type(v).__name__, repr(v)[:2000]] for k, v in sorted(locals().items(), key=lambda i: str(i[0]))][:200])";
+        // pass #156 (wave-11 W11-09): the [:200] slice moved INSIDE the comprehension's
+        // source — the old shape converted repr(v) for EVERY local, then sliced, so a
+        // frame with many members paid unbounded Python-side evaluation before any
+        // limit applied (the auditor measured 205 __repr__ calls for a 200-row result).
+        // repr(v) itself still fully evaluates per value — a pathological __repr__ is
+        // unbounded Python and cannot be capped from Rust; disclosed, not hidden.
+        const EXPR: &str = "__import__('json').dumps([[str(k), type(v).__name__, repr(v)[:2000]] for k, v in sorted(locals().items(), key=lambda i: str(i[0]))[:200]])";
         if self.send(&format!("p {EXPR}")).is_err() {
             return (Vec::new(), false);
         }

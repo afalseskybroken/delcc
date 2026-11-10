@@ -1359,6 +1359,15 @@ export class TmathApp {
     // keeps its old meaning — the last scope used outside contest memory — so the
     // non-contest behavior is byte-identical).
     if (this.contest) filters.contestScopes = { ...contestScopes, [this.contest.key]: scopeRaw };
+    // pass #156 (wave-11 W11-L09): the AUTOMATIC contest default must not leak into
+    // the global remembered scope — after the contest ends, the #155 flush reads this
+    // same `scope` field and would restore the finished contest's scope anyway,
+    // defeating the flush. Only an explicit pick (the URL carries scope= from the
+    // user's select change) or a non-contest scope updates the global memory; the
+    // automatic contest:N default leaves the prior global memory untouched.
+    filters.scope = (!isContestScope || params.has("scope"))
+      ? scopeRaw
+      : (typeof remembered.scope === "string" ? remembered.scope : "");
     // Resolve shared memory before the very first request, including explicit clears.
     for (const [key,v] of Object.entries(filters)) params.set(key,v);
     // pass #52: the #ID click jumps to the official source page — a sub-route of this
