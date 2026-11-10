@@ -1156,7 +1156,7 @@ impl PdbSession {
         stdin.flush().map_err(|e| format!("pdb flush: {e}"))
     }
 
-    fn push_tail(&mut self, line: String) {
+    fn push_tail(&mut self, mut line: String) {
         // pass #142 (W8-09): byte-capped as well as line-capped — sixty 2 MB lines were a
         // 120 MB tail. The FRONT is dropped first (the newest traceback text wins).
         while !self.stderr_tail.is_empty()
@@ -1164,6 +1164,12 @@ impl PdbSession {
                 || self.stderr_tail.iter().map(|l| l.len() + 1).sum::<usize>() + line.len() + 1 > PDB_TAIL_BYTES)
         {
             self.stderr_tail.pop_front();
+        }
+        // pass #157 (wave-11 W11-L05): a single line larger than the whole tail budget
+        // used to be admitted whole after the front-drop — the cap was violated by the
+        // very line it should have bounded. Truncate it to the budget.
+        if line.len() > PDB_TAIL_BYTES {
+            line.truncate(PDB_TAIL_BYTES);
         }
         self.stderr_tail.push_back(line);
     }

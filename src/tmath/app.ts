@@ -14,7 +14,7 @@ import { cachedAvatar, hydrateAvatars } from "./avatars";
 import { logError, logInfo } from "../lib/applog";
 import { phIcon, type PhName } from "./phosphor";
 import { renderSettings } from "./settings";
-import { regexSafe } from "../lib/regex-probe";
+import { regexMatchInWorker } from "../lib/regex-probe";
 import { mountSolve } from "./solve";
 import "./tmath.css";
 
@@ -59,6 +59,12 @@ const IMAGE_CAP = 8;
 // eviction order tracks actual use, not insertion order.
 const IMAGE_CACHE_BYTES = 24 * 1024 * 1024;
 let assetCacheBytes = 0;
+// pass #157 (wave-11 W11-08): the SESSION-OWNER binding. A refresh save persists to
+// the active profile only when the session's bound owner IS that profile; fresh
+// logins detach ownership until finish() binds it again. The wave-10 hole: a
+// refresh racing the binding (a 401-triggered rotation or the scheduled timer
+// during /me) wrote account B's rotated tokens into the still-active profile A.
+let boundOwner: string | null = null;
 const cacheAsset = (src: string, du: string): void => {
   assetCacheBytes -= assetCache.get(src)?.length ?? 0;
   assetCache.set(src, du);
@@ -343,10 +349,16 @@ export class TmathApp {
       // profile A and then logging in as account B wrote B's token into A — and an
       // identify() failure left it there. Refresh rotations of an already-bound
       // session keep landing exactly as before.
-      if (token && auth.currentSaveKind() === "fresh") return;
+      if (token && auth.currentSaveKind() === "fresh") { boundOwner = null; return; }
+      // pass #157 (wave-11 W11-08): a REFRESH persists only for the session's BOUND
+      // owner — ownership is absent during fresh authentication (the detach above)
+      // until finish() binds it, so a refresh racing the binding can no longer write
+      // account B's rotated tokens into the still-active profile A.
+      if (token && auth.currentSaveKind() === "refresh" && boundOwner !== activeId()) return;
       const profiles = loadProfiles();
       const p = profiles.find(x => x.id === activeId());
       if (p && !p.locked) { p.token = token; p.needsReauth = false; saveProfiles(profiles); }
+      if (!token) boundOwner = null;
       if (!token && this.sessionReady && !this.stopped) {
         this.user = null; this.contest = null; this.part = null;
         // pass #120: the problems index belongs to the just-logged-out account — drop
@@ -675,6 +687,8 @@ export class TmathApp {
         if (!p.locked) { p.username = String(this.user!.username); p.token = auth.getToken(); p.needsReauth = false; }
         saveProfiles(upsertProfile(profiles, p));
         setActiveId(p.id);
+        // pass #157 (W11-08): the binding — refreshes may persist from here on
+        boundOwner = p.id;
         logInfo(`login: profile bound → ${p.username}`);
       }
       // pass #66: a login made AFTER boot never ran start()'s contest-state hook —
@@ -1339,19 +1353,30 @@ export class TmathApp {
     const SMART = /[*+?()[\]{}|^$\\]/;
     const problemQ = problem.trim();
     const subId = /^\d+$/.test(problemQ) ? problemQ : "";
-    // pass #144 (wave-8 W8-L15): a user pattern becomes a RegExp only after the
-    // terminable canary worker proves it terminates on an adversarial input —
-    // unknown or unsafe patterns (and the whole path while the probe is in flight)
-    // use the literal substring fallback, the safe default. Verdicts cache per
-    // pattern, so the 10 s poll never re-probes.
-    const matcher = (q: string): ((v: string) => boolean) | null => {
-      if (!q) return null;
-      const literal = (): ((v: string) => boolean) => { const l = q.toLowerCase(); return (v: string) => v.toLowerCase().includes(l); };
-      if (!regexSafe(q)) return literal();
-      try { const re = new RegExp(q, "i"); return (v: string) => re.test(v); }
-      catch { return literal(); }
+    // pass #157 (wave-11 W11-07): the matching itself runs in the terminable worker
+    // (regexMatchInWorker) — the #144 canary proved patterns against one fixed input
+    // and cached "safe", but a pattern that hung on REAL server data still executed
+    // on the main thread (the auditor reproduced it with (z+)+$). The refine below
+    // awaits matched indices from the worker; a hang (or an invalid pattern) is
+    // remembered as proven-catastrophic and falls back to the literal substring
+    // filter permanently — the main thread never compiles a user RegExp.
+    const pQ = problemQ, uQ = user.trim();
+    const pGet = (r: any) => String(r.problem_name ?? r.problem ?? "");
+    const uGet = (r: any) => String(r.user_display_name ?? r.user ?? "");
+    const literalFilter = (q: string, get: (r: any) => string): ((r: any) => boolean) => {
+      const l = q.toLowerCase();
+      return (r: any) => get(r).toLowerCase().includes(l);
     };
-    const pMatch = matcher(problemQ), uMatch = matcher(user.trim());
+    const refineRows = async (rows: any[]): Promise<any[]> => {
+      if (!pQ && !uQ) return rows;
+      const pi = pQ ? await regexMatchInWorker(pQ, rows.map(pGet)) : null;
+      const ui = uQ ? await regexMatchInWorker(uQ, rows.map(uGet)) : null;
+      if ((pQ && pi === null) || (uQ && ui === null)) {
+        return rows.filter(r => (!pQ || literalFilter(pQ, pGet)(r)) && (!uQ || literalFilter(uQ, uGet)(r)));
+      }
+      const ps = new Set(pi ?? []), us = new Set(ui ?? []);
+      return rows.filter((_, i) => (!pQ || ps.has(i)) && (!uQ || us.has(i)));
+    };
     const serverProblem = isContestScope ? "" : (subId || SMART.test(problemQ) ? "" : problemQ);
     const serverUser = isContestScope ? "" : (SMART.test(userFilter) ? "" : userFilter);
     const filters: SubsFilterPrefs = {scope:scopeRaw,mine:mine ? "1" : "",user:userFilter,problem,result,pageSize:String(pageSize)};
@@ -1439,10 +1464,8 @@ export class TmathApp {
         throw e;
       }
       if (!alive()) return;
-      rows = rows.filter(s =>
-        (!subId || String(s.id) === subId) &&
-        (!pMatch || pMatch(String(s.problem_name ?? s.problem ?? "")) || pMatch(String(s.problem ?? ""))) &&
-        (!uMatch || uMatch(String(s.user_display_name ?? s.user ?? ""))));
+      // pass #157 (W11-07): the regex refinement runs in the terminable worker
+      rows = (await refineRows(rows)).filter(s => !subId || String(s.id) === subId);
     }
     write(SUBS_FILTERS_KEY,JSON.stringify(filters));
     const activeFilter = Boolean(user || problem || result || mine);
@@ -1545,10 +1568,8 @@ export class TmathApp {
     if (scopeSelect) scopeSelect.onchange = () => { this.go("submissions", { scope: scopeSelect.value }); };
     wireRows();
     // official polls this view — refresh quietly in place (audit: Refresh did nothing)
-    const refine = (fresh: any[]): any[] => fresh.filter(s =>
-      (!subId || String(s.id) === subId) &&
-      (!pMatch || pMatch(String(s.problem_name ?? s.problem ?? "")) || pMatch(String(s.problem ?? ""))) &&
-      (!uMatch || uMatch(String(s.user_display_name ?? s.user ?? ""))));
+    const refine = (fresh: any[]): Promise<any[]> =>
+      refineRows(fresh).then(view => view.filter(s => !subId || String(s.id) === subId));
     const poll = window.setInterval(() => {
       if (!alive()) { window.clearInterval(poll); return; }
       if (document.hidden) return; // minimized: skip the beat — rows refresh on return

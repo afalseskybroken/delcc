@@ -476,7 +476,7 @@ pub struct Toolchain {
 pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) const PROBE_CAP: usize = 64 * 1024;
 
-fn drain_capped<R: std::io::Read + Send + 'static>(pipe: R, cap: usize, tx: mpsc::Sender<Vec<u8>>) {
+fn drain_capped<R: std::io::Read + Send + 'static>(pipe: R, cap: usize, tag: u8, tx: mpsc::Sender<(u8, Vec<u8>)>) {
     std::thread::spawn(move || {
         let mut reader = pipe;
         let mut buf: Vec<u8> = Vec::new();
@@ -495,42 +495,84 @@ fn drain_capped<R: std::io::Read + Send + 'static>(pipe: R, cap: usize, tx: mpsc
                 Err(_) => break,
             }
         }
-        let _ = tx.send(buf);
+        let _ = tx.send((tag, buf));
     });
 }
 
-// Runs `bin args` with stdin closed, returns (exit_success, combined stdout+stderr up to
-// ~2*cap). None = the child could not be spawned. A child that never exits is killed at
-// the deadline; the pipes close and the drain threads finish.
+// Runs `bin args` with stdin closed, returns (exit_success, stdout-first combined
+// output up to ~2*cap). None = the child could not be spawned. A child that outlives
+// the deadline makes the probe FAIL — deadline is not compatible with success, and an
+// early-successful parent does not mask it (wave-11 W11-06's finite reproduction).
+// pass #157 (wave-11 W11-06): the probe tree is CONTAINED — on Windows the child is
+// created suspended, tracked by a kill-on-close Job, and resumed (descendants inherit
+// the Job, so the wave-11 reproduction's escaped grandchild dies with the handle
+// instead of outliving the probe); on unix the child leads its own process group so
+// the tree kill reaches everything. The direct-child kill stays as the belt.
 pub(crate) fn probe_with_limit(bin: &str, args: &[&str], timeout: Duration, cap: usize) -> Option<(bool, String)> {
     let mut c = new_cmd(bin);
     c.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        c.process_group(0);
+    }
+    #[cfg(all(windows, feature = "job-mem-cap"))]
+    let (mut child, _probe_job) = match spawn_tracked_suspended(&mut c, None) {
+        Ok(pair) => pair,
+        Err(_) => return None,
+    };
+    #[cfg(not(all(windows, feature = "job-mem-cap")))]
     let mut child = c.spawn().ok()?;
     let out_pipe = child.stdout.take()?;
     let err_pipe = child.stderr.take()?;
-    let (tx, rx) = mpsc::channel::<Vec<u8>>();
-    drain_capped(out_pipe, cap, tx.clone());
-    drain_capped(err_pipe, cap, tx);
+    // pass #157 (wave-11 W11-L01): the streams are TAGGED and combined
+    // stdout-first — reader-completion order used to flip the merge, and the
+    // first-line version gate read nondeterminism.
+    let (tx, rx) = mpsc::channel::<(u8, Vec<u8>)>();
+    drain_capped(out_pipe, cap, 0, tx.clone());
+    drain_capped(err_pipe, cap, 1, tx);
     let deadline = Instant::now() + timeout;
-    let mut collected: Vec<u8> = Vec::new();
+    let mut out_buf: Vec<u8> = Vec::new();
+    let mut err_buf: Vec<u8> = Vec::new();
     let mut readers_done = 0;
+    let mut timed_out = false;
     while readers_done < 2 {
         let now = Instant::now();
         if now >= deadline {
+            timed_out = true;
             break;
         }
         match rx.recv_timeout(deadline - now) {
-            Ok(buf) => {
-                collected.extend_from_slice(&buf);
+            Ok((tag, buf)) => {
+                if tag == 0 { out_buf.extend_from_slice(&buf); } else { err_buf.extend_from_slice(&buf); }
                 readers_done += 1;
             }
-            Err(_) => break, // timeout or disconnect — the deadline path owns it now
+            Err(_) => break, // timeout or disconnect — the cleanup path owns it now
+        }
+    }
+    // Incomplete drain = the deadline hit (or a reader died) BEFORE both streams
+    // finished: kill the tree (the Job's kill-on-close takes the descendants with it),
+    // belt-kill the direct child, give the readers a short bounded window to flush,
+    // and mark the probe FAILED — a deadline never reports success.
+    let mut status = None;
+    if readers_done < 2 {
+        timed_out = true;
+        kill_tree(child.id());
+        let _ = child.kill();
+        let flush = Instant::now() + Duration::from_millis(250);
+        while readers_done < 2 && Instant::now() < flush {
+            match rx.recv_timeout(Duration::from_millis(50)) {
+                Ok((tag, buf)) => {
+                    if tag == 0 { out_buf.extend_from_slice(&buf); } else { err_buf.extend_from_slice(&buf); }
+                    readers_done += 1;
+                }
+                Err(_) => break,
+            }
         }
     }
     // The child must be gone by the deadline too: a drain that stopped at the cap leaves
     // it blocked on a full pipe, so it is killed, not waited on forever.
-    let mut status = None;
-    while Instant::now() < deadline {
+    while !timed_out && status.is_none() && Instant::now() < deadline {
         match child.try_wait() {
             Ok(Some(s)) => {
                 status = Some(s);
@@ -564,13 +606,53 @@ pub(crate) fn probe_with_limit(bin: &str, args: &[&str], timeout: Duration, cap:
             }
         }
     }
-    let ok = status.map(|s| s.success()).unwrap_or(false);
+    // pass #157 (W11-06): a deadline or incomplete drain is a FAILED probe even when
+    // the parent exited successfully during cleanup — success requires the child to
+    // finish on its own inside the deadline with both streams read to completion.
+    let ok = !timed_out && readers_done == 2 && status.map(|s| s.success()).unwrap_or(false);
+    let mut collected = out_buf;
+    if !err_buf.is_empty() {
+        if !collected.is_empty() { collected.push(b'\n'); }
+        collected.extend_from_slice(&err_buf);
+    }
     Some((ok, String::from_utf8_lossy(&collected).into_owned()))
+}
+
+// pass #157 (wave-11 W11-05): an explicit PATH walk for bare compiler/interpreter
+// names. The OS's own bare-name lookup starts at the CURRENT EXECUTABLE DIRECTORY
+// (Rust 1.99 Command docs) — a portable delcc.exe with a planted compiler-named
+// neighbor would execute the plant when the detector probed a bare name. Returns the
+// first existing file; on Windows the .exe suffix is tried. An unresolvable name
+// returns None and the candidate is SKIPPED (fail-closed: no PATH hit, no claim).
+fn resolve_in_path(name: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let direct = dir.join(name);
+        if direct.is_file() {
+            return Some(direct);
+        }
+        #[cfg(windows)]
+        {
+            let exe = direct.with_extension("exe");
+            if exe.is_file() {
+                return Some(exe);
+            }
+        }
+    }
+    None
 }
 
 fn probe_one(candidates: &[&str], version_args: &[&str]) -> Option<(String, String)> {
     for bin in candidates {
-        let Some((ok, combined)) = probe_with_limit(bin, version_args, PROBE_TIMEOUT, PROBE_CAP) else {
+        // pass #157 (W11-05): every bare candidate is probed by its RESOLVED ABSOLUTE
+        // path and that path is what the allowlist stores — executable identity is
+        // pinned, not a string. Absolute inputs (the fixed roots) pass through.
+        let pinned = if std::path::Path::new(bin).is_absolute() {
+            bin.to_string()
+        } else {
+            resolve_in_path(bin)?.to_string_lossy().into_owned()
+        };
+        let Some((ok, combined)) = probe_with_limit(pinned.as_str(), version_args, PROBE_TIMEOUT, PROBE_CAP) else {
             continue;
         };
         // several of these (java -version, fpc -iV on some builds) write to stderr, not stdout.
@@ -581,7 +663,7 @@ fn probe_one(candidates: &[&str], version_args: &[&str]) -> Option<(String, Stri
         // claimed the stub as a Python toolchain. status gate + marketing-line guard.
         const NOT_FOUND: &str = "was not found";
         if ok && !first_line.is_empty() && !first_line.contains(NOT_FOUND) {
-            return Some((bin.to_string(), first_line));
+            return Some((pinned, first_line));
         }
     }
     None
@@ -896,7 +978,11 @@ pub async fn cph_detect(state: tauri::State<'_, CphState>, force: Option<bool>) 
     {
         let cached = lock(&state.0.detect_cache);
         if let Some((at, tcs)) = cached.as_ref() {
-            if at.elapsed() < DETECT_TTL || (force && at.elapsed() < FORCE_MIN_INTERVAL) {
+            // pass #157 (wave-11 W11-L02): the forced window REPLACES the 60 s TTL —
+            // the old `elapsed < DETECT_TTL || (force && elapsed < 3s)` let the 60 s
+            // clause dominate, so a forced rescan returned stale data for a full minute.
+            let ttl = if force { FORCE_MIN_INTERVAL } else { DETECT_TTL };
+            if at.elapsed() < ttl {
                 return Ok(tcs.clone());
             }
         }
@@ -1880,7 +1966,8 @@ mod tests {
             PROBE_TIMEOUT,
             PROBE_CAP,
         ).expect("spawns");
-        assert!(out.len() <= 2 * PROBE_CAP, "the combined output is capped ({} bytes)", out.len());
+        // pass #157 (L01): the tagged combine adds one separator byte between the streams
+        assert!(out.len() <= 2 * PROBE_CAP + 1, "the combined output is capped ({} bytes)", out.len());
     }
 
     #[test]

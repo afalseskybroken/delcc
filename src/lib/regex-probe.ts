@@ -1,19 +1,16 @@
 // delcc-app/src/lib/regex-probe.ts
-// pass #144 (wave-8 W8-L15): the main-thread gate for user-supplied RegExp patterns
-// (the submissions smart search). `regexSafe(pattern)` answers SYNCHRONOUSLY so the
-// render path stays sync:
-//   - a known-safe pattern  → true (the caller may compile it),
-//   - unknown / unsafe / broken worker → false (the caller uses the literal
-//     substring fallback — the SAFE DEFAULT; a benign pattern briefly matching
-//     literally is cosmetic, a hung main thread is not).
-// The verdict comes from a terminable canary worker (regex-probe-worker.ts): it runs
-// the pattern against an adversarial input; a hang gets its worker TERMINATED at the
-// 1.5 s deadline and the verdict is remembered. Verdicts cache per pattern — the
-// 10 s polling repaint never re-probes a settled pattern.
+// pass #157 (wave-11 W11-07): the worker-side MATCHER. The #144 canary proved a
+// pattern against one fixed input and cached "safe" — a pattern that hung on REAL
+// server data still ran on the main thread. Now the MATCHING ITSELF runs in the
+// terminable worker: the caller sends the pattern plus the texts to test and gets
+// matched indices back. A hang dies with the worker at the deadline and the pattern
+// is REMEMBERED as proven-catastrophic — it gets the literal substring filter
+// permanently (the guarantee is the worker plus the memory, not a canary). No
+// user-supplied RegExp is ever compiled on the main thread.
 import RegexProbeWorker from "./regex-probe-worker?worker";
 
-const verdicts = new Map<string, boolean>();
-const inflight = new Map<number, (safe: boolean) => void>();
+const hangPatterns = new Set<string>();
+const inflight = new Map<number, (matched: number[] | null) => void>();
 let worker: Worker | null = null;
 let seq = 0;
 
@@ -21,15 +18,15 @@ function ensureWorker(): Worker | null {
   if (worker) return worker;
   try {
     worker = new RegexProbeWorker();
-    worker.onmessage = (e: MessageEvent<{ id: number; safe: boolean }>) => {
+    worker.onmessage = (e: MessageEvent<{ id: number; matched: number[] | null }>) => {
       const resolve = inflight.get(e.data.id);
       inflight.delete(e.data.id);
-      resolve?.(e.data.safe);
+      resolve?.(e.data.matched);
     };
     worker.onerror = () => {
-      // the worker is broken (OOM'd, terminated mid-flight) — every pending probe
-      // fails closed; the next probe respawns a fresh worker.
-      inflight.forEach((resolve) => resolve(false));
+      // the worker is broken (OOM'd, terminated mid-flight) — every pending match
+      // fails closed (null = the literal filter); the next call respawns a fresh worker.
+      inflight.forEach((resolve) => resolve(null));
       inflight.clear();
       worker = null;
     };
@@ -39,24 +36,29 @@ function ensureWorker(): Worker | null {
   return worker;
 }
 
-export function regexSafe(pattern: string): boolean {
-  const cached = verdicts.get(pattern);
-  if (cached !== undefined) return cached;
+// Returns the INDICES of texts the pattern matches, or null when the caller must
+// fall back to the literal substring filter (worker unavailable, pattern proven
+// catastrophic on real data, invalid pattern, or the deadline lost).
+export async function regexMatchInWorker(pattern: string, texts: string[]): Promise<number[] | null> {
+  if (!pattern || hangPatterns.has(pattern)) return null;
   const w = ensureWorker();
-  if (!w) return false;
+  if (!w) return null;
   const id = ++seq;
-  w.postMessage({ id, pattern });
-  const timer = setTimeout(() => {
-    // the canary hung — catastrophic pattern. Kill the worker wholesale (a hanging
-    // JS regex cannot be interrupted any other way), fail closed, remember.
-    try { w.terminate(); } catch { /* already gone */ }
-    worker = null;
-    inflight.delete(id);
-    verdicts.set(pattern, false);
-  }, 1500);
-  inflight.set(id, (safe) => {
-    clearTimeout(timer);
-    verdicts.set(pattern, safe);
+  return new Promise<number[] | null>((resolve) => {
+    const timer = setTimeout(() => {
+      // hung on REAL data — catastrophic beyond what any canary predicted. Kill the
+      // worker wholesale (a hanging JS regex cannot be interrupted any other way),
+      // remember the pattern as proven-catastrophic, fail closed.
+      try { w.terminate(); } catch { /* already gone */ }
+      worker = null;
+      inflight.delete(id);
+      hangPatterns.add(pattern);
+      resolve(null);
+    }, 1500);
+    inflight.set(id, (matched) => {
+      clearTimeout(timer);
+      resolve(matched);
+    });
+    w.postMessage({ id, pattern, texts });
   });
-  return false; // unknown until proven — the literal fallback runs meanwhile
 }
