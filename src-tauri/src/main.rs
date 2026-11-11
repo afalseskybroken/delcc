@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 mod fonts;
+#[cfg(windows)]
+mod restrict;
 mod cph;
 mod debug;
 mod secure;
@@ -92,6 +94,14 @@ async fn read_capped_text(resp: reqwest::Response) -> Result<String, String> {
 async fn site_fetch(path: String) -> Result<String, String> {
     const BASE: &str = "https://oj.tmathcoding.vn";
     if !path.starts_with('/') || path.contains("..") { return Err("bad path".into()); }
+    // pass #158 (wave-c C4c/L14): the guard validates the RAW string, but the URL layer
+    // decodes percent-escapes (%2e%2e -> ..) and normalizes segments AFTER it — the
+    // wave-11 auditor walked /%2e%2e/%2e%2e/admin/ straight past it. The CANONICALIZED
+    // path is what gets validated too.
+    if let Ok(u) = reqwest::Url::parse(&format!("{BASE}{path}")) {
+        let canon = u.path();
+        if canon.contains("..") || !canon.starts_with('/') { return Err("bad path".into()); }
+    }
     let resp = http().get(format!("{BASE}{path}")).timeout(std::time::Duration::from_secs(15)).send().await.map_err(|e| format!("send: {e}"))?;
     let status = resp.status().as_u16();
     let text = read_capped_text(resp).await?;
@@ -293,6 +303,11 @@ async fn api_fetch(
         None => (path.as_str(), None),
     };
     if !ppath.starts_with('/') || ppath.contains("..") { return Err("bad path".into()); }
+    // pass #158 (wave-c C4c/L14): the canonicalized check — see site_fetch
+    if let Ok(u) = reqwest::Url::parse(&format!("{BASE}{path}")) {
+        let canon = u.path();
+        if canon.contains("..") || !canon.starts_with("/api/v3") { return Err("bad path".into()); }
+    }
     let mut req = http().request(
         method.parse::<reqwest::Method>().map_err(|e| format!("method: {e}"))?,
         format!("{BASE}{path}"),
@@ -594,6 +609,22 @@ fn identity_apply(window: tauri::WebviewWindow, title: Option<String>, icon: Opt
 }
 
 fn main() {
+    // pass #159 (wave-c C1): the restricted-launch multi-call. The CPH capture wraps
+    // every user-code execution in this same executable with the magic argv; the
+    // launcher branch runs before any app setup, spawns the child under a restricted
+    // token (privileges dropped, Administrators deny-only, Network deny best-effort,
+    // LOW integrity) with the inherited stdio, and exits with the child's code. See
+    // src-tauri/src/restrict.rs for the token plumbing and the disclosed residuals.
+    {
+        let mut argv = std::env::args();
+        let invoked = argv.next();
+        let magic = argv.next();
+        if invoked.is_some() && magic.as_deref() == Some("__cph-restricted-launch") {
+            let rest: Vec<String> = argv.collect();
+            let line = rest.join(" "); // the pre-quoted child line, passed as one argv entry
+            std::process::exit(crate::restrict::launcher_main(&line));
+        }
+    }
     tauri::Builder::default()
         .manage(CphState::default())
         .invoke_handler(tauri::generate_handler![api_fetch, site_fetch, asset_fetch, get_layout, toggle_fullscreen, open_url, update_check, fonts_list, cph_detect, cph_set_override, cph_run, cph_compile, cph_stop, debug_start, debug_step, debug_stop, identity_apply, secure_put, secure_get, secure_del])

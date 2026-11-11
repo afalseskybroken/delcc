@@ -58,8 +58,18 @@ That is all. Concretely absent:
   images beyond 8 per pane degrade to links too (capped, visibly, per the honesty doctrine). The only
   other image fetches the app makes are the gravatar avatars in the table above
 - the CPH local runner (`src-tauri/src/cph.rs`) never touches the network — it
-  compiles and runs *your* code on *your* machine, sandbox-free, exactly like
-  running it in a terminal. pass #144 (W8-L18) states a platform boundary
+- **Pass #159 — the run-path sandbox**: user-code runs execute under a RESTRICTED
+  token via delcc's own launcher — every privilege dropped, the Administrators
+  group deny-only, the integrity level LOW, and the session temp directory labeled
+  LOW (the sandboxed child's only writable corner). Residuals, disclosed: the
+  Network group deny covers authenticated connections only (a low-integrity
+  process can still attempt outbound calls at the user's rights); the compile step
+  (trusted toolchains) and the debug lane are not launcher-wrapped; a launcher
+  failure falls back to the plain spawn and the run response carries
+  `sandboxed: false` so the fallback is visible to the page.
+  compiles and runs *your* code on *your* machine. Since pass #159 the RUN is
+  sandboxed (see the Pass #159 block above); the compile and debug lanes keep the
+  historical posture. pass #144 (W8-L18) states a platform boundary
   plainly: the native confirm-once dialogs (planted toolchains, PATH debuggers)
   are a WINDOWS mechanism — on a non-Windows development build there is no dialog
   to host, both gates answer true, and the consent records never engage. The

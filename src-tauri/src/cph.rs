@@ -1387,6 +1387,11 @@ pub struct CphRunResponse {
     compile_log: String,
     results: Vec<CphCaseResult>,
     cancelled: bool,
+    // pass #159 (wave-c C1): true when the run executed under the restricted-token
+    // launcher; false = the disclosed fallback (the launcher failed and the plain
+    // spawn ran — the pre-#159 documented posture).
+    #[serde(default)]
+    sandboxed: bool,
 }
 
 #[derive(Serialize)]
@@ -1411,7 +1416,9 @@ struct Captured {
     capture_err: Option<String>,
     peak_bytes: Option<u64>, // Some(_) only when built with `job-mem-cap` and attach succeeded
     spawn_err: Option<String>,
+    sandboxed: bool,
 }
+
 
 fn clip(bytes: &[u8]) -> String {
     let mut s = String::from_utf8_lossy(&bytes[..bytes.len().min(LOG_CAP)]).to_string();
@@ -1511,21 +1518,99 @@ fn read_pipe(mut pipe: impl CapturePipe, stop: Arc<AtomicBool>, limited: Arc<Ato
 // feature on Windows, a committed-memory cap is attached too (see the `job` module);
 // everywhere else, no memory limit. Threads drain stdout/stderr concurrently with the
 // run so large output can't deadlock the pipe. Timeout and Stop both kill the whole tree.
+// pass #159 (wave-c C1): the standard Windows argument quoting — the launcher passes
+// the pre-quoted line verbatim to CreateProcessAsUserW, so every argument must carry
+// the classic backslash/quote escapes. Arguments are delcc-built paths and fixed
+// tokens; the quoting still follows the full algorithm.
+fn quote_windows_arg(arg: &std::ffi::OsStr) -> String {
+    let s = arg.to_string_lossy();
+    let mut q = String::with_capacity(s.len() + 2);
+    q.push('"');
+    let mut backslashes = 0usize;
+    for c in s.chars() {
+        match c {
+            '\\' => { backslashes += 1; q.push('\\'); }
+            '"' => {
+                q.push_str(&"\\".repeat(backslashes * 2 + 1));
+                q.push('"');
+                backslashes = 0;
+            }
+            _ => { backslashes = 0; q.push(c); }
+        }
+    }
+    if backslashes > 0 { q.push_str(&"\\".repeat(backslashes * 2)); }
+    q.push('"');
+    q
+}
+
 fn capture(mut cmd: Command, input: Option<&str>, limit: Duration, _memory_limit_mb: Option<u64>, job: &ActiveJob) -> Captured {
     let mut result = Captured {
         stdout: Vec::new(), stderr: Vec::new(), status: None, elapsed_ms: 0,
         timed_out: false, cancelled: false, output_limited: false, capture_err: None,
         peak_bytes: None, spawn_err: None,
+        sandboxed: false,
     };
     let mut input_spool = None;
-    let stdin = match input.filter(|s| !s.is_empty()) {
-        Some(input) => match spool_input(input, job.id) {
-            Ok((spool, file)) => { input_spool = Some(spool); Stdio::from(file) }
+    let mut stdin_file: Option<std::fs::File> = None;
+    if let Some(input) = input.filter(|s| !s.is_empty()) {
+        match spool_input(input, job.id) {
+            Ok((spool, file)) => { input_spool = Some(spool); stdin_file = Some(file); }
             Err(e) => { result.spawn_err = Some(format!("stdin: {e}")); return result; }
-        },
-        None => Stdio::null(),
-    };
-    cmd.stdin(stdin).stdout(Stdio::piped()).stderr(Stdio::piped());
+        }
+    }
+    // pass #159 (wave-c C1): the stdio wiring moves ahead of the restricted wrap —
+    // the launcher carries the SAME stdio (the spool stdin handle and the output
+    // pipes pass through to the sandboxed child via inheritance).
+    if let Some(f) = &stdin_file {
+        match f.try_clone() {
+            Ok(clone) => { cmd.stdin(Stdio::from(clone)); }
+            Err(e) => { result.spawn_err = Some(format!("stdin: {e}")); return result; }
+        }
+    } else {
+        cmd.stdin(Stdio::null());
+    }
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        // pass #159 (wave-c C1): the RUN executes under a RESTRICTED token. The
+        // command is re-wrapped in delcc's own launcher (current_exe + the magic
+        // argv + the pre-quoted child line); the launcher duplicates its token with
+        // every privilege dropped, the Administrators group deny-only, the Network
+        // group deny-only (best-effort), and a LOW integrity level, then
+        // CreateProcessAsUser's the child with the inherited stdio. The session tmp
+        // dir carries a LOW mandatory label — the sandboxed child's writable corner.
+        // A launcher failure FALLS BACK to the plain spawn and clears the sandboxed
+        // flag: the disclosed posture (the pre-#159 behavior) is the fallback, not a
+        // new hole. The debug lane and the compile step are not launcher-wrapped.
+        let mut sandboxed = true;
+        if let Some(dir) = cmd.get_current_dir() {
+            if !crate::restrict::label_dir_low(dir) {
+                sandboxed = false; // no LOW label = the child could not write its corner
+            }
+        }
+        let exe = match std::env::current_exe() {
+            Ok(e) => e,
+            Err(e) => { result.spawn_err = Some(format!("current_exe: {e}")); return result; }
+        };
+        let mut line = String::from("__cph-restricted-launch -- ");
+        line.push_str(&quote_windows_arg(cmd.get_program()));
+        for a in cmd.get_args() {
+            line.push(' ');
+            line.push_str(&quote_windows_arg(a));
+        }
+        let mut launcher = crate::cph::new_cmd(exe.to_string_lossy().as_ref());
+        launcher.arg(line);
+        match &stdin_file {
+            Some(f) => match f.try_clone() {
+                Ok(clone) => { launcher.stdin(Stdio::from(clone)); }
+                Err(e) => { result.spawn_err = Some(format!("stdin: {e}")); return result; }
+            },
+            None => { launcher.stdin(Stdio::null()); }
+        }
+        launcher.stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd = launcher;
+        result.sandboxed = sandboxed;
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -1642,12 +1727,13 @@ struct RunOutcome {
     capture_failed: bool,
     exit_code: Option<i32>,
     peak_bytes: Option<u64>,
+    sandboxed: bool,
 }
 
 fn run_one(cmd: Command, input: &str, limit_ms: u64, memory_limit_mb: Option<u64>, job: &ActiveJob) -> RunOutcome {
     let c = capture(cmd, Some(input), Duration::from_millis(limit_ms), memory_limit_mb, job);
     if let Some(e) = c.spawn_err {
-        return RunOutcome { stdout: Vec::new(), stderr: format!("spawn: {e}"), time_ms: 0, timed_out: false, cancelled: false, output_limited: false, capture_failed: true, exit_code: None, peak_bytes: None };
+        return RunOutcome { stdout: Vec::new(), stderr: format!("spawn: {e}"), time_ms: 0, timed_out: false, cancelled: false, output_limited: false, capture_failed: true, exit_code: None, peak_bytes: None, sandboxed: false };
     }
     let mut stderr = clip(&c.stderr);
     if c.output_limited { stderr.push_str(&format!("\n{OUTPUT_LIMIT_MESSAGE}")); }
@@ -1660,6 +1746,7 @@ fn run_one(cmd: Command, input: &str, limit_ms: u64, memory_limit_mb: Option<u64
         cancelled: c.cancelled,
         output_limited: c.output_limited,
         capture_failed: c.capture_err.is_some(),
+        sandboxed: c.sandboxed,
         exit_code: c.status.and_then(|s| s.code()),
         peak_bytes: c.peak_bytes,
     }
@@ -1899,7 +1986,7 @@ fn run_blocking(inner: Arc<Inner>, req: CphRunRequest) -> Result<CphRunResponse,
             };
             if !prep.ok {
                 let _ = fs::remove_dir_all(&tmp);
-                return Ok(CphRunResponse { compile_ok: false, compile_log: prep.log, results: vec![], cancelled: prep.cancelled });
+                return Ok(CphRunResponse { compile_ok: false, compile_log: prep.log, results: vec![], cancelled: prep.cancelled, sandboxed: false });
             }
             let artifact = artifact_path(&req.lang_key, &tmp);
             set_cache(&inner, Build { key, tmp: tmp.clone(), artifact, log: prep.log.clone() });
@@ -1913,12 +2000,14 @@ fn run_blocking(inner: Arc<Inner>, req: CphRunRequest) -> Result<CphRunResponse,
     let default_mem_mb = req.memory_limit_mb.unwrap_or(256); // lane 1's own stated default
     let mut results = Vec::with_capacity(req.cases.len());
     let mut cancelled = false;
+    let mut sandboxed = true;
     for case in &req.cases {
         if job.cancel.load(Ordering::SeqCst) { cancelled = true; break; }
         let cmd = run_command(&req.lang_key, &req.binary, &tmp)?;
         let case_limit_ms = case.time_limit_ms.unwrap_or(limit_ms).clamp(100, 10_000); // lane 2
         let case_mem_mb = case.memory_limit_mb.unwrap_or(default_mem_mb);
         let out = run_one(cmd, &case.input, case_limit_ms, Some(case_mem_mb), job);
+        if !out.sandboxed { sandboxed = false; }
         let verdict = if out.cancelled {
             "CANCELLED"
         } else if out.timed_out {
@@ -1945,7 +2034,7 @@ fn run_blocking(inner: Arc<Inner>, req: CphRunRequest) -> Result<CphRunResponse,
         });
         if was_cancelled { cancelled = true; break; }
     }
-    Ok(CphRunResponse { compile_ok: true, compile_log, results, cancelled })
+    Ok(CphRunResponse { compile_ok: true, compile_log, results, cancelled, sandboxed })
 }
 
 #[tauri::command]

@@ -124,3 +124,15 @@ là `git grep fetch` cộng với đọc `src/lib/transport.ts`.
    này trong cùng commit.
 2. Không hành vi ẩn: không thứ gì ship mà người đọc source không thấy được.
 3. Khoảng trống được ghi lại, không bao giờ bị che giấu.
+
+
+## Pass #159 — sandbox làm run-path
+
+Lệnh run giờ thực thi code người dùng dưới RESTRICTED token qua launcher của
+delcc: mọi privilege bị loại, group Administrators bị deny-only, integrity level
+là LOW, và thư mục temp của phiên chạy mang LOW mandatory label (góc ghi
+duy nhất của tiển trình sandbox). Công bố còn lại: deny group Network chỉ chặn
+kết nối có xác thực — tiển trình low-integrity vẫn có thể cố gắng gọi ra
+ngoài với quyền của user; bước compile (toolchain đàng tin cậy) và debug lane
+chưa được bọc launcher; nếu launcher lỗi, run sẽ fallback về spawn thường
+và response đưa `sandboxed: false` để fallback luôn hiển nhiên.

@@ -102,10 +102,22 @@ pub async fn secure_put(app: tauri::AppHandle, name: String, plaintext: String) 
 #[tauri::command]
 pub async fn secure_get(app: tauri::AppHandle, name: String) -> Result<Option<String>, String> {
     valid_name(&name)?;
-    let path = blob_path(&app, &name)?;
-    if !path.exists() { return Ok(None); }
-    // pass #144 (W8-L11): the read is blocking file I/O — off the IPC thread.
-    let blob = tauri::async_runtime::spawn_blocking(move || fs::read(&path).map_err(|e| format!("secure read: {e}")))
+    // pass #158 (wave-c C4c/L13): blob_path (create_dir_all included) moves INTO the
+    // blocking closure — the async path no longer touches the filesystem.
+    let path = tauri::async_runtime::spawn_blocking(move || blob_path(&app, &name))
+        .await
+        .map_err(|e| format!("join: {e}"))??;
+    // pass #158 (wave-c C4c/L12): the ciphertext is size-capped BEFORE the read — a
+    // corrupted or hand-planted oversized blob cannot allocate unbounded memory (the
+    // 256 KiB write limit has ~4x headroom for the DPAPI wrapper).
+    const MAX_BLOB: u64 = 1024 * 1024;
+    let blob = tauri::async_runtime::spawn_blocking(move || {
+        let meta = fs::metadata(&path).map_err(|e| format!("secure read: {e}"))?;
+        if meta.len() > MAX_BLOB {
+            return Err("secure store: blob exceeds the size bound".into());
+        }
+        fs::read(&path).map_err(|e| format!("secure read: {e}"))
+    })
         .await
         .map_err(|e| format!("join: {e}"))??;
     let plain = tauri::async_runtime::spawn_blocking(move || unprotect(&blob))
