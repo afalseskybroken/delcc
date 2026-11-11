@@ -1592,14 +1592,14 @@ fn capture(mut cmd: Command, input: Option<&str>, limit: Duration, _memory_limit
             Ok(e) => e,
             Err(e) => { result.spawn_err = Some(format!("current_exe: {e}")); return result; }
         };
-        let mut line = String::from("__cph-restricted-launch -- ");
+        let mut line = String::new();
         line.push_str(&quote_windows_arg(cmd.get_program()));
         for a in cmd.get_args() {
             line.push(' ');
             line.push_str(&quote_windows_arg(a));
         }
         let mut launcher = crate::cph::new_cmd(exe.to_string_lossy().as_ref());
-        launcher.arg(line);
+        launcher.arg("__cph-restricted-child").arg("--").arg(&line);
         match &stdin_file {
             Some(f) => match f.try_clone() {
                 Ok(clone) => { launcher.stdin(Stdio::from(clone)); }

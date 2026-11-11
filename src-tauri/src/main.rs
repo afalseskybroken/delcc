@@ -619,10 +619,17 @@ fn main() {
         let mut argv = std::env::args();
         let invoked = argv.next();
         let magic = argv.next();
-        if invoked.is_some() && magic.as_deref() == Some("__cph-restricted-launch") {
+        let sep = argv.next();
+        if invoked.is_some() && magic.as_deref() == Some("__cph-restricted-child") {
+            // the capture sends the magic, the "--" separator, then the child line's
+            // pieces (the quoted line arrives as one argument; join restores it)
+            if sep.as_deref() != Some("--") {
+                eprintln!("delcc: malformed restricted-launch argv");
+                std::process::exit(3);
+            }
             let rest: Vec<String> = argv.collect();
-            let line = rest.join(" "); // the pre-quoted child line, passed as one argv entry
-            std::process::exit(crate::restrict::launcher_main(&line));
+            let line = rest.join(" ");
+            std::process::exit(crate::restrict::restricted_child_main(&line));
         }
     }
     tauri::Builder::default()
