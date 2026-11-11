@@ -32,6 +32,9 @@ use windows_sys::Win32::Security::{
 };
 use windows_sys::Win32::Security::Authorization::ConvertStringSidToSidW;
 use windows_sys::Win32::Security::GetLengthSid;
+use windows_sys::Win32::Storage::FileSystem::{CreateFileW, OPEN_EXISTING};
+use windows_sys::Win32::Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+use windows_sys::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE};
 use windows_sys::Win32::System::SystemServices::SE_GROUP_USE_FOR_DENY_ONLY;
 use windows_sys::Win32::System::Console::GetStdHandle;
 use windows_sys::Win32::System::Threading::{
@@ -63,6 +66,43 @@ pub fn launcher_main(child_line: &str) -> i32 {
         }
     }
 }
+
+// pass #160 (the live-fire fix): a NULL/invalid std handle — delcc is a
+// WINDOWS-SUBSYSTEM binary, so any stream the capture did NOT pipe arrives at the
+// launcher as NULL — becomes an open NUL-device handle (inheritable) with the
+// requested access. STARTF_USESTDHANDLES with a NULL handle failed
+// CreateProcessAsUserW with ERROR_FILE_NOT_FOUND: the sandbox was dead for every
+// no-stdin run until the launcher's own live-fire test caught it.
+fn ensure_stream(h: HANDLE, access: u32) -> HANDLE {
+    const INVALID: HANDLE = -1isize as HANDLE;
+    if !h.is_null() && h != INVALID {
+        return h;
+    }
+    unsafe {
+        use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+        let sa = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: std::ptr::null_mut(),
+            bInheritHandle: 1,
+        };
+        let path = wide(NUL_DEVICE);
+        let handle = CreateFileW(
+            path.as_ptr(),
+            access,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            &sa,
+            OPEN_EXISTING,
+            0,
+            std::ptr::null_mut(),
+        );
+        if handle == INVALID {
+            return std::ptr::null_mut();
+        }
+        handle
+    }
+}
+
+const NUL_DEVICE: &str = "\\\\.\\NUL";
 
 fn build_and_run(child_line: &str) -> Result<i32, String> {
     unsafe {
@@ -141,12 +181,17 @@ fn build_and_run(child_line: &str) -> Result<i32, String> {
 
         // The child inherits the launcher's stdio — the capture wired the spool stdin
         // and the output pipes onto THIS process before spawning it.
+        // pass #160: the NUL-device substitution for the streams the capture did not
+        // pipe — see ensure_stream.
+        let std_in = ensure_stream(GetStdHandle(STD_INPUT_HANDLE), GENERIC_READ);
+        let std_out = ensure_stream(GetStdHandle(STD_OUTPUT_HANDLE), GENERIC_WRITE);
+        let std_err = ensure_stream(GetStdHandle(STD_ERROR_HANDLE), GENERIC_WRITE);
         let mut si: windows_sys::Win32::System::Threading::STARTUPINFOW = std::mem::zeroed();
         si.cb = std::mem::size_of::<windows_sys::Win32::System::Threading::STARTUPINFOW>() as u32;
         si.dwFlags = STARTF_USESTDHANDLES;
-        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-        si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
-        si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+        si.hStdInput = std_in;
+        si.hStdOutput = std_out;
+        si.hStdError = std_err;
 
         let mut line_w = wide(child_line);
         let mut pi: windows_sys::Win32::System::Threading::PROCESS_INFORMATION = std::mem::zeroed();
