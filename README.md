@@ -49,7 +49,7 @@ Frontend-only mode covers login and lists; the desktop shell adds custom
 headers, submissions, and the local CPH runner. Per-platform details,
 prerequisites, and caveats: [BUILDING.md](docs/BUILDING.md).
 
-## What works (v0.3.55a-alpha)
+## What works (v0.3.56a-alpha)
 
 Login (+ Google flow) → contests → workspace → problem → submit → verdict
 poll; rankings, submissions filters, account, settings; local CPH
