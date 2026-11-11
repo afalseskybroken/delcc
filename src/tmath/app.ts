@@ -7,7 +7,7 @@ import { openExternal, fetchAsset, updateCheck } from "../lib/transport";
 import manifest from "../../package.json";
 import DOMPurify from "dompurify";
 import { getLocale, t, type DictKey } from "../i18n";
-import { applyPreferences, hour12Opt, loadPreferences, savePreferences, read, write, applyIdentity, FOOTER_NOTE_KEY, type Preferences } from "./preferences";
+import { applyPreferences, debugFieldsOn, hour12Opt, loadPreferences, savePreferences, read, write, applyIdentity, FOOTER_NOTE_KEY, type Preferences } from "./preferences";
 import { button, date, empty, errorBox, errorText, esc, list, loading, text, textBr, sanitizeFooterNote } from "./ui";
 import { mdInline as mdInlineRender } from "./md";
 import { cachedAvatar, hydrateAvatars } from "./avatars";
@@ -59,6 +59,19 @@ const IMAGE_CAP = 8;
 // eviction order tracks actual use, not insertion order.
 const IMAGE_CACHE_BYTES = 24 * 1024 * 1024;
 let assetCacheBytes = 0;
+// pass #161 (He, the Debug Mode): the RAW server-field tooltips. When the opt-in
+// Settings toggle is on, render sites attach a title attribute carrying the sorted,
+// pretty-printed JSON of the RAW server object — every field the judge sent, not
+// just the ones delcc's types named (restriction state, times, rate fields, flags).
+// The attribute is escaped (the doctrine: server data is untrusted input, even in a
+// tooltip). Off by default; most users never see it.
+const debugTip = (obj: unknown): string => {
+  if (!debugFieldsOn() || obj === null || typeof obj !== "object") return "";
+  const entries = Object.entries(obj as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
+  const sorted: Record<string, unknown> = {};
+  for (const [k, v] of entries) sorted[k] = v;
+  return ` title="${esc(JSON.stringify(sorted, null, 1))}"`;
+};
 // pass #157 (wave-11 W11-08): the SESSION-OWNER binding. A refresh save persists to
 // the active profile only when the session's bound owner IS that profile; fresh
 // logins detach ownership until finish() binds it again. The wave-10 hole: a
@@ -767,7 +780,7 @@ export class TmathApp {
       const startMs = new Date(c.start_time).getTime();
       const joinWait = !c.is_in_contest && c.can_join && startMs > now;
       const disabled = (!c.can_join && !c.can_view_tasks && !c.is_in_contest) || joinWait;
-      return `<div class="tm-contest-row"><span class="tm-contest-icon" aria-hidden="true">${phIcon("trophy", 24)}</span><div class="tm-contest-summary"><strong>${esc(c.name)}</strong>${rated}${c.topic ? `<small class="tm-contest-topic">${esc(c.topic)}</small>` : ""}<small>${date(c.start_time)} – ${date(c.end_time)}</small></div><span class="tm-tag"${joinWait ? ` data-starts-in="${startMs}"` : ""}>${rowTag(c)}</span><button class="tm-button primary tm-contest-join" aria-label="${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")} ${esc(c.name)}" data-contest="${esc(c.key)}" data-join="${!!c.can_join && !c.is_in_contest}"${disabled ? " disabled" : ""}>${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")}</button></div>`;
+      return `<div class="tm-contest-row"${debugTip(c)}><span class="tm-contest-icon" aria-hidden="true">${phIcon("trophy", 24)}</span><div class="tm-contest-summary"><strong>${esc(c.name)}</strong>${rated}${c.topic ? `<small class="tm-contest-topic">${esc(c.topic)}</small>` : ""}<small>${date(c.start_time)} – ${date(c.end_time)}</small></div><span class="tm-tag"${joinWait ? ` data-starts-in="${startMs}"` : ""}>${rowTag(c)}</span><button class="tm-button primary tm-contest-join" aria-label="${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")} ${esc(c.name)}" data-contest="${esc(c.key)}" data-join="${!!c.can_join && !c.is_in_contest}"${disabled ? " disabled" : ""}>${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")}</button></div>`;
     };
     const groups: [DictKey, DictKey, "active" | "upcoming" | "ended", ContestListItem[]][] = [
       ["contests.current", "contests.currentDesc", "active", list(home?.current_contests)],
@@ -1181,7 +1194,7 @@ export class TmathApp {
       const tip = `${String(p.name ?? "")}${p.name ? " · " : ""}${String(p.code).toUpperCase()}`;
       return `<button type="button" class="tm-contest-tab${active}${score ? " " + score : ""}" data-code="${esc(p.code)}" title="${esc(tip)}" aria-label="${esc(tip)}">${esc(this.probLabel(p, i))}<span class="sr-only">${this.scoreText(p.score_status)}</span></button>`;
     };
-    host.innerHTML = `<div class="tm-workspace"><div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("contests.workspaceEyebrow")}</div><h1>${esc(contest?.name ?? key)}</h1><p class="tm-contest-meta">${esc(modeTxt)}${dlText ? ` · ${text("contests.deadlineAt")}: ${esc(dlText)}` : ""}</p></div><div class="tm-contest-side"><aside class="tm-contest-clock" aria-label="${text("contests.clockLabel")}"><div class="tm-clock-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span data-clock-label>${text("contests.timeUnknown")}</span></div><div class="tm-clock-value" role="timer" aria-label="${text("contests.ariaTimeLeft")}" data-clock>--:--:--</div></aside><button type="button" class="tm-button destructive" data-action="leave">${text("contests.leave")}</button></div></div><div class="tm-contest-strip"><div class="tm-contest-scroll"><nav class="tm-contest-tabs" aria-label="${text("contests.problemsListAria")}">${rows.map(tab).join("")}</nav></div><button type="button" class="tm-icon-button" data-action="refresh-problems" aria-label="${text("contests.refreshList")}" title="${text("contests.refreshList")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button></div>${workspace?.next_problem_requirement != null ? `<p class="tm-ac-banner" role="status">${t("contests.acBanner", { n: esc(String(workspace.accepted_problem_count ?? 0)), r: esc(String(workspace.next_problem_requirement)) })}</p>` : ""}<div id="tm-workspace-message" role="status"></div><div id="tm-solve-host"></div></div>`;
+    host.innerHTML = `<div class="tm-workspace"${debugTip({ contest, workspace })}><div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("contests.workspaceEyebrow")}</div><h1>${esc(contest?.name ?? key)}</h1><p class="tm-contest-meta">${esc(modeTxt)}${dlText ? ` · ${text("contests.deadlineAt")}: ${esc(dlText)}` : ""}</p></div><div class="tm-contest-side"><aside class="tm-contest-clock" aria-label="${text("contests.clockLabel")}"><div class="tm-clock-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span data-clock-label>${text("contests.timeUnknown")}</span></div><div class="tm-clock-value" role="timer" aria-label="${text("contests.ariaTimeLeft")}" data-clock>--:--:--</div></aside><button type="button" class="tm-button destructive" data-action="leave">${text("contests.leave")}</button></div></div><div class="tm-contest-strip"><div class="tm-contest-scroll"><nav class="tm-contest-tabs" aria-label="${text("contests.problemsListAria")}">${rows.map(tab).join("")}</nav></div><button type="button" class="tm-icon-button" data-action="refresh-problems" aria-label="${text("contests.refreshList")}" title="${text("contests.refreshList")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button></div>${workspace?.next_problem_requirement != null ? `<p class="tm-ac-banner" role="status">${t("contests.acBanner", { n: esc(String(workspace.accepted_problem_count ?? 0)), r: esc(String(workspace.next_problem_requirement)) })}</p>` : ""}<div id="tm-workspace-message" role="status"></div><div id="tm-solve-host"></div></div>`;
     // Live countdown per the carve: ceil(deadline - now), padded HH:MM:SS, destructive tint at <=300s.
     // pass #60: the countdown runs on the SERVER clock (skew corrected by every poll —
     // live-probed payload carries server_time), and a deadline the server changes is adopted.
@@ -1628,7 +1641,7 @@ export class TmathApp {
           ? (panelHtml ? `<button type="button" class="tm-case-toggle" data-case-toggle aria-expanded="false"><span>#${esc(c.case_id ?? "—")}</span>${caseChevronSvg}</button>` : `#${esc(c.case_id ?? "—")}`)
           : "—";
         const groupCell = leaf ? (group == null ? "—" : text("subs.groupN", { n: group })) : text("subs.groupN", { n: batch! });
-        return `<tr><th scope="row" class="tm-case-cell">${testCell}</th><td>${esc(groupCell)}</td><td>${leaf ? pill(c.status) : "—"}</td><td class="tm-case-number">${esc(fmtT(c.time))}</td><td class="tm-case-number">${esc(fmtM(c.memory))}</td><td>${esc(c.points ?? "—")} / ${esc(c.total ?? "—")}</td></tr>${panelHtml ? `<tr class="tm-case-panel-row" hidden><td colspan="6">${panelHtml}</td></tr>` : ""}${Array.isArray(c.cases) && c.cases.length ? caseRows(c.cases, batch, depth + 1) : ""}`;
+        return `<tr${debugTip(c)}><th scope="row" class="tm-case-cell">${testCell}</th><td>${esc(groupCell)}</td><td>${leaf ? pill(c.status) : "—"}</td><td class="tm-case-number">${esc(fmtT(c.time))}</td><td class="tm-case-number">${esc(fmtM(c.memory))}</td><td>${esc(c.points ?? "—")} / ${esc(c.total ?? "—")}</td></tr>${panelHtml ? `<tr class="tm-case-panel-row" hidden><td colspan="6">${panelHtml}</td></tr>` : ""}${Array.isArray(c.cases) && c.cases.length ? caseRows(c.cases, batch, depth + 1) : ""}`;
       }).join("");
     };
     const casesHtml = Array.isArray(s.cases) && s.cases.length
@@ -1982,7 +1995,7 @@ export class TmathApp {
       const username = String(e.username ?? "");
       const you = !!me && username === me;
       const self = you ? " leaderboard-self" : "";
-      const left = `<tr class="tm-lb-row${self}"><th scope="row" class="tm-lb-rank-cell"><span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span></th><td class="tm-lb-user"><a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)}${you ? ` <span class="tm-tag tm-lb-you">${text("rankings.you")}</span>` : ""}</td><td class="tm-lb-total"><strong>${esc(fmtNum(e.points))}</strong></td><td class="tm-lb-time">${esc(fmtClock(e.cumulative_time))}</td></tr>`;
+      const left = `<tr class="tm-lb-row${self}"${debugTip(e)}><th scope="row" class="tm-lb-rank-cell"><span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span></th><td class="tm-lb-user"><a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)}${you ? ` <span class="tm-tag tm-lb-you">${text("rankings.you")}</span>` : ""}</td><td class="tm-lb-total"><strong>${esc(fmtNum(e.points))}</strong></td><td class="tm-lb-time">${esc(fmtClock(e.cumulative_time))}</td></tr>`;
       const cells = Array.isArray(e.problem_cells) ? e.problem_cells : [];
       const right = `<tr class="tm-lb-row${self}">${problems.map((_, k) => cellHtml(cells[k], k, you, username)).join("")}</tr>`;
       return { left, right };

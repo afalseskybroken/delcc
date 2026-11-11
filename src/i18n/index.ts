@@ -409,6 +409,9 @@ export interface Dict {
   "settings.winTitleHint": string;
   "settings.winIcon": string;
   "settings.winIconHint": string;
+  "settings.advanced": string;
+  "settings.debugFields": string;
+  "settings.debugFieldsHint": string;
   "settings.identityReset": string;
   "settings.footerNote": string,
   "settings.footerNoteHint": string;

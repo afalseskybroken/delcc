@@ -13,6 +13,8 @@ export interface Preferences {
   minimap: boolean;
   wordWrap: boolean;
   uiScale: number;
+  // pass #161 (He): the Debug Mode — the raw server-field tooltips, opt-in
+  debugServerFields: boolean;
 }
 export function read(key: string, fallback = ""): string {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
@@ -38,9 +40,18 @@ export function loadPreferences(): Preferences {
     editorSize: clamp(p.editorSize, 10, 28, 14),
     minimap: p.minimap ?? false, wordWrap: p.wordWrap ?? true,
     uiScale: clamp(p.uiScale, 80, 140, 100),
+    debugServerFields: p.debugServerFields === true,
   };
 }
 export const clamp = (v: unknown, min: number, max: number, fallback: number) => typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fallback;
+// pass #161 (He): the Debug Mode gate — read fresh at every render site (the
+// settings toggle takes effect without a reload)
+export function debugFieldsOn(): boolean {
+  try {
+    const p = JSON.parse(read("delcc-tmath-preferences", "{}")) ?? {};
+    return p.debugServerFields === true;
+  } catch { return false; }
+}
 // the OS-default stacks behind the "System" font options (Windows is the shipped platform)
 export const SYSTEM_UI_STACK = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 export const SYSTEM_MONO_STACK = 'Consolas, "Cascadia Code", "Courier New", monospace';
