@@ -17,7 +17,9 @@ function ensureDebugPanel(): HTMLElement {
   if (debugPanel) return debugPanel;
   debugPanel = document.createElement("div");
   debugPanel.className = "tm-debug-tip";
-  debugPanel.setAttribute("role", "status");
+  // pass #165 (W12-L4): no role — a hover-only developer panel must not be a live
+  // region (role=status announces every repaint); aria-hidden keeps it out of the tree.
+  debugPanel.setAttribute("aria-hidden", "true");
   document.body.appendChild(debugPanel);
   return debugPanel;
 }
@@ -47,12 +49,18 @@ export function wireDebugHover(): void {
     if (obj === undefined) { hideDebugPanel(); return; }
     const panel = ensureDebugPanel();
     panel.textContent = JSON.stringify(sortKeys(obj), null, 2);
+    // pass #165 (W12-L4): the size reads ONCE per show, not per mousemove (layout thrash)
+    panelSize.w = panel.offsetWidth;
+    panelSize.h = panel.offsetHeight;
   });
+  const panelSize = { w: 0, h: 0 };
   document.addEventListener("mousemove", e => {
     if (!debugPanel) return;
-    const w = debugPanel.offsetWidth, h = debugPanel.offsetHeight;
-    debugPanel.style.left = `${Math.min(e.clientX + 18, window.innerWidth - w - 12)}px`;
-    debugPanel.style.top = `${Math.min(e.clientY + 14, window.innerHeight - h - 12)}px`;
+    const w = panelSize.w || debugPanel.offsetWidth, h = panelSize.h || debugPanel.offsetHeight;
+    // pass #165 (W12-L4): the lower clamp — Math.min alone produced negative left/top
+    // when the viewport was narrower than the panel (the panel flew off-screen).
+    debugPanel.style.left = `${Math.max(0, Math.min(e.clientX + 18, window.innerWidth - w - 12))}px`;
+    debugPanel.style.top = `${Math.max(0, Math.min(e.clientY + 14, window.innerHeight - h - 12))}px`;
   });
 }
 

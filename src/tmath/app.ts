@@ -306,17 +306,13 @@ export class TmathApp {
   private collapsed = read("delcc-tmath-sidebar") === "collapsed";
   private sessionReady = false;
   private stopped = false;
-  // pass #162: the case rows' raw objects (the Debug Mode payloads), exported from
-  // submissionDetailHtml for the caller's attach pass
-  private lastCaseLeaves: any[] = [];
+  // pass #165 (wave-12 W12-L3): the case rows' raw objects, keyed by submission id —
+  // the single shared field let two concurrently-expanded details race (the second
+  // open poisoned the first's payloads on re-attach). Bounded, drop-oldest.
+  private caseLeavesBySub = new Map<number, any[]>();
+  private static readonly CASE_LEAVES_CAP = 32;
   // pass #162: the Debug Mode hover wiring + the live gate (the toggle flips without a reload)
-  private debugWired = false;
-  private wireDebug(): void {
-    if (this.debugWired) return;
-    this.debugWired = true;
-    setDebugGate(() => debugFieldsOn());
-    wireDebugHover();
-  }
+
 
   // informational update notice (honest-client: tells, never forces)
   private versionNotice: { client: string; required: string } | null = null;
@@ -810,7 +806,7 @@ export class TmathApp {
       const startMs = new Date(c.start_time).getTime();
       const joinWait = !c.is_in_contest && c.can_join && startMs > now;
       const disabled = (!c.can_join && !c.can_view_tasks && !c.is_in_contest) || joinWait;
-      return `<div class="tm-contest-row" data-contest="${esc(c.key)}"><span class="tm-contest-icon" aria-hidden="true">${phIcon("trophy", 24)}</span><div class="tm-contest-summary"><strong>${esc(c.name)}</strong>${rated}${c.topic ? `<small class="tm-contest-topic">${esc(c.topic)}</small>` : ""}<small>${date(c.start_time)} – ${date(c.end_time)}</small></div><span class="tm-tag"${joinWait ? ` data-starts-in="${startMs}"` : ""}>${rowTag(c)}</span><button class="tm-button primary tm-contest-join" aria-label="${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")} ${esc(c.name)}" data-contest="${esc(c.key)}" data-join="${!!c.can_join && !c.is_in_contest}"${disabled ? " disabled" : ""}>${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")}</button></div>`;
+      return `<div class="tm-contest-row" data-debug-contest="${esc(c.key)}"><span class="tm-contest-icon" aria-hidden="true">${phIcon("trophy", 24)}</span><div class="tm-contest-summary"><strong>${esc(c.name)}</strong>${rated}${c.topic ? `<small class="tm-contest-topic">${esc(c.topic)}</small>` : ""}<small>${date(c.start_time)} – ${date(c.end_time)}</small></div><span class="tm-tag"${joinWait ? ` data-starts-in="${startMs}"` : ""}>${rowTag(c)}</span><button class="tm-button primary tm-contest-join" aria-label="${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")} ${esc(c.name)}" data-contest="${esc(c.key)}" data-join="${!!c.can_join && !c.is_in_contest}"${disabled ? " disabled" : ""}>${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")}</button></div>`;
     };
     const groups: [DictKey, DictKey, "active" | "upcoming" | "ended", ContestListItem[]][] = [
       ["contests.current", "contests.currentDesc", "active", list(home?.current_contests)],
@@ -822,8 +818,8 @@ export class TmathApp {
     host.innerHTML = this.pageTitle("contests.eyebrow","contests.title","contests.desc","contests.refresh") + joinedBanner + `<section class="tm-card"><div class="tm-card-head"><h2>${text("contests.list")}</h2><span class="tm-tag">${text("contests.onPage", {n: all.length})}</span></div><form class="tm-search-row" id="tm-search-form"><label for="tm-contest-search">${text("contests.searchField")}</label><div class="tm-search-controls"><input id="tm-contest-search" name="search" aria-label="${text("common.search")}" placeholder="${text("contests.searchPlaceholder")}" value="${esc(search)}" maxlength="200">${search ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}<button class="tm-button" type="submit">${text("common.search")}</button></div></form><div id="tm-contest-message" role="status"></div>` + groups.filter(([, , , cs]) => cs.length).map(([key, desc, tone, cs]) => `<section class="tm-contest-group tm-contest-group-${tone}"><div class="tm-contest-group-header"><h3>${text(key)} (${cs.length})</h3><p>${text(desc)}</p></div><div class="tm-contest-rows">${cs.map(row).join("")}</div></section>`).join("") + (groups.every(g => !g[3].length) ? empty() : "") + `</section>`;
     // pass #162: the Debug Mode payloads (the raw server objects)
     const byKey = new Map(groups.flatMap(([, , , cs]) => cs).map(c => [c.key, c] as [string, unknown]));
-    host.querySelectorAll(".tm-contest-row[data-contest]").forEach(el => {
-      const obj = byKey.get(el.getAttribute("data-contest") ?? "");
+    host.querySelectorAll(".tm-contest-row[data-debug-contest]").forEach(el => {
+      const obj = byKey.get(el.getAttribute("data-debug-contest") ?? "");
       if (obj !== undefined) attachDebug(el, obj);
     });
     // pass #58: the auto-left notice (timer over / removed elsewhere) is one-shot
@@ -863,7 +859,7 @@ export class TmathApp {
       arm();
     });
     this.disposeView = () => { joinTimers.forEach(id => window.clearTimeout(id)); previous?.(); };
-    host.querySelectorAll<HTMLButtonElement>("[data-contest]").forEach(b => b.onclick = async () => {
+    host.querySelectorAll<HTMLButtonElement>("button[data-contest]").forEach(b => b.onclick = async () => {
       b.disabled = true;
       const c = all.find(c => c.key === b.dataset.contest)!;
       try {
@@ -1572,8 +1568,9 @@ export class TmathApp {
         if (!alive() || !row.isConnected) return;
         cell.innerHTML = this.submissionDetailHtml(s);
         // pass #162: the Debug Mode payloads (the raw case objects)
+        const leaves = this.caseLeavesBySub.get(Number(b.dataset.sub));
         cell.querySelectorAll("[data-case-idx]").forEach(el => {
-          const obj = this.lastCaseLeaves[Number(el.getAttribute("data-case-idx"))];
+          const obj = leaves?.[Number(el.getAttribute("data-case-idx"))];
           if (obj !== undefined) attachDebug(el, obj);
         });
         this.wireCaseToggles(cell);
@@ -1745,7 +1742,15 @@ export class TmathApp {
     // SubmissionDetailSchema.error. Compilers emit ANSI escapes (SGR colors, cursor
     // moves, OSC titles) that a <pre> renders as garbage — strip CSI/OSC sequences
     // and stray C0 controls, keeping tab/LF/CR.
-    this.lastCaseLeaves = caseLeaves;
+    if (typeof s.id === "number") {
+      this.caseLeavesBySub.delete(s.id);
+      this.caseLeavesBySub.set(s.id, caseLeaves);
+      while (this.caseLeavesBySub.size > TmathApp.CASE_LEAVES_CAP) {
+        const oldest = this.caseLeavesBySub.keys().next().value;
+        if (oldest === undefined) break;
+        this.caseLeavesBySub.delete(oldest);
+      }
+    }
     const err = typeof s.error === "string" && s.error.trim()
       ? s.error
           .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
@@ -2162,7 +2167,7 @@ export class TmathApp {
       if (leftBody) leftBody.innerHTML = pairs.map(p => p.left).join("");
       if (rightBody) rightBody.innerHTML = pairs.map(p => p.right).join("");
       // pass #162: the Debug Mode payloads (the raw member entries)
-      const byUser = new Map(viewRows.map(e => [String((e as { user?: unknown }).user ?? ""), e] as [string, unknown]));
+      const byUser = new Map(viewRows.map(e => [String((e as { user?: unknown }).user ?? (e as { username?: unknown }).username ?? ""), e] as [string, unknown]));
       host.querySelectorAll('[data-lb-left] tr[data-lb-user]').forEach(el => {
         const obj = byUser.get(el.getAttribute('data-lb-user') ?? '');
         if (obj !== undefined) attachDebug(el, obj);
