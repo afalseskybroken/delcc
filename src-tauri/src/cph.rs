@@ -2,9 +2,11 @@
 // Local Competitive Programming Helper: detect what's on PATH, compile the editor's
 // current source, run it against test cases the user typed in, time-limit it, diff
 // it client-side. There is no way to pull real judge test data through the contract
-// (confirmed — see SHIP_TO_CLAUDE.md), so this never touches the network: it is a
-// local sandbox-free runner, same trust level as running the file yourself in a
-// terminal. One footgun worth a comment, nothing more — see `capture`.
+// (confirmed — see SHIP_TO_CLAUDE.md), so this never touches the network. Since pass
+// #159 the RUN of untrusted contest code is sandboxed (a restricted-token launcher,
+// LOW integrity, fail-closed — see `capture` and restrict.rs); the compile step runs
+// trusted toolchains unwrapped. Defense-in-depth, not a security boundary: still your
+// code on your machine, same trust level as running the file yourself in a terminal.
 //
 // pass #11 (Claude): serde output is snake_case again (the TS side has always read
 // snake_case — see transport.ts), commands are async so the UI thread is never the
@@ -260,6 +262,12 @@ const LOG_CAP: usize = 64 * 1024;
 // output up to this limit; exceeding it is an explicit RE, never a clipped WA.
 const OUTPUT_CAP: usize = 1024 * 1024; // per stream, for compilers as well as programs
 const OUTPUT_LIMIT_MESSAGE: &str = "output limit exceeded (1048576 bytes per stream)";
+// pass #163 (wave-12 W12-16): source and expected-output bounds, enforced Rust-side in
+// every lane (run/compile/debug). The frontend clamps are UI politeness, not a boundary
+// — the same doctrine as the #158 C8 run caps. A draft is KBs; 1 MiB is generous headroom
+// and matches OUTPUT_CAP (expected output beyond the stdout cap could never AC anyway).
+const MAX_SOURCE: usize = 1024 * 1024;
+const MAX_EXPECTED: usize = 1024 * 1024;
 const PIPE_POLL: Duration = Duration::from_millis(5);
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -311,6 +319,39 @@ struct AllowedBinaries {
     // prompt-fatigue loop (the page could otherwise open one modal per call).
     // In-memory only: a restart forgets the cooldown, never the consent.
     last_dialog: std::collections::HashMap<String, std::time::Instant>,
+    // pass #163 (wave-12 W12-14): a GLOBAL last-dialog timestamp. The per-path map alone
+    // let the page open one modal per DISTINCT path forever (and grow the map without
+    // bound); this plus a capped map bounds the dialog rate regardless of path variety.
+    last_dialog_any: Option<std::time::Instant>,
+}
+
+impl AllowedBinaries {
+    // pass #163 (wave-12 W12-14): the consent-dialog cooldown, now BOUNDED. Returns true
+    // when an override dialog may fire NOW (recording the timestamp), false when cooled
+    // down. Two limits: a GLOBAL minimum interval between any two override dialogs, and a
+    // per-path interval; the per-path map is capped (oldest evicted) so page-named distinct
+    // paths cannot grow it forever. The caller must NOT hold the allowed lock across the
+    // blocking dialog — this records the stamp and releases, then the dialog runs.
+    fn dialog_cooldown_ok(&mut self, bin: &str) -> bool {
+        const GLOBAL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+        const PER_PATH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+        const MAX_TRACKED: usize = 128;
+        let now = std::time::Instant::now();
+        if self.last_dialog_any.is_some_and(|t| t.elapsed() < GLOBAL_INTERVAL) {
+            return false;
+        }
+        if self.last_dialog.get(bin).is_some_and(|t| t.elapsed() < PER_PATH_INTERVAL) {
+            return false;
+        }
+        if self.last_dialog.len() >= MAX_TRACKED && !self.last_dialog.contains_key(bin) {
+            if let Some(oldest) = self.last_dialog.iter().min_by_key(|(_, t)| **t).map(|(k, _)| k.clone()) {
+                self.last_dialog.remove(&oldest);
+            }
+        }
+        self.last_dialog.insert(bin.to_string(), now);
+        self.last_dialog_any = Some(now);
+        true
+    }
 }
 
 
@@ -357,7 +398,21 @@ impl CphState {
     /// document — both load, the new format wins on save.
     pub fn load_persisted_overrides(&self) {
         let Some(dir) = lock(&self.0.persist_dir).clone() else { return; };
-        let Ok(text) = fs::read_to_string(dir.join("cph-overrides.json")) else { return; };
+        let path = dir.join("cph-overrides.json");
+        // pass #163 (wave-12 W12-17): cap the registry file BEFORE reading it. The entry
+        // caps below bound the parsed allowlist, but read_to_string would still allocate a
+        // corrupted or hand-planted multi-GB file whole. 1 MiB is far above any legitimate
+        // registry (≤128 short paths). Same stat-then-read posture as the secure store.
+        const MAX_REGISTRY_BYTES: u64 = 1024 * 1024;
+        match fs::metadata(&path) {
+            Ok(m) if m.len() > MAX_REGISTRY_BYTES => {
+                eprintln!("cph: the override registry file exceeds the size bound — ignoring it");
+                return;
+            }
+            Ok(_) => {}
+            Err(_) => return, // missing/unreadable — nothing to load (first boot)
+        }
+        let Ok(text) = fs::read_to_string(&path) else { return; };
         // pass #158 (wave-c C4c + wave-11 W11-L04): the registry file is load-VALIDATED —
         // entries are capped (a corrupted or hand-planted megabyte list cannot bloat the
         // allowlist) and shapes are enforced (strings only, the seven real language keys
@@ -414,7 +469,15 @@ impl CphState {
             return;
         }
         let doc = serde_json::json!({ "overrides": map, "confirmed_fixed": fixed, "refused_fixed": refused });
-        let Ok(json) = serde_json::to_string_pretty(&doc) else { return; };
+        // pass #163 (wave-12 W12-17): a serialization failure is LOGGED, not swallowed —
+        // the same honesty the write-failure path below already keeps.
+        let json = match serde_json::to_string_pretty(&doc) {
+            Ok(j) => j,
+            Err(e) => {
+                eprintln!("cph: the override registry could not be serialized ({e}) — consents may not survive a restart");
+                return;
+            }
+        };
         let tmp = dir.join("cph-overrides.json.tmp");
         if fs::write(&tmp, json).is_ok() && fs::rename(&tmp, dir.join("cph-overrides.json")).is_ok() {
             return;
@@ -615,6 +678,14 @@ pub(crate) fn probe_with_limit(bin: &str, args: &[&str], timeout: Duration, cap:
             Err(_) => break,
         }
     }
+    // pass #163 (wave-12 W12-18): the wait loop above fell out with no status — the child
+    // did not exit on its own inside the deadline (it overran the clock, or try_wait
+    // errored). That is a FAILED probe even if the kill+reap below captures a just-after-
+    // the-bell exit(0): the #157 W11-06 rule requires finishing INSIDE the deadline. Mark
+    // it timed_out so the post-deadline reap cannot launder an overrun into success.
+    if status.is_none() {
+        timed_out = true;
+    }
     if status.is_none() {
         // pass #145 (wave-9 W9-03): kill the TREE, not the direct child — a probe
         // target that spawned its own children (`cmd /c ping` in the regression test)
@@ -673,6 +744,23 @@ fn resolve_in_path(name: &str) -> Option<std::path::PathBuf> {
         }
     }
     None
+}
+
+// pass #163 (wave-12 W12-04): pin a bare toolchain name to its PATH-resolved absolute
+// path BEFORE it is executed. The detector already pins (probe_one, #157/W11-05), but
+// the run/compile path admitted bare names by candidate_lang and handed them straight
+// to new_cmd — whose Windows lookup starts at the EXECUTABLE DIRECTORY, so a planted
+// python.exe/g++.exe neighbor beside delcc.exe would run instead of the PATH toolchain
+// the detector claimed. Absolute paths (the normal cph_detect feed, detected/override
+// entries) pass through unchanged; an unresolvable bare name fails closed, exactly like
+// the detector skipping it. This is the execution-side twin of probe_one's pinning.
+fn pinned_binary(binary: &str) -> Result<String, String> {
+    if Path::new(binary).is_absolute() {
+        return Ok(binary.to_string());
+    }
+    resolve_in_path(binary)
+        .map(|p| p.to_string_lossy().into_owned())
+        .ok_or_else(|| format!("CPH: toolchain '{binary}' was not found in PATH"))
 }
 
 fn probe_one(candidates: &[&str], version_args: &[&str]) -> Option<(String, String)> {
@@ -782,6 +870,22 @@ fn glob_dirs(dir: &std::path::Path, prefix: &str) -> Vec<std::path::PathBuf> {
     v
 }
 
+// pass #163 (wave-12 W12-13): the C5 rule (symlink_metadata, refuse reparse points)
+// extended to the remaining DETECTOR DISCOVERY walks. A planted symlink to a UNC path
+// makes Windows contact the remote server (an NTLM leak) during mere detection, so a
+// discovered candidate must be a REAL LOCAL file/dir — never a reparse point. These name
+// the check the C5 fix inlined in push_fixed/glob_dirs. Scope: discovery in plantable
+// roots only. PATH resolution (resolve_in_path), the user-named override existence check,
+// and the trusted compiler-sibling/PATH debugger discovery deliberately still follow
+// symlinks — those are user-trusted locations where symlinked toolchains are legitimate
+// (disclosed in SECURITY.md and the lane FIXES note).
+fn is_real_file(p: &std::path::Path) -> bool {
+    std::fs::symlink_metadata(p).map(|m| m.is_file() && !m.file_type().is_symlink()).unwrap_or(false)
+}
+fn is_real_dir(p: &std::path::Path) -> bool {
+    std::fs::symlink_metadata(p).map(|m| m.is_dir() && !m.file_type().is_symlink()).unwrap_or(false)
+}
+
 // pass #100 (He: "same for probing compiler/interpreter off VSCode"): some VS Code
 // extensions bundle a MinGW/Python toolchain. The scan is BOUNDED so it can never
 // become a filesystem crawl: direct extension dirs only (60 max), walk depth 3,
@@ -802,9 +906,9 @@ fn walk_find(dir: &std::path::Path, name: &str, depth: u8, checked: &mut usize, 
             if fname == "node_modules" || fname == ".git" {
                 continue;
             }
-            if p.is_file() && fname == name {
+            if is_real_file(&p) && fname == name {
                 found.push(p);
-            } else if p.is_dir() {
+            } else if is_real_dir(&p) {
                 found.extend(walk_find(&p, name, depth - 1, checked, cap));
             }
             if found.len() >= 2 {
@@ -823,7 +927,7 @@ fn vscode_extension_toolchains(profile: &std::path::Path) -> (Vec<std::path::Pat
     if let Ok(rd) = std::fs::read_dir(&ext) {
         for e in rd.filter_map(|e| e.ok()).take(60) {
             let d = e.path();
-            if !d.is_dir() {
+            if !is_real_dir(&d) {
                 continue;
             }
             if gpp.len() < 2 {
@@ -915,7 +1019,7 @@ fn detect_all() -> (Vec<Toolchain>, Vec<PlantedCandidate>) {
                 let bin = d.join("bin");
                 let javac = bin.join("javac.exe");
                 let java = bin.join("java.exe");
-                if javac.is_file() && java.is_file() {
+                if is_real_file(&javac) && is_real_file(&java) {
                     if let (Some((_c1, jc)), Some((_c2, _jr))) = (
                         probe_one(&[javac.to_string_lossy().as_ref()], &["-version"]),
                         probe_one(&[java.to_string_lossy().as_ref()], &["-version"]),
@@ -960,7 +1064,7 @@ fn detect_all() -> (Vec<Toolchain>, Vec<PlantedCandidate>) {
             for d in glob_dirs(&root, "") {
                 for arch in ["i386-win32", "x86_64-win64"] {
                     let exe = d.join("bin").join(arch).join("fpc.exe");
-                    if exe.is_file() {
+                    if is_real_file(&exe) {
                         push_fixed(&mut out, &mut planted, true, "pascal", "Pascal", pf(exe), &["-iV"]);
                         if have(&out, "pascal") || have_planted(&planted, "pascal") {
                             break 'fpc;
@@ -1113,9 +1217,10 @@ fn validate_binary_shape(bin: &str) -> Result<(), String> {
     Ok(())
 }
 
-// The detector's candidate table as a lang -> name floor. A bare name here runs as-is
-// (PATH lookup) — exactly what cph_detect probes before claiming it, so admitting it
-// never admits anything the detector wouldn't have run itself.
+// The detector's candidate table as a lang -> name floor. Admitting a bare name here
+// never admits anything the detector wouldn't have probed itself; EXECUTION then pins
+// it to the PATH-resolved absolute path (pinned_binary, pass #163/W12-04), so the run
+// uses the same toolchain identity cph_detect claimed — not an exe-dir neighbor.
 fn candidate_lang(name: &str) -> Option<&'static str> {
     Some(match name {
         "g++" | "clang++" => "cpp",
@@ -1311,13 +1416,12 @@ pub async fn cph_set_override(state: tauri::State<'_, CphState>, lang_key: Strin
     let bin_for_dialog = bin.clone();
     let lang_for_dialog = lang_key.clone();
     let confirmed = tauri::async_runtime::spawn_blocking(move || {
-        let since = { lock(&dialog_inner.allowed).last_dialog.get(&bin_for_dialog).copied() };
-        if let Some(t) = since {
-            if t.elapsed() < std::time::Duration::from_secs(5) {
-                return false;
-            }
+        // pass #163 (wave-12 W12-14): the bounded cooldown (a global interval + a capped
+        // per-path map) replaces the unbounded per-path-only check. The allowed lock is
+        // released here, BEFORE the blocking dialog — never held across a modal.
+        if !lock(&dialog_inner.allowed).dialog_cooldown_ok(&bin_for_dialog) {
+            return false;
         }
-        { lock(&dialog_inner.allowed).last_dialog.insert(bin_for_dialog.clone(), std::time::Instant::now()); }
         confirm_override(&lang_for_dialog, &bin_for_dialog)
     }).await.map_err(|e| format!("join: {e}"))?;
     if !confirmed {
@@ -1387,9 +1491,11 @@ pub struct CphRunResponse {
     compile_log: String,
     results: Vec<CphCaseResult>,
     cancelled: bool,
-    // pass #159 (wave-c C1): true when the run executed under the restricted-token
-    // launcher; false = the disclosed fallback (the launcher failed and the plain
-    // spawn ran — the pre-#159 documented posture).
+    // pass #159/#163 (wave-12 W12-02): true when every case ran under the
+    // restricted-token launcher with its session temp corner LOW-labeled. The run is
+    // FAIL-CLOSED — a self-restriction failure refuses the run; there is NO plain-spawn
+    // fallback. The compile step is never wrapped (trusted toolchains). Carried for
+    // diagnostics; the current UI does not surface it.
     #[serde(default)]
     sandboxed: bool,
 }
@@ -1512,16 +1618,23 @@ fn read_pipe(mut pipe: impl CapturePipe, stop: Arc<AtomicBool>, limited: Arc<Ato
     output
 }
 
-// Runs one process with a wall-clock limit, watching the job's cancel flag. No syscall
-// sandbox regardless of platform — it is the user's own code running at the user's
-// own privilege level, exactly like running it from a terminal. With the `job-mem-cap`
+// Runs one process with a wall-clock limit, watching the job's cancel flag. On Windows
+// the RUN is wrapped in the restricted-token launcher (LOW integrity, fail-closed —
+// pass #159/#163); the compile step (sandbox=false) and non-Windows builds run unwrapped
+// at the user's own privilege level, like running it from a terminal. With the `job-mem-cap`
 // feature on Windows, a committed-memory cap is attached too (see the `job` module);
 // everywhere else, no memory limit. Threads drain stdout/stderr concurrently with the
 // run so large output can't deadlock the pipe. Timeout and Stop both kill the whole tree.
 // pass #159 (wave-c C1): the standard Windows argument quoting — the launcher passes
-// the pre-quoted line verbatim to CreateProcessAsUserW, so every argument must carry
+// the pre-quoted line verbatim to CreateProcessW, so every argument must carry
 // the classic backslash/quote escapes. Arguments are delcc-built paths and fixed
 // tokens; the quoting still follows the full algorithm.
+//
+// pass #163 (wave-12 W12-09): backslashes are BUFFERED, not emitted immediately.
+// The old code pushed each '\' as it scanned AND counted it, so a following quote
+// got n + (2n+1) = 3n+1 backslashes and a trailing run got 3n — both wrong. The
+// MSVCRT rule is: n backslashes before a quote → 2n+1; before a normal char → n;
+// before the closing quote → 2n. Buffer the count and flush it at the delimiter.
 fn quote_windows_arg(arg: &std::ffi::OsStr) -> String {
     let s = arg.to_string_lossy();
     let mut q = String::with_capacity(s.len() + 2);
@@ -1529,21 +1642,25 @@ fn quote_windows_arg(arg: &std::ffi::OsStr) -> String {
     let mut backslashes = 0usize;
     for c in s.chars() {
         match c {
-            '\\' => { backslashes += 1; q.push('\\'); }
+            '\\' => { backslashes += 1; }
             '"' => {
                 q.push_str(&"\\".repeat(backslashes * 2 + 1));
                 q.push('"');
                 backslashes = 0;
             }
-            _ => { backslashes = 0; q.push(c); }
+            _ => {
+                q.push_str(&"\\".repeat(backslashes));
+                backslashes = 0;
+                q.push(c);
+            }
         }
     }
-    if backslashes > 0 { q.push_str(&"\\".repeat(backslashes * 2)); }
+    q.push_str(&"\\".repeat(backslashes * 2));
     q.push('"');
     q
 }
 
-fn capture(mut cmd: Command, input: Option<&str>, limit: Duration, _memory_limit_mb: Option<u64>, job: &ActiveJob) -> Captured {
+fn capture(mut cmd: Command, input: Option<&str>, limit: Duration, _memory_limit_mb: Option<u64>, job: &ActiveJob, sandbox: bool) -> Captured {
     let mut result = Captured {
         stdout: Vec::new(), stderr: Vec::new(), status: None, elapsed_ms: 0,
         timed_out: false, cancelled: false, output_limited: false, capture_err: None,
@@ -1572,47 +1689,54 @@ fn capture(mut cmd: Command, input: Option<&str>, limit: Duration, _memory_limit
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(windows)]
     {
-        // pass #159 (wave-c C1): the RUN executes under a RESTRICTED token. The
-        // command is re-wrapped in delcc's own launcher (current_exe + the magic
-        // argv + the pre-quoted child line); the launcher duplicates its token with
-        // every privilege dropped, the Administrators group deny-only, the Network
-        // group deny-only (best-effort), and a LOW integrity level, then
-        // CreateProcessAsUser's the child with the inherited stdio. The session tmp
-        // dir carries a LOW mandatory label — the sandboxed child's writable corner.
-        // A launcher failure FALLS BACK to the plain spawn and clears the sandboxed
-        // flag: the disclosed posture (the pre-#159 behavior) is the fallback, not a
-        // new hole. The debug lane and the compile step are not launcher-wrapped.
-        let mut sandboxed = true;
-        if let Some(dir) = cmd.get_current_dir() {
-            if !crate::restrict::label_dir_low(dir) {
-                sandboxed = false; // no LOW label = the child could not write its corner
+        // pass #163 (wave-12 W12-01): the restricted-token sandbox wraps the RUN of
+        // untrusted contest code ONLY. `sandbox` is false for the compile step, which
+        // runs trusted, allowlisted toolchains at the caller's medium integrity —
+        // wrapping compile in the LOW launcher broke it: a LOW process cannot write
+        // its intermediate temp files to the user's MEDIUM %TEMP% (MIC no-write-up).
+        // This restores the #159 design ("the compile step ... not launcher-wrapped").
+        if sandbox {
+            // pass #159/#160 (wave-c C1): re-wrap the command in delcc's own launcher
+            // (current_exe + the magic argv + the pre-quoted child line). The
+            // intermediate lowers ITS OWN token (privileges disabled, Administrators
+            // deny-only, LOW integrity) and CreateProcessW's the child with the
+            // inherited stdio; the session tmp dir carries a LOW mandatory label — the
+            // child's writable corner. FAIL-CLOSED (W11-02 doctrine): a self-restriction
+            // failure refuses the run (the launcher exits 3, reason on stderr) — there
+            // is NO plain-spawn fallback. The debug lane is likewise unwrapped.
+            let mut sandboxed = true;
+            if let Some(dir) = cmd.get_current_dir() {
+                if !crate::restrict::label_dir_low(dir) {
+                    sandboxed = false; // no LOW label = the child could not write its corner
+                }
             }
+            let exe = match std::env::current_exe() {
+                Ok(e) => e,
+                Err(e) => { result.spawn_err = Some(format!("current_exe: {e}")); return result; }
+            };
+            let mut line = String::new();
+            line.push_str(&quote_windows_arg(cmd.get_program()));
+            for a in cmd.get_args() {
+                line.push(' ');
+                line.push_str(&quote_windows_arg(a));
+            }
+            let mut launcher = crate::cph::new_cmd(exe.to_string_lossy().as_ref());
+            launcher.arg("__cph-restricted-child").arg("--").arg(&line);
+            match &stdin_file {
+                Some(f) => match f.try_clone() {
+                    Ok(clone) => { launcher.stdin(Stdio::from(clone)); }
+                    Err(e) => { result.spawn_err = Some(format!("stdin: {e}")); return result; }
+                },
+                None => { launcher.stdin(Stdio::null()); }
+            }
+            launcher.stdout(Stdio::piped()).stderr(Stdio::piped());
+            cmd = launcher;
+            result.sandboxed = sandboxed;
         }
-        let exe = match std::env::current_exe() {
-            Ok(e) => e,
-            Err(e) => { result.spawn_err = Some(format!("current_exe: {e}")); return result; }
-        };
-        let mut line = String::new();
-        line.push_str(&quote_windows_arg(cmd.get_program()));
-        for a in cmd.get_args() {
-            line.push(' ');
-            line.push_str(&quote_windows_arg(a));
-        }
-        let mut launcher = crate::cph::new_cmd(exe.to_string_lossy().as_ref());
-        launcher.arg("__cph-restricted-child").arg("--").arg(&line);
-        match &stdin_file {
-            Some(f) => match f.try_clone() {
-                Ok(clone) => { launcher.stdin(Stdio::from(clone)); }
-                Err(e) => { result.spawn_err = Some(format!("stdin: {e}")); return result; }
-            },
-            None => { launcher.stdin(Stdio::null()); }
-        }
-        launcher.stdout(Stdio::piped()).stderr(Stdio::piped());
-        cmd = launcher;
-        result.sandboxed = sandboxed;
     }
     #[cfg(unix)]
     {
+        let _ = sandbox; // the restricted-token launcher is windows-only
         use std::os::unix::process::CommandExt;
         cmd.process_group(0); // own group -> kill_tree can reach every descendant
     }
@@ -1731,7 +1855,7 @@ struct RunOutcome {
 }
 
 fn run_one(cmd: Command, input: &str, limit_ms: u64, memory_limit_mb: Option<u64>, job: &ActiveJob) -> RunOutcome {
-    let c = capture(cmd, Some(input), Duration::from_millis(limit_ms), memory_limit_mb, job);
+    let c = capture(cmd, Some(input), Duration::from_millis(limit_ms), memory_limit_mb, job, true);
     if let Some(e) = c.spawn_err {
         return RunOutcome { stdout: Vec::new(), stderr: format!("spawn: {e}"), time_ms: 0, timed_out: false, cancelled: false, output_limited: false, capture_failed: true, exit_code: None, peak_bytes: None, sandboxed: false };
     }
@@ -1781,6 +1905,8 @@ fn artifact_path(lang_key: &str, tmp: &Path) -> PathBuf {
 }
 
 fn run_command(lang_key: &str, binary: &str, tmp: &Path) -> Result<Command, String> {
+    let pinned = pinned_binary(binary)?; // pass #163 (W12-04): execute the PATH-pinned path, never an exe-dir neighbor
+    let binary = pinned.as_str();
     match lang_key {
         "cpp" | "rust" | "pascal" | "go" => Ok(new_cmd(exe_path(tmp).to_string_lossy().as_ref())),
         "java" => {
@@ -1791,7 +1917,7 @@ fn run_command(lang_key: &str, binary: &str, tmp: &Path) -> Result<Command, Stri
             let sibling = Path::new(binary).parent().map(|d| d.join("java.exe")).filter(|p| p.is_file());
             let mut c = match sibling {
                 Some(j) => new_cmd(j.to_string_lossy().as_ref()),
-                None => new_cmd("java"),
+                None => new_cmd(&pinned_binary("java")?), // pass #163 (W12-04): PATH-pin the bare fallback too
             };
             c.current_dir(tmp).arg("-cp").arg(tmp).arg("Main");
             Ok(c)
@@ -1813,7 +1939,7 @@ struct Prep {
 }
 
 fn compile_step(cmd: Command, who: &str, both_streams: bool, must_exist: Option<&Path>, job: &ActiveJob) -> Result<Prep, String> {
-    let c = capture(cmd, None, COMPILE_LIMIT, None, job);
+    let c = capture(cmd, None, COMPILE_LIMIT, None, job, false);
     if let Some(e) = c.spawn_err {
         return Err(format!("{who} spawn: {e}"));
     }
@@ -1843,6 +1969,8 @@ fn ok_prep() -> Prep {
 // compiler, same tmp layout; only the optimization flags differ).
 #[allow(clippy::too_many_arguments)] // the flags are orthogonal; a struct would just move the noise
 fn prepare(lang_key: &str, binary: &str, source: &str, tmp: &Path, check_scripts: bool, job: &ActiveJob, std: Option<&str>, debug: bool) -> Result<Prep, String> {
+    let pinned = pinned_binary(binary)?; // pass #163 (W12-04): execute the PATH-pinned path, never an exe-dir neighbor
+    let binary = pinned.as_str();
     let name = source_name(lang_key).ok_or_else(|| format!("CPH: unsupported language '{lang_key}'"))?;
     let src = tmp.join(name);
     fs::write(&src, source).map_err(|e| format!("write source: {e}"))?;
@@ -1860,6 +1988,7 @@ fn prepare(lang_key: &str, binary: &str, source: &str, tmp: &Path, check_scripts
         }
         "rust" => {
             let mut c = new_cmd(binary);
+            c.current_dir(tmp); // pass #163 (W12-01): keep compiler artifacts in the session tmp, like cpp/go/java
             // pass #124: the step-by-step lane builds with `-g` (debuginfo) — gdb maps
             // the binary back to the draft's lines; there is no -O0 concept in rustc
             // and unoptimized codegen is what stepping wants.
@@ -1869,6 +1998,7 @@ fn prepare(lang_key: &str, binary: &str, source: &str, tmp: &Path, check_scripts
         }
         "pascal" => {
             let mut c = new_cmd(binary);
+            c.current_dir(tmp); // pass #163 (W12-01): keep compiler artifacts in the session tmp, like cpp/go/java
             // pass #124: `-g` (DWARF) for the step-by-step lane — gdb steps fpc output.
             if debug { c.arg("-g"); } else { c.arg("-O2"); }
             c.arg("-o").arg(&bin).arg(&src);
@@ -1921,6 +2051,9 @@ fn normalize(s: &str) -> String {
 }
 
 fn compile_blocking(inner: Arc<Inner>, req: CphCompileRequest) -> Result<CphCompileResponse, String> {
+    if req.source.len() > MAX_SOURCE {
+        return Err("CPH: source exceeds 1 MiB".into()); // pass #163 (W12-16)
+    }
     validate_binary(&inner, &req.lang_key, &req.binary)?; // pass #78: before any slot or process is touched
     let guard = JobGuard::begin(&inner)?;
     let t0 = Instant::now();
@@ -1954,9 +2087,15 @@ fn run_blocking(inner: Arc<Inner>, req: CphRunRequest) -> Result<CphRunResponse,
     if req.cases.len() > 64 {
         return Err("CPH: too many cases (max 64)".into());
     }
+    if req.source.len() > MAX_SOURCE {
+        return Err("CPH: source exceeds 1 MiB".into()); // pass #163 (W12-16)
+    }
     for case in &req.cases {
         if case.input.len() > 256 * 1024 {
             return Err("CPH: a case input exceeds 256 KiB".into());
+        }
+        if case.expected.as_ref().map(|e| e.len() > MAX_EXPECTED).unwrap_or(false) {
+            return Err("CPH: a case expected output exceeds 1 MiB".into()); // pass #163 (W12-16)
         }
         if let Some(mb) = case.memory_limit_mb {
             if mb > 8192 { return Err("CPH: memory_limit_mb is capped at 8192".into()); }
@@ -2085,6 +2224,14 @@ fn debug_start_blocking(inner: Arc<Inner>, req: DebugStartRequest) -> Result<cra
         "java" => return Err("step-by-step for java is queued (jdb lane) — cpp/rust/go/pascal via gdb and python via pdb are wired today".into()),
         "javascript" => return Err("step-by-step for javascript is queued (inspector/CDP lane) — cpp/rust/go/pascal via gdb and python via pdb are wired today".into()),
         other => return Err(format!("step-by-step: unsupported language '{other}'")),
+    }
+    // pass #163 (wave-12 W12-16): the debug lane request is bounded like the run lane —
+    // source and the debuggee's stdin were previously unbounded here.
+    if req.source.len() > MAX_SOURCE {
+        return Err("CPH: source exceeds 1 MiB".into());
+    }
+    if req.stdin_text.len() > 256 * 1024 {
+        return Err("CPH: debug stdin exceeds 256 KiB".into());
     }
     validate_binary(&inner, &req.lang_key, &req.binary)?;
     let guard = JobGuard::begin(&inner)?;
@@ -2337,5 +2484,103 @@ mod tests {
         s2.load_persisted_overrides();
         assert_eq!(lock(&s2.0.allowed).overrides.get("cpp").map(|v| v.as_str()), Some("C:\\tc\\g++.exe"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn windows_arg_quoting_follows_the_msvcrt_backslash_rules() {
+        // pass #163 (wave-12 W12-09): n backslashes before a quote → 2n+1, before a
+        // normal char → n, before the closing quote → 2n. The old code emitted each
+        // backslash immediately AND counted it, producing 3n+1 / 3n. These pins catch
+        // that regression on every platform (the quoting is pure string logic).
+        use std::ffi::OsStr;
+        let cases: &[(&str, &str)] = &[
+            (r"g++", r#""g++""#),
+            (r"C:\mingw\bin\g++.exe", r#""C:\mingw\bin\g++.exe""#),
+            (r"a b", r#""a b""#),
+            (r#"a"b"#, r#""a\"b""#),       // 0 backslashes before quote → 1
+            (r#"a\"b"#, r#""a\\\"b""#),     // 1 before quote → 3
+            (r#"a\\"b"#, r#""a\\\\\"b""#),  // 2 before quote → 5
+            (r"a\", r#""a\\""#),            // trailing 1 → 2
+            (r"a\\", r#""a\\\\""#),         // trailing 2 → 4
+            (r"C:\dir\", r#""C:\dir\\""#),  // path with a trailing backslash
+        ];
+        for (input, expected) in cases {
+            assert_eq!(quote_windows_arg(OsStr::new(input)), *expected, "quoting {input:?}");
+        }
+    }
+
+    #[test]
+    fn pinned_binary_passes_absolute_resolves_bare_and_fails_closed() {
+        // pass #163 (wave-12 W12-04): the execution-side twin of probe_one's pinning.
+        // An absolute path is already pinned → returned verbatim (the normal cph_detect
+        // feed). A bare name resolves to an ABSOLUTE PATH hit (never the exe-dir
+        // neighbor new_cmd would otherwise pick). An unresolvable name fails closed.
+        let abs = std::env::current_exe().expect("current exe");
+        let abs_s = abs.to_string_lossy().into_owned();
+        assert_eq!(pinned_binary(&abs_s).unwrap(), abs_s, "absolute paths pass through unchanged");
+
+        #[cfg(windows)]
+        let bare = "cmd"; // System32\cmd.exe — always on PATH
+        #[cfg(not(windows))]
+        let bare = "sh"; // /bin/sh — always on PATH
+        let resolved = pinned_binary(bare).expect("a core shell is always in PATH");
+        assert!(Path::new(&resolved).is_absolute(), "a bare name resolves to an absolute path, got {resolved}");
+
+        assert!(pinned_binary("delcc-nonexistent-toolchain-xyzzy").is_err(), "an unresolvable bare name fails closed");
+    }
+
+    #[test]
+    fn is_real_file_and_dir_refuse_reparse_points() {
+        // pass #163 (wave-12 W12-13): the C5 rule extended to the detector discovery walks —
+        // only real local files/dirs qualify, never a reparse point (a planted symlink to a
+        // UNC path would leak NTLM during mere detection).
+        let dir = std::env::temp_dir().join(format!("delcc-realfile-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("real.exe");
+        fs::write(&f, b"x").unwrap();
+        assert!(is_real_file(&f), "a real file qualifies");
+        assert!(!is_real_dir(&f), "a file is not a dir");
+        assert!(is_real_dir(&dir), "a real dir qualifies");
+        assert!(!is_real_file(&dir), "a dir is not a file");
+        assert!(!is_real_file(&dir.join("missing.exe")), "a missing path does not qualify");
+        // A symlink to a real file is REFUSED. Creating one needs privilege on Windows
+        // (SeCreateSymbolicLink / Developer Mode), so skip that assertion when denied.
+        let link = dir.join("link.exe");
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(&f, &link);
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&f, &link);
+        if made.is_ok() {
+            assert!(!is_real_file(&link), "a symlink is not a real file");
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dialog_cooldown_is_bounded_globally_and_per_path() {
+        // pass #163 (wave-12 W12-14): the first dialog fires; an immediate second is cooled
+        // down whether it names the SAME path (per-path) or a DISTINCT one (global) — the
+        // old per-path-only check let distinct paths open a modal each, forever.
+        let mut a = AllowedBinaries::default();
+        assert!(a.dialog_cooldown_ok("C:\\tc\\g++.exe"));
+        assert!(!a.dialog_cooldown_ok("C:\\tc\\g++.exe"), "per-path cooldown");
+        assert!(!a.dialog_cooldown_ok("C:\\other\\clang++.exe"), "global cooldown bounds distinct paths");
+        assert_eq!(a.last_dialog.len(), 1, "a cooled-down call records nothing");
+    }
+
+    #[test]
+    fn dialog_cooldown_map_is_capped() {
+        // pass #163 (wave-12 W12-14): page-named distinct paths cannot grow the map without
+        // bound — at the cap, a new path evicts the oldest instead of adding an entry.
+        let mut a = AllowedBinaries::default();
+        let old = std::time::Instant::now() - std::time::Duration::from_secs(3600);
+        for i in 0..128 {
+            a.last_dialog.insert(format!("C:\\old\\{i}.exe"), old);
+        }
+        // last_dialog_any stays None so the global interval does not block this call.
+        assert!(a.dialog_cooldown_ok("C:\\new\\g++.exe"));
+        assert_eq!(a.last_dialog.len(), 128, "a new path evicts the oldest, staying at the cap");
+        assert!(a.last_dialog.contains_key("C:\\new\\g++.exe"));
     }
 }

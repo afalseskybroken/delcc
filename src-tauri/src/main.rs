@@ -224,8 +224,19 @@ async fn pinned_client(url: &reqwest::Url) -> Result<reqwest::Client, String> {
 // The hop gate (pass #142, W8-04): resolve a redirect Location against the current URL,
 // then apply the SAME string checks as the original — https, public host.
 fn redirect_target(current: &reqwest::Url, location: &str) -> Result<reqwest::Url, String> {
-    let next = current.join(location).map_err(|_| "FORBIDDEN bad redirect location".to_string())?;
+    let mut next = current.join(location).map_err(|_| "FORBIDDEN bad redirect location".to_string())?;
     if next.scheme() != "https" { return Err("FORBIDDEN non-https redirect".into()); }
+    // pass #163 (wave-12 W12-03): canonicalize the host IN the URL on EVERY hop, exactly
+    // as the entry path does (asset_fetch). pinned_client trims the trailing dot for the
+    // pin key, but reqwest 0.13.5's override map is keyed by the EXACT request host — a
+    // dotted Location host missed the pin and resolved live, re-opening the #142
+    // resolve-check/connect gap one hop later.
+    let trimmed = next.host_str().map(|h| h.trim_end_matches('.').to_string());
+    if let Some(trimmed) = trimmed {
+        if next.host_str().map(|h| h != trimmed).unwrap_or(false) {
+            let _ = next.set_host(Some(trimmed.as_str()));
+        }
+    }
     if !public_https_host(&next) { return Err("FORBIDDEN redirect to a non-public host".into()); }
     Ok(next)
 }
@@ -610,11 +621,17 @@ fn identity_apply(window: tauri::WebviewWindow, title: Option<String>, icon: Opt
 
 fn main() {
     // pass #159 (wave-c C1): the restricted-launch multi-call. The CPH capture wraps
-    // every user-code execution in this same executable with the magic argv; the
-    // launcher branch runs before any app setup, spawns the child under a restricted
+    // every untrusted contest-code RUN in this same executable with the magic argv;
+    // the launcher branch runs before any app setup, spawns the child under a restricted
     // token (privileges dropped, Administrators deny-only, Network deny best-effort,
     // LOW integrity) with the inherited stdio, and exits with the child's code. See
     // src-tauri/src/restrict.rs for the token plumbing and the disclosed residuals.
+    //
+    // pass #163 (wave-12 W12-10): the whole dispatch is windows-only — `restrict` is
+    // `#[cfg(windows)]`, so an ungated call to restricted_child_main broke every
+    // non-Windows build. On other platforms the launcher argv never occurs (capture
+    // only wraps runs on Windows), so the branch is compiled out entirely.
+    #[cfg(windows)]
     {
         let mut argv = std::env::args();
         let invoked = argv.next();

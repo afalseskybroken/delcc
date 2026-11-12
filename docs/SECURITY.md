@@ -58,24 +58,31 @@ That is all. Concretely absent:
   images beyond 8 per pane degrade to links too (capped, visibly, per the honesty doctrine). The only
   other image fetches the app makes are the gravatar avatars in the table above
 - the CPH local runner (`src-tauri/src/cph.rs`) never touches the network — it
-- **Pass #159 — the run-path sandbox**: user-code runs execute under a RESTRICTED
-  token via delcc's own launcher — every privilege dropped, the Administrators
-  group deny-only, the integrity level LOW, and the session temp directory labeled
-  LOW (the sandboxed child's only writable corner). Residuals, disclosed: the
-  Network group deny covers authenticated connections only (a low-integrity
-  process can still attempt outbound calls at the user's rights); the compile step
-  (trusted toolchains) and the debug lane are not launcher-wrapped; a launcher
-  failure falls back to the plain spawn and the run response carries
-  `sandboxed: false` so the fallback is visible to the page.
-  compiles and runs *your* code on *your* machine. Since pass #159 the RUN is
-  sandboxed (see the Pass #159 block above); the compile and debug lanes keep the
-  historical posture. pass #144 (W8-L18) states a platform boundary
-  plainly: the native confirm-once dialogs (planted toolchains, PATH debuggers)
-  are a WINDOWS mechanism — on a non-Windows development build there is no dialog
-  to host, both gates answer true, and the consent records never engage. The
-  shipped and documented target is Windows (DPAPI, Job Objects, the native
-  MessageBoxW); a non-Windows build's consent boundaries are exactly the ones the
-  page could have anyway
+  compiles and runs *your* code on *your* machine. pass #144 (W8-L18) states a
+  platform boundary plainly: the native confirm-once dialogs (planted toolchains,
+  PATH debuggers) are a WINDOWS mechanism — on a non-Windows development build
+  there is no dialog to host, both gates answer true, and the consent records
+  never engage. The shipped and documented target is Windows (DPAPI, Job Objects,
+  the native MessageBoxW); a non-Windows build's consent boundaries are exactly
+  the ones the page could have anyway
+- **Pass #159/#160 — the run-path sandbox (amended pass #163, wave-12 W12-01/02/08)**:
+  the RUN of untrusted contest code executes under a RESTRICTED token via delcc's
+  own launcher — the intermediate lowers its OWN token (every privilege disabled,
+  the Administrators group deny-only, the NETWORK group deny-only best-effort, the
+  integrity level LOW) and the session temp directory is labeled LOW (the sandboxed
+  child's only writable corner). It is FAIL-CLOSED: a self-restriction failure
+  refuses the run (the launcher exits 3 with the reason on stderr) — there is NO
+  plain-spawn fallback. The COMPILE step (trusted, allowlisted toolchains) and the
+  debug lane are NOT launcher-wrapped; they run at the caller's medium integrity,
+  the historical posture. Pass #163 restored this boundary: #159–#161 had
+  inadvertently wrapped the compile step too, which broke C++/Rust compilation — a
+  LOW-integrity compiler cannot write its intermediate temp files to the user's
+  MEDIUM-integrity `%TEMP%` (Windows MIC no-write-up). Residuals, disclosed: the
+  NETWORK group deny is best-effort (an interactive logon token usually does not
+  carry S-1-5-2) and covers authenticated connections only — LOW integrity does NOT
+  block outbound calls at the user's rights; the run response carries a `sandboxed`
+  flag (true when every case ran wrapped with its temp corner labeled) for
+  diagnostics, but the current UI does not surface it as a visible badge.
 
 Network code lives in three plainly named places. `src/lib/transport.ts` carries
 all API traffic (Rust shell first, WebView `fetch` as fallback). Two deliberate
@@ -83,6 +90,17 @@ direct-`fetch` exceptions: `src/lib/verdict.ts` (the submission-result SSE strea
 and `src/tmath/avatars.ts` (the public profile page GET, which goes through the
 shell's `site_fetch` command). Auditing the network surface means reading those
 three files.
+
+Path guards (pass #163, wave-12 W12-24/25): `api_fetch`/`site_fetch` reject a path that
+is not leading-`/`, contains a literal `..`, or whose canonicalized form
+(`reqwest::Url::parse`, which normalizes single-encoded `%2e%2e` dot-segments) leaves
+`/api/v3`. Redirects are re-checked for scheme+host every hop (the pinned judge), so a
+same-host redirect stays inside the trusted origin — the path is not re-scoped per hop,
+but the judge redirecting itself is within the trust boundary, not a cross-origin escape.
+Residual (W12-25, hypothesis): a DOUBLE-encoded `%252e%252e` survives canonicalization (the
+parser decodes `%25`→`%` once and does not re-scan) and passes the client guards; escaping
+`/api/v3` would then require the SERVER to double-decode the path. The judge (Django/DRF
+over WSGI) decodes once, so this is not reachable against it — disclosed, not a live hole.
 
 The one read-heavy path is the **problems index**. The Problems page has progress
 filters (solved / attempted / untouched), and the public API exposes no per-user
@@ -173,6 +191,49 @@ while Ctrl is held):
   resolved from `SystemRoot`; the bare name is only a fallback.
 - the version-tap and window-identity features open only the GitHub Releases
   page through `open_url` (github.com was already on the allowlist).
+
+### Toolchain & debugger consent — disclosed residuals (pass #163, wave-12)
+
+The confirm-once consent model (planted toolchains, PATH debuggers, Settings
+overrides) is a **trust-on-first-use, path-string** model. Its limits, stated plainly:
+
+- **Consent rides the path, not the file (W12-15).** Acceptances and refusals are
+  recorded by path string in the shared `confirmed_fixed` / `refused_fixed` sets, used
+  for BOTH the compiler and the debugger (`consent_debugger`). No file identity (hash,
+  size+mtime, or signer) is pinned. Two consequences: a confirmed file can be **swapped**
+  (same path, new bytes) and run without re-asking; and a path confirmed as a *compiler*
+  is auto-accepted as a *debugger*. The boundary this sits behind: a local attacker who
+  can rewrite a confirmed toolchain already has write access to your toolchain directory
+  — the same boundary every local client (ours and the official one) sits behind.
+  Content pinning is queued.
+- **Symlink following in the user-trusted class (W12-13).** The C5 reparse-point refusal
+  (`symlink_metadata`, never follow a symlink) covers the attacker-plantable discovery
+  roots: the fixed-root glob, the VS Code extension scan, `walk_find`, the Java sibling
+  *detection*, and fpc. It deliberately does NOT cover `resolve_in_path` (PATH
+  resolution), the Settings-override `is_file` check, the run-lane Java sibling, or
+  `find_gdb` — those follow symlinks because legitimate PATH entries (`python3` →
+  `python3.12`) and user-registered overrides ARE symlinks; refusing them would break
+  detection and the #163 execution pinning. A symlink planted in a PATH directory or
+  registered as an override can therefore redirect to another executable; both are
+  user-controlled inputs, not attacker-plantable fixed roots.
+- **Dialog coalescing and cooldown (W12-14).** Detection serializes on one async gate
+  (`detect_gate`) held across the planted-candidate dialog — deliberate coalescing so
+  concurrent detections never double-ask or spawn-storm; a slow answer blocks other
+  detections until it lands. The page-driven Settings-override dialog (`cph_set_override`)
+  is rate-bounded by an in-memory cooldown (2 s global, 5 s per-path, at most 128 tracked
+  paths, oldest evicted) so the page cannot open one modal per call. The cooldown is
+  forgotten on restart; the consent is not. Override refusal is intentionally NOT sticky
+  — re-registering the override is the user's change-of-mind escape (a planted-candidate
+  refusal IS sticky).
+- **Debugger event queue (W12-19).** The per-session gdb event queue is bounded at 512
+  records, drop-oldest — a COUNT cap (each record ≤ the 256 KiB line cap, so ~128 MiB
+  worst case under a malfunctioning approved debugger). Pass #163 fixed the desync:
+  `wait_stopped` now drains to the next `*stopped`, skipping the `=thread-*` /
+  `=library-loaded` / `*running` notifications `transact` queues, instead of handing
+  `snapshot` the first record of any kind. Residual: a >512-event flood inside one
+  transaction could still evict the `*stopped` before it is consumed; the wait then times
+  out honestly (a failed step, not a desync). A byte-budget queue is queued. The threat
+  model throughout is an already-approved debugger — trusted to run your code.
 
 CSP note discovered by the boot-gate pass (#106): DOMPurify's DOMParser
 fallback parses hostile HTML via `innerHTML` on an inert implementation

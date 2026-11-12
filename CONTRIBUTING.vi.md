@@ -70,10 +70,12 @@ Một vấn đề mỗi commit khi có thể. Prefix:
 1. **Thẳng thắn hơn bóng bẩy**: không nút giả, không luồng dựng phông, không
    cắt ngắn im lặng; tính năng không hoàn thành nổi một cách trung thực thì
    để ngoài và ghi vào phần hạn chế.
-2. **Máy của người dùng là của người dùng**: chạy cục bộ không sandbox và nói
-   rõ như vậy; không thứ gì gọi về nhà ngoài API của sàn, các trang profile
-   công khai của sàn, và gravatar.com (avatar của chính mình). Mọi lượt gọi
-   mạng mới đồng nghĩa cập nhật SECURITY.md **trong cùng pass**.
+2. **Máy của người dùng là của người dùng**: đường run trong app được sandbox
+   (token LOW-integrity hạn chế, #159/#160) và nói rõ như vậy; compile/debug và
+   worker phân tán chạy với quyền của chính người dùng; không thứ gì gọi về nhà
+   ngoài API của sàn, các trang profile công khai của sàn, và gravatar.com
+   (avatar của chính mình). Mọi lượt gọi mạng mới đồng nghĩa cập nhật SECURITY.md
+   **trong cùng pass**.
 3. **Escape-first ở mọi nơi**: giá trị nội suy đi qua `esc()`; URL đi qua
    `safeUrl`; embed chỉ YouTube; DOMPurify là cổng cuối, không phải cổng duy nhất.
 4. **Dữ liệu cục bộ là dữ liệu không tin**: mọi thứ nạp từ localStorage đều

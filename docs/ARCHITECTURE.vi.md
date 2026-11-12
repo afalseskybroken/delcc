@@ -115,9 +115,11 @@ event + disposer (tuỳ chọn):
 
 ## CPH — trình chạy cục bộ (`src-tauri/src/cph.rs`, UI ở `src/tmath/solve.ts`)
 
-Biên dịch và chạy against test case tự nhập, không mạng, không sandbox (đó là
-code của người dùng chạy với quyền của người dùng — ghi thẳng trong source,
-không chôn ở đâu cả). Cấu trúc then chốt:
+Biên dịch và chạy against test case tự nhập, không mạng. Bước RUN của code contest
+không tin cậy được sandbox — token LOW-integrity hạn chế qua launcher của delcc
+(#159/#160, sửa đổi #163); COMPILE và debug lane chạy với quyền của người dùng
+(code của người dùng — ghi thẳng trong source, không chôn ở đâu cả). Xem
+SECURITY.md cho ranh giới và phần còn lại được công khai. Cấu trúc then chốt:
 
 - **Detect** (`cph_detect`): dò toolchain trên PATH; một probe phải THÀNH CÔNG
   và tự in phiên bản (chặn app-execution-alias stub của Windows Store — thứ exit

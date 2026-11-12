@@ -5,12 +5,13 @@
 // requires SeAssignPrimaryTokenPrivilege (the ingredient bisect proved it — even a
 // bare duplicate of the caller's own token fails with ACCESS_DENIED on an
 // interactive account), so the token is never duplicated and never handed to
-// CreateProcessAsUser. Instead the capture wraps every user-code execution in THIS
+// CreateProcessAsUser. Instead the capture wraps every untrusted contest-code RUN in THIS
 // executable with the magic argv; the intermediate branch runs before any app
 // setup and RESTRICTS ITS OWN PROCESS TOKEN — the MSDN DropMyPermissions pattern:
 //
 //   - every privilege disabled (AdjustTokenPrivileges, DisableAllPrivileges),
 //   - the Administrators group marked deny-only (AdjustTokenGroups),
+//   - the NETWORK group marked deny-only, best-effort (AdjustTokenGroups; pass #163/W12-08),
 //   - the integrity level set to LOW (SetTokenInformation),
 //
 // all unprivileged on your own process token, then CreateProcessW's the child with
@@ -119,6 +120,26 @@ pub fn self_restrict() -> Result<(), String> {
             };
             let _ = AdjustTokenGroups(token, 0, &groups, 0, std::ptr::null_mut(), std::ptr::null_mut());
             LocalFree(admin_sid as _);
+        }
+
+        // 2b) pass #163 (wave-12 W12-08): the NETWORK group deny-only, BEST-EFFORT.
+        // The #159 design disclosed it but the code never applied it. An interactive
+        // logon token usually does not carry S-1-5-2, so this is a no-op there (the
+        // disclosed residual); where the group IS present, denying it blocks
+        // authenticated network access. LOW integrity itself does NOT block outbound
+        // calls at the user's rights — disclosed in SECURITY.md.
+        let mut net_w = wide("S-1-5-2");
+        let mut net_sid: *mut std::ffi::c_void = std::ptr::null_mut();
+        if ConvertStringSidToSidW(net_w.as_mut_ptr(), &mut net_sid) != 0 {
+            let groups = TOKEN_GROUPS {
+                GroupCount: 1,
+                Groups: [SID_AND_ATTRIBUTES {
+                    Sid: net_sid,
+                    Attributes: SE_GROUP_USE_FOR_DENY_ONLY as u32,
+                }],
+            };
+            let _ = AdjustTokenGroups(token, 0, &groups, 0, std::ptr::null_mut(), std::ptr::null_mut());
+            LocalFree(net_sid as _);
         }
 
         // 3) LOW integrity. THE SIZE GOTCHA: the buffer is LABEL + the SID's actual

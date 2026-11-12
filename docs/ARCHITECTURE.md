@@ -117,9 +117,11 @@ optional disposer:
 
 ## CPH — the local runner (`src-tauri/src/cph.rs`, UI in `src/tmath/solve.ts`)
 
-Compile-and-run against self-typed test cases, no network, no sandbox (it is
-the user's own code at the user's own privilege — stated in the source, not
-buried). Key structures:
+Compile-and-run against self-typed test cases, no network. The RUN of untrusted
+contest code is sandboxed — a restricted LOW-integrity token via delcc's own
+launcher (#159/#160, amended #163); COMPILE and the debug lane run at the user's
+own privilege (the user's own code — stated in the source, not buried). See
+SECURITY.md for the boundary and its disclosed residuals. Key structures:
 
 - **Detect** (`cph_detect`): probes toolchains on PATH; a probe must succeed
   AND print a version (guards against the Windows Store app-execution-alias

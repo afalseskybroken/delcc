@@ -71,10 +71,12 @@ One concern per commit when practical. Prefixes:
 1. **Honesty over polish**: no fake buttons, no stubbed flows, no silent
    truncation; a feature that cannot be finished honestly is left out and
    listed as a limitation.
-2. **The user's machine is the user's**: local runs are unsandboxed and say so;
-   nothing phones home except the judge API, the judge site's public profile
-   pages, and gravatar.com (own avatar). Any new network call means updating
-   SECURITY.md **in the same pass**.
+2. **The user's machine is the user's**: the in-app run path is sandboxed (a
+   restricted LOW-integrity token, #159/#160) and says so; compile/debug and the
+   distributed worker run at the user's own privilege; nothing phones home
+   except the judge API, the judge site's public profile pages, and gravatar.com
+   (own avatar). Any new network call means updating SECURITY.md **in the same
+   pass**.
 3. **Escape-first everywhere**: interpolated values pass `esc()`; URLs pass
    `safeUrl`; embeds are YouTube-only; DOMPurify is the final gate, not the
    only one.

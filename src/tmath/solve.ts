@@ -425,12 +425,20 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     debugBusy = true; controls();
     try {
       const snap = await cph.debugStep(kind, stepCount());
-      if (disposed) return;
+      // pass #163 (wave-12 W12-23): a Stop may have intervened while this step awaited the
+      // engine. Discard the late result — painting it would re-highlight the editor line
+      // stopDebug just cleared (the W11-03 comment promised this discard; the guard was
+      // missing). An intentional cancel is not a failure, so its error note is dropped too.
+      if (disposed || stopInFlight || !debugging) return;
       paintDebug(snap);
     } catch (e) {
-      if (!disposed) note(e instanceof Error ? e.message : String(e), "error");
+      if (!disposed && !stopInFlight && debugging) note(e instanceof Error ? e.message : String(e), "error");
     } finally {
-      debugBusy = false;
+      // pass #163 (wave-12 W12-23): do NOT clear debugBusy while a stop is in flight —
+      // stopDebug owns the flag until it settles (450). Clearing it here re-enabled the
+      // Step button mid-stop (controls 198), letting a new step issue against a session
+      // being torn down. stopInFlight keeps Step disabled until stopDebug finishes.
+      if (!stopInFlight) debugBusy = false;
       if (!disposed) controls();
     }
   }

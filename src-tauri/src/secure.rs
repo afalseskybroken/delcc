@@ -26,6 +26,33 @@ fn blob_path(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, String> {
     Ok(dir.join(format!("{name}.bin")))
 }
 
+// pass #158 (wave-c C4c/L12): the ciphertext is size-capped BEFORE the read — a
+// corrupted or hand-planted oversized blob cannot allocate unbounded memory (the
+// 256 KiB write limit has ~4x headroom for the DPAPI wrapper).
+const MAX_BLOB: u64 = 1024 * 1024;
+
+// pass #163 (wave-12 W12-11): read a secure blob with NotFound → Ok(None) — the
+// first-boot contract secure_get promises. #158's metadata pre-check turned a missing
+// file into a hard Err("secure read: …"), so a clean first boot looked like a store
+// failure. NotFound (on stat OR the read) → None; every other error still propagates.
+// Path-based and pure so the missing/present/oversized cases are testable without an
+// AppHandle (the DPAPI roundtrip stays in the windows-gated tests below).
+fn read_capped_blob(path: &std::path::Path) -> Result<Option<Vec<u8>>, String> {
+    let meta = match fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("secure read: {e}")),
+    };
+    if meta.len() > MAX_BLOB {
+        return Err("secure store: blob exceeds the size bound".into());
+    }
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("secure read: {e}")),
+    }
+}
+
 #[cfg(all(windows, feature = "secure-store"))]
 mod dpapi {
     use windows_sys::Win32::Foundation::LocalFree;
@@ -92,8 +119,13 @@ pub async fn secure_put(app: tauri::AppHandle, name: String, plaintext: String) 
         .map_err(|e| format!("join: {e}"))??;
     // pass #144 (wave-8 W8-L11): the file write rides spawn_blocking too — DPAPI was
     // already off-thread, but the fs write sat on the IPC thread.
-    let path = blob_path(&app, &name)?;
-    tauri::async_runtime::spawn_blocking(move || fs::write(path, blob).map_err(|e| format!("secure write: {e}")))
+    // pass #163 (wave-12 W12-12): blob_path (create_dir_all) rides the SAME closure —
+    // it was still on the async path, the exact blocking-I/O-on-IPC class #158 fixed
+    // for secure_get. The whole put now touches the filesystem only off-thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = blob_path(&app, &name)?;
+        fs::write(path, blob).map_err(|e| format!("secure write: {e}"))
+    })
         .await
         .map_err(|e| format!("join: {e}"))?
 }
@@ -107,19 +139,13 @@ pub async fn secure_get(app: tauri::AppHandle, name: String) -> Result<Option<St
     let path = tauri::async_runtime::spawn_blocking(move || blob_path(&app, &name))
         .await
         .map_err(|e| format!("join: {e}"))??;
-    // pass #158 (wave-c C4c/L12): the ciphertext is size-capped BEFORE the read — a
-    // corrupted or hand-planted oversized blob cannot allocate unbounded memory (the
-    // 256 KiB write limit has ~4x headroom for the DPAPI wrapper).
-    const MAX_BLOB: u64 = 1024 * 1024;
-    let blob = tauri::async_runtime::spawn_blocking(move || {
-        let meta = fs::metadata(&path).map_err(|e| format!("secure read: {e}"))?;
-        if meta.len() > MAX_BLOB {
-            return Err("secure store: blob exceeds the size bound".into());
-        }
-        fs::read(&path).map_err(|e| format!("secure read: {e}"))
-    })
+    // pass #163 (wave-12 W12-11): the capped read with NotFound → Ok(None) lives in
+    // read_capped_blob (the first-boot contract; #158's pre-check had turned a missing
+    // file into a hard Err). It rides spawn_blocking like every other fs touch here.
+    let blob = tauri::async_runtime::spawn_blocking(move || read_capped_blob(&path))
         .await
         .map_err(|e| format!("join: {e}"))??;
+    let Some(blob) = blob else { return Ok(None); };
     let plain = tauri::async_runtime::spawn_blocking(move || unprotect(&blob))
         .await
         .map_err(|e| format!("join: {e}"))??;
@@ -129,9 +155,11 @@ pub async fn secure_get(app: tauri::AppHandle, name: String) -> Result<Option<St
 #[tauri::command]
 pub async fn secure_del(app: tauri::AppHandle, name: String) -> Result<(), String> {
     valid_name(&name)?;
-    let path = blob_path(&app, &name)?;
     // pass #144 (W8-L11): the delete is blocking file I/O — off the IPC thread.
+    // pass #163 (wave-12 W12-12): blob_path (create_dir_all) rides the SAME closure,
+    // off the async path, matching secure_get/secure_put.
     tauri::async_runtime::spawn_blocking(move || {
+        let path = blob_path(&app, &name)?;
         if path.exists() {
             fs::remove_file(&path).map_err(|e| format!("secure delete: {e}"))?;
         }
@@ -139,6 +167,34 @@ pub async fn secure_del(app: tauri::AppHandle, name: String) -> Result<(), Strin
     })
     .await
     .map_err(|e| format!("join: {e}"))?
+}
+
+#[cfg(test)]
+mod blob_tests {
+    use super::*;
+
+    // pass #163 (wave-12 W12-11): the first-boot contract — a missing blob is Ok(None),
+    // not an Err (#158's metadata pre-check had turned NotFound into a hard error). The
+    // size cap is still enforced before the read. Pure fs, so this runs on every platform.
+    #[test]
+    fn read_capped_blob_contract() {
+        let dir = std::env::temp_dir().join(format!("delcc-secure-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let missing = dir.join("absent.bin");
+        assert_eq!(read_capped_blob(&missing).unwrap(), None, "first boot: nothing stored → Ok(None)");
+
+        let present = dir.join("present.bin");
+        fs::write(&present, b"ciphertext").unwrap();
+        assert_eq!(read_capped_blob(&present).unwrap(), Some(b"ciphertext".to_vec()));
+
+        let big = dir.join("big.bin");
+        fs::write(&big, vec![0u8; (MAX_BLOB as usize) + 1]).unwrap();
+        assert!(read_capped_blob(&big).is_err(), "an oversized blob is rejected before the read");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(all(test, windows))]

@@ -38,14 +38,26 @@ Hết. Cụ thể là KHÔNG có:
   hẳn ảnh remote; link là điểm trung gian trung thực của mình), nên lần fetch ảnh
   duy nhất của app là avatar gravatar trong bảng trên
 - trình chạy CPH cục bộ (`src-tauri/src/cph.rs`) không bao giờ chạm mạng — nó
-  biên dịch và chạy *code của bạn* trên *máy của bạn*, không sandbox, y như tự
-  bạn chạy nó trong terminal
+  biên dịch và chạy *code của bạn* trên *máy của bạn*. Từ pass #159 bước RUN được
+  sandbox (xem khối Pass #159 bên dưới); bước compile và debug lane giữ tư thế
+  lịch sử (không bọc launcher, chạy ở medium integrity của người gọi)
 
 Mã mạng nằm ở ba nơi có tên rõ ràng. `src/lib/transport.ts` chở toàn bộ lưu lượng
 API (shell Rust trước, `fetch` WebView dự phòng). Hai ngoại lệ `fetch` trực tiếp có
 chủ đích: `src/lib/verdict.ts` (stream SSE kết quả chấm) và `src/tmath/avatars.ts`
 (GET trang profile công khai, đi qua lệnh `site_fetch` của shell). Kiểm toán bề mặt
 mạng = đọc ba file đó.
+
+Bảo vệ đường dẫn (pass #163, wave-12 W12-24/25): `api_fetch`/`site_fetch` từ chối path
+không bắt đầu bằng `/`, chứa `..` literal, hoặc dạng canonical của nó
+(`reqwest::Url::parse`, chuẩn hoá các dot-segment mã hoá đơn `%2e%2e`) rời khỏi
+`/api/v3`. Redirect được kiểm tra lại scheme+host mỗi hop (judge đã ghim), nên redirect
+cùng host vẫn nằm trong origin tin cậy — path không được re-scope mỗi hop, nhưng judge
+tự redirect chính nó là trong ranh giới tin cậy, không phải escape cross-origin. Phần
+còn lại (W12-25, giả thuyết): `%252e%252e` mã hoá KÉP sống sót qua canonicalization
+(parser giải `%25`→`%` một lần và không quét lại) và lọt qua bảo vệ phía client; để thoát
+`/api/v3` khi đó cần SERVER giải mã kép path. Judge (Django/DRF trên WSGI) giải mã một
+lần, nên không thể chạm tới với nó — công khai, không phải lỗ hổng sống.
 
 Đường đọc nặng duy nhất là **chỉ mục bài tập**. Trang Bài tập có bộ lọc tiến độ
 (đã giải / đã thử / chưa đụng tới), mà API công khai không cho biết trạng thái
@@ -114,9 +126,10 @@ vẫn là audit của CI.
 
 ## Reporting
 
-Chưa có tracker công khai — mục này là placeholder cho maintainer điền (issue
-tracker / liên hệ) tại lần publish đầu. Trong lúc đó: cách kiểm toán nhanh nhất
-là `git grep fetch` cộng với đọc `src/lib/transport.ts`.
+Báo cáo tại **https://github.com/afalseskybroken/delcc/issues** — với nội dung
+nhạy cảm, đánh dấu riêng tư qua form issue hoặc mở một issue công khai tối thiểu
+trước và hỏi kênh riêng tư. Cách kiểm toán nhanh nhất vẫn là `git grep fetch`
+cộng với đọc `src/lib/transport.ts`.
 
 ## Bất di bất dịch (lặp lại từ SUCCESSION.vi.md vì nó thuộc về đây)
 
@@ -126,13 +139,63 @@ là `git grep fetch` cộng với đọc `src/lib/transport.ts`.
 3. Khoảng trống được ghi lại, không bao giờ bị che giấu.
 
 
-## Pass #159 — sandbox làm run-path
+## Pass #159/#160 — sandbox làm run-path (sửa đổi pass #163, wave-12 W12-01/02/08)
 
-Lệnh run giờ thực thi code người dùng dưới RESTRICTED token qua launcher của
-delcc: mọi privilege bị loại, group Administrators bị deny-only, integrity level
-là LOW, và thư mục temp của phiên chạy mang LOW mandatory label (góc ghi
-duy nhất của tiển trình sandbox). Công bố còn lại: deny group Network chỉ chặn
-kết nối có xác thực — tiển trình low-integrity vẫn có thể cố gắng gọi ra
-ngoài với quyền của user; bước compile (toolchain đàng tin cậy) và debug lane
-chưa được bọc launcher; nếu launcher lỗi, run sẽ fallback về spawn thường
-và response đưa `sandboxed: false` để fallback luôn hiển nhiên.
+Bước RUN của code contest không tin cậy thực thi dưới RESTRICTED token qua
+launcher của delcc: intermediate tự hạ token CỦA CHÍNH NÓ (mọi privilege bị
+disable, group Administrators bị deny-only, group NETWORK bị deny-only
+best-effort, integrity level là LOW), và thư mục temp của phiên chạy mang LOW
+mandatory label (góc ghi duy nhất của tiến trình sandbox). Nó là FAIL-CLOSED:
+self-restriction lỗi thì run bị từ chối (launcher exit 3 kèm lý do trên stderr)
+— KHÔNG có fallback về spawn thường. Bước COMPILE (toolchain tin cậy, đã
+allowlist) và debug lane KHÔNG được bọc launcher; chúng chạy ở medium integrity
+của người gọi, đúng tư thế lịch sử. Pass #163 khôi phục ranh giới này: #159–#161
+đã vô tình bọc cả bước compile, làm hỏng biên dịch C++/Rust — compiler
+low-integrity không ghi được file temp trung gian vào `%TEMP%` medium-integrity
+của user (Windows MIC no-write-up). Công bố còn lại: deny group NETWORK là
+best-effort (token logon interactive thường không mang S-1-5-2) và chỉ chặn kết
+nối có xác thực — LOW integrity KHÔNG chặn lượt gọi ra ngoài với quyền của user;
+response của run mang cờ `sandboxed` (true khi mọi case chạy được bọc với góc
+temp đã label) để chẩn đoán, nhưng UI hiện tại không hiển thị nó như một badge.
+
+## Consent toolchain & debugger — phần còn lại công khai (pass #163, wave-12)
+
+Mô hình consent confirm-once (toolchain đặt sẵn, debugger PATH, override Settings) là
+mô hình **trust-on-first-use, theo chuỗi đường dẫn**. Giới hạn của nó, nói rõ:
+
+- **Consent đi theo đường dẫn, không theo file (W12-15).** Chấp nhận và từ chối được ghi
+  theo chuỗi đường dẫn trong các set `confirmed_fixed` / `refused_fixed` dùng chung, cho
+  CẢ compiler lẫn debugger (`consent_debugger`). Không ghim danh tính file (hash,
+  size+mtime, hay signer). Hai hệ quả: một file đã confirm có thể bị **tráo** (cùng đường
+  dẫn, byte mới) và chạy mà không hỏi lại; và một đường dẫn đã confirm là *compiler* được
+  tự động chấp nhận là *debugger*. Ranh giới nó đứng sau: kẻ tấn công local ghi đè được
+  toolchain đã confirm thì đã có quyền ghi vào thư mục toolchain của bạn — đúng ranh giới
+  mọi client local (cả của mình lẫn chính thức) đang đứng sau. Việc ghim nội dung nằm
+  trong hàng đợi.
+- **Follow symlink trong lớp user-tin-cậy (W12-13).** Từ chối reparse-point C5
+  (`symlink_metadata`, không bao giờ follow symlink) phủ các gốc discovery kẻ tấn công
+  đặt được: glob fixed-root, quét extension VS Code, `walk_find`, *detection* Java
+  sibling, và fpc. Nó cố ý KHÔNG phủ `resolve_in_path` (phân giải PATH), kiểm tra
+  `is_file` của override Settings, Java sibling lane run, hay `find_gdb` — các chỗ đó
+  follow symlink vì entry PATH hợp lệ (`python3` → `python3.12`) và override user đăng ký
+  VỐN là symlink; từ chối chúng sẽ hỏng detection và việc ghim thực thi #163. Một symlink
+  đặt trong thư mục PATH hoặc đăng ký làm override do đó có thể chuyển hướng sang
+  executable khác; cả hai là input user kiểm soát, không phải fixed-root kẻ tấn công đặt được.
+- **Coalescing dialog và cooldown (W12-14).** Detection tuần tự hoá trên một async gate
+  (`detect_gate`) giữ xuyên suốt dialog planted-candidate — coalescing có chủ đích để các
+  detection đồng thời không hỏi trùng hay spawn-storm; một câu trả lời chậm chặn các
+  detection khác tới khi nó xong. Dialog override Settings do page điều khiển
+  (`cph_set_override`) bị chặn nhịp bằng cooldown trong bộ nhớ (2 s toàn cục, 5 s mỗi
+  đường dẫn, tối đa 128 đường dẫn được theo dõi, cũ nhất bị loại) để page không thể mở mỗi
+  lệnh gọi một modal. Cooldown bị quên khi restart; consent thì không. Từ chối override cố
+  ý KHÔNG sticky — đăng ký lại override là lối thoát đổi ý của user (từ chối
+  planted-candidate THÌ sticky).
+- **Hàng đợi event debugger (W12-19).** Hàng đợi event gdb mỗi phiên bị chặn ở 512 record,
+  drop-oldest — chặn theo SỐ LƯỢNG (mỗi record ≤ line cap 256 KiB, nên ~128 MiB trường hợp
+  xấu nhất dưới một debugger đã approve bị hỏng). Pass #163 sửa desync: `wait_stopped` giờ
+  drain tới `*stopped` kế tiếp, bỏ qua các notification `=thread-*` / `=library-loaded` /
+  `*running` mà `transact` xếp hàng, thay vì đưa `snapshot` record đầu tiên bất kỳ loại
+  nào. Phần còn lại: một trận lụt >512 event trong một transaction vẫn có thể loại
+  `*stopped` trước khi nó được tiêu thụ; wait khi đó timeout trung thực (một step lỗi,
+  không phải desync). Hàng đợi theo byte-budget nằm trong hàng đợi. Mô hình đe doạ xuyên
+  suốt là một debugger đã được approve — tin cậy để chạy code của bạn.

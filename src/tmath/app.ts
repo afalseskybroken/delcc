@@ -424,6 +424,15 @@ export class TmathApp {
           setActiveId(p.id);
           logInfo(`boot: session bound to profile ${p.username}`);
         }
+        // pass #163 (wave-12 W12-07): bind the session owner on EVERY resumed boot, not
+        // just the mismatch rebind above. W11-08's guard (370) drops a refresh save unless
+        // boundOwner === activeId(); finish() (704) binds it for fresh logins, but the
+        // boot-resume path never did — so a relaunch left boundOwner null and every refresh
+        // rotation was dropped from the profile store, accumulating stale DPAPI tokens.
+        // p.id IS activeId() here (found by activeId, or setActiveId above), so subsequent
+        // rotations persist again. identify() already confirmed the live identity, so this
+        // binds the CORRECT owner — the W11-08 contamination hole stays closed.
+        boundOwner = p.id;
       }
     }
     this.sessionReady = true;
@@ -1408,6 +1417,14 @@ export class TmathApp {
       : (typeof remembered.scope === "string" ? remembered.scope : "");
     // Resolve shared memory before the very first request, including explicit clears.
     for (const [key,v] of Object.entries(filters)) params.set(key,v);
+    // pass #163 (wave-12 W12-05): the pager (744) and the source-jump (1506) read scope
+    // back from `params`, so params must carry the EFFECTIVE scope (scopeRaw), not
+    // filters.scope — the latter is the W11-L09 global-memory value, which deliberately
+    // does NOT remember the automatic contest default. Serializing filters.scope here
+    // flipped contest paging onto the unscoped feed (the operational 504 hang) and, on
+    // the next load, wrote that wrong scope back into contestScopes[key]. The memory
+    // flush below (1483) still uses filters.scope, so W11-L09 is unchanged.
+    params.set("scope", scopeRaw);
     // pass #52: the #ID click jumps to the official source page — a sub-route of this
     // view (carve g_: list → source page → "Quay lại bài nộp"); sits after the shared
     // filter memory resolves so Back restores the exact filtered list
