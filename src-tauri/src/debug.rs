@@ -662,11 +662,19 @@ impl Session {
     fn wait_stopped(&mut self, timeout: Duration) -> Result<String, String> {
         let deadline = Instant::now() + timeout;
         loop {
-            if let Some(raw) = self.events.pop_front() {
+            // pass #163 (wave-12 W12-19): drain the queue to the next *stopped, not the
+            // first record of any kind. transact() queues EVERY async event it sees before
+            // the result token (=thread-created, =library-loaded, *running, …); returning
+            // the first one handed snapshot() a non-stop record it parsed as a stop — the
+            // desync the W11-10 comment promised against. The predicate is the SAME
+            // "*stopped," snapshot() already strips, so the normal path (queue empty, the
+            // first rx event is the stop) is byte-identical.
+            if let Some(raw) = next_queued_stop(&mut self.events) {
                 return Ok(raw);
             }
             match self.rx.recv_sliced(deadline, &INTERRUPT) {
-                RecvOutcome::Got(ReaderLine(LineKind::Event(raw))) => return Ok(raw),
+                RecvOutcome::Got(ReaderLine(LineKind::Event(raw))) if raw.starts_with("*stopped,") => return Ok(raw),
+                RecvOutcome::Got(ReaderLine(LineKind::Event(_))) => {} // non-stop notification — keep waiting
                 RecvOutcome::Got(ReaderLine(LineKind::Eof)) | RecvOutcome::Disconnected => {
                     return Err(self.engine_death())
                 }
@@ -777,6 +785,20 @@ impl Session {
         }
         Ok(DebugSnapshot { line, function, locals, locals_truncated, output, output_truncated, exited: false, exit_code: None })
     }
+}
+
+/// pass #163 (wave-12 W12-19): pop queued gdb events until the next *stopped, skipping the
+/// async notifications (=thread-*, =library-loaded, *running, …) that transact() queues
+/// before an exec's result token. Returns None when no stop is queued — the caller then
+/// reads the engine stream. The "*stopped," predicate is the one snapshot() already relies
+/// on, so this cannot reject a record snapshot() would have understood.
+fn next_queued_stop(events: &mut VecDeque<String>) -> Option<String> {
+    while let Some(raw) = events.pop_front() {
+        if raw.starts_with("*stopped,") {
+            return Some(raw);
+        }
+    }
+    None
 }
 
 fn spawn_reader(
@@ -1129,6 +1151,23 @@ fn spawn_line_reader(
 const PDB_TAIL_LINES: usize = 60;
 const PDB_TAIL_BYTES: usize = 32 * 1024;
 
+// pass #163 (wave-12 W12-06): truncate a String to at most `cap` BYTES, on a CHAR
+// BOUNDARY. A plain `truncate(cap)` panics when cap lands mid-codepoint, and pdb stderr
+// carries multibyte UTF-8 (Unicode identifiers and exception messages) — that panic
+// poisons the session mutex, failing every later debug op. Walk back to the nearest
+// boundary at or below cap (at most 3 bytes for UTF-8). Pure so the rule is testable
+// without constructing a PdbSession.
+fn truncate_tail_bytes(line: &mut String, cap: usize) {
+    if line.len() <= cap {
+        return;
+    }
+    let mut end = cap;
+    while end > 0 && !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    line.truncate(end);
+}
+
 impl PdbSession {
     /// pass #142 (W8-08): the pdb wrapper's death is either the stream ending or the
     /// output watcher killing the tree — the overflow verdict wins when raised.
@@ -1167,10 +1206,9 @@ impl PdbSession {
         }
         // pass #157 (wave-11 W11-L05): a single line larger than the whole tail budget
         // used to be admitted whole after the front-drop — the cap was violated by the
-        // very line it should have bounded. Truncate it to the budget.
-        if line.len() > PDB_TAIL_BYTES {
-            line.truncate(PDB_TAIL_BYTES);
-        }
+        // very line it should have bounded. Truncate it to the budget (char-boundary-safe,
+        // pass #163/W12-06 — a mid-codepoint byte truncate would panic and poison the mutex).
+        truncate_tail_bytes(&mut line, PDB_TAIL_BYTES);
         self.stderr_tail.push_back(line);
     }
 
@@ -1411,6 +1449,62 @@ fn start_pdb(params: StartParams) -> Result<DebugSnapshot, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn truncate_tail_bytes_never_splits_a_codepoint() {
+        // pass #163 (wave-12 W12-06): a byte cap landing mid-codepoint must walk back to
+        // a boundary, not panic (the panic poisoned the pdb session mutex). '😀' is 4
+        // bytes — build a string whose cap index falls inside one.
+        let mut s = "a".repeat(10) + "😀😀😀";
+        let cap = 12; // byte 12 is inside the first emoji (10 a's occupy 0..10)
+        assert!(!s.is_char_boundary(cap), "the test cap must land mid-codepoint");
+        truncate_tail_bytes(&mut s, cap);
+        assert!(s.len() <= cap);
+        assert!(s.is_char_boundary(s.len()));
+        assert_eq!(s, "a".repeat(10), "walked back to the boundary before the emoji");
+
+        let mut small = "héllo".to_string(); // under the cap → untouched
+        truncate_tail_bytes(&mut small, 100);
+        assert_eq!(small, "héllo");
+
+        let mut exact = "abcd".to_string(); // exactly at a boundary → kept whole
+        truncate_tail_bytes(&mut exact, 4);
+        assert_eq!(exact, "abcd");
+    }
+
+    #[test]
+    fn next_queued_stop_skips_notifications_to_the_real_stop() {
+        // pass #163 (wave-12 W12-19): transact() queues every async event before the exec
+        // result token. wait_stopped must drain to the *stopped, not hand snapshot() the
+        // first =thread-*/=library-loaded/*running notification (the desync).
+        let mut q: VecDeque<String> = VecDeque::new();
+        q.push_back("=thread-group-started,id=\"i1\",pid=\"123\"".into());
+        q.push_back("=library-loaded,id=\"1\",target-name=\"ntdll.dll\"".into());
+        q.push_back("*running,thread-id=\"all\"".into());
+        q.push_back("*stopped,reason=\"breakpoint-hit\",bkptno=\"1\",frame={func=\"main\"}".into());
+        q.push_back("=thread-selected,id=\"2\"".into());
+        let got = next_queued_stop(&mut q);
+        assert_eq!(got.as_deref(), Some("*stopped,reason=\"breakpoint-hit\",bkptno=\"1\",frame={func=\"main\"}"));
+        // the stop and everything before it are consumed; the trailing notification stays
+        // for the next op (it is not a stop, so it must not be returned ahead of one).
+        assert_eq!(q.len(), 1);
+        assert_eq!(q.front().map(|s| s.as_str()), Some("=thread-selected,id=\"2\""));
+
+        // a queue with no stop drains to None (the caller then reads the engine stream)
+        let mut none: VecDeque<String> = VecDeque::new();
+        none.push_back("*running,thread-id=\"all\"".into());
+        none.push_back("=breakpoint-modified,bkpt={number=\"1\"}".into());
+        assert_eq!(next_queued_stop(&mut none), None);
+        assert!(none.is_empty());
+
+        // an empty queue is None
+        assert_eq!(next_queued_stop(&mut VecDeque::new()), None);
+
+        // the exit stop is a *stopped record too — it must be returned, not skipped
+        let mut exit: VecDeque<String> = VecDeque::new();
+        exit.push_back("*stopped,reason=\"exited-normally\"".into());
+        assert_eq!(next_queued_stop(&mut exit).as_deref(), Some("*stopped,reason=\"exited-normally\""));
+    }
 
     // pass #143 (self-sweep F3): the watcher's live poll → escalate → kill path. A
     // sacrificial real child (ping) plays the engine; the test grows the watched file
