@@ -126,6 +126,18 @@ use fonts::fonts_list;
 // into private infrastructure). Trailing-dot hostnames ("localhost.") normalize before
 // the suffix checks. The command carries no credentials and caps the response, so the
 // blast radius is one capped-size image fetch, never a token.
+// pass #164 (wave-11 W11-L15): the classifier now also refuses the special-purpose
+// ranges the wave-11 auditor enumerated. v4 adds multicast (224/4), reserved (240/4,
+// includes the 255.255.255.255 broadcast std already caught), the IETF-protocol block
+// (192.0.0.0/24) and the three documentation blocks (192.0.2.0/24 already present via
+// the o[2]==2 test — kept explicit below with its siblings 198.51.100.0/24 and
+// 203.0.113.0/24). v6 adds multicast (ff00::/8), the DEPRECATED site-local
+// (fec0::/10 — distinct from the fe80::/10 link-local already refused), the
+// documentation block (2001:db8::/32), the benchmarking block (2001:2::/48), and the
+// two translation forms with embedded IPv4 — NAT64 (64:ff9b::/96) and 6to4
+// (2002::/16) — judged by their embedded v4, plus the deprecated IPv4-compatible
+// form (::a.b.c.d). Reachability through translators was never demonstrated; the
+// classifier refusing them is defense-in-depth, fail-closed.
 fn is_public_v4(ip: std::net::Ipv4Addr) -> bool {
     let o = ip.octets();
     !(ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified()
@@ -133,13 +145,37 @@ fn is_public_v4(ip: std::net::Ipv4Addr) -> bool {
         // CGNAT 100.64.0.0/10: second octet 64..=127. (The pre-#96 mask tested == 128,
         // which blocks 100.128/10 instead — caught by the #96 table test.)
         || (o[0] == 100 && (o[1] & 0xc0) == 64)
-        || (o[0] == 192 && o[1] == 0 && o[2] == 2)
+        || o[0] >= 224 // multicast (224/4) + reserved (240/4)
+        || (o[0] == 192 && o[1] == 0 && o[2] == 0) // IETF protocol assignments
+        || (o[0] == 192 && o[1] == 0 && o[2] == 2) // documentation TEST-NET-1
+        || (o[0] == 198 && o[1] == 51 && o[2] == 100) // documentation TEST-NET-2
+        || (o[0] == 203 && o[1] == 0 && o[2] == 113) // documentation TEST-NET-3
         || (o[0] == 198 && (o[1] & 0xfe) == 18))
 }
 fn is_public_v6(ip: std::net::Ipv6Addr) -> bool {
+    let s = ip.segments();
+    // NAT64 well-known prefix: the embedded v4 decides (last 4 bytes).
+    if s[0] == 0x0064 && s[1] == 0xff9b && s[2] == 0 && s[3] == 0 && s[4] == 0 && s[5] == 0 {
+        let v4 = std::net::Ipv4Addr::new((s[6] >> 8) as u8, s[6] as u8, (s[7] >> 8) as u8, s[7] as u8);
+        return is_public_v4(v4);
+    }
+    // 6to4 2002::/16: the embedded v4 decides (next 4 bytes).
+    if s[0] == 0x2002 {
+        let v4 = std::net::Ipv4Addr::new((s[1] >> 8) as u8, s[1] as u8, (s[2] >> 8) as u8, s[2] as u8);
+        return is_public_v4(v4);
+    }
+    // deprecated IPv4-compatible (::a.b.c.d): embedded v4 decides.
+    if s[0] == 0 && s[1] == 0 && s[2] == 0 && s[3] == 0 && s[4] == 0 && (s[6] != 0 || s[7] != 0) {
+        let v4 = std::net::Ipv4Addr::new((s[6] >> 8) as u8, s[6] as u8, (s[7] >> 8) as u8, s[7] as u8);
+        return is_public_v4(v4);
+    }
     !(ip.is_loopback() || ip.is_unspecified()
-        || (ip.segments()[0] & 0xfe00) == 0xfc00
-        || (ip.segments()[0] & 0xffc0) == 0xfe80)
+        || (s[0] & 0xfe00) == 0xfc00 // ULA fc00::/7
+        || (s[0] & 0xffc0) == 0xfe80 // link-local fe80::/10
+        || (s[0] & 0xffc0) == 0xfec0 // DEPRECATED site-local fec0::/10
+        || (s[0] & 0xff00) == 0xff00 // multicast ff00::/8
+        || (s[0] == 0x2001 && s[1] == 0x0db8) // documentation 2001:db8::/32
+        || (s[0] == 0x2001 && s[1] == 0x0002 && s[2] == 0 && s[3] == 0)) // benchmarking 2001:2::/48
 }
 // std treats IPv4-mapped IPv6 (::ffff:a.b.c.d) as neither loopback nor private — the raw
 // v6 checks let ::ffff:127.0.0.1 through. Unwrap it and judge the embedded v4.
@@ -298,6 +334,150 @@ async fn asset_fetch(url: String) -> Result<String, String> {
 // page does the rendering. Same trick the official client uses — except ours
 // is inspectable right here. Returns {status, body} as JSON text; the frontend
 // decides what statuses mean.
+// pass #164 (He's queued lane): the submission SSE streams. EventSource cannot carry
+// an Authorization header, and api_fetch buffers whole bodies — a stream handed to it
+// would never yield — so the shell opens the SSE GET itself on the same judge client,
+// parses the frames line-wise, and forwards each complete frame to the webview over a
+// Channel. Wire format (live probe 2026-11-12, dev account): `event: ready` +
+// `data: {"schema_version":1,...}`, SSE comments (`: heartbeat`) as keepalives. The
+// endpoint paths are pinned to exactly the two the public mirror documents; the bearer
+// token rides a dedicated parameter, never the generic header map. Idle watchdog: no
+// bytes for 90 s drops the connection (the server's own heartbeat is the liveness
+// proof), so a silently-dead TCP peer can never hang the transport. Frame bounds: a
+// data line is capped at 64 KiB, a frame at 256 KiB — submission payloads are tiny and
+// a hostile/server bug must bound the memory, not trust it.
+fn stream_registry() -> &'static std::sync::Mutex<std::collections::HashMap<u64, std::sync::Arc<tokio::sync::Notify>>> {
+    static REG: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u64, std::sync::Arc<tokio::sync::Notify>>>> = std::sync::OnceLock::new();
+    REG.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn stream_id_counter() -> &'static std::sync::atomic::AtomicU64 {
+    static ID: std::sync::OnceLock<std::sync::atomic::AtomicU64> = std::sync::OnceLock::new();
+    ID.get_or_init(|| std::sync::atomic::AtomicU64::new(1))
+}
+
+#[tauri::command]
+async fn submission_stream_start(
+    path: String,
+    token: String,
+    on_event: tauri::ipc::Channel<String>,
+) -> Result<u64, String> {
+    const BASE: &str = "https://oj.tmathcoding.vn/api/v3";
+    let is_documented_stream = path == "/submissions/stream"
+        || (path.starts_with("/participations/")
+            && path.ends_with("/submissions/stream")
+            && {
+                let seg = &path["/participations/".len()..path.len() - "/submissions/stream".len()];
+                !seg.is_empty() && seg.bytes().all(|b| b.is_ascii_digit())
+            });
+    if !is_documented_stream {
+        return Err("stream: path is not a documented submissions stream".into());
+    }
+    if token.is_empty() || token.len() > 4096 || token.chars().any(|c| c.is_control()) {
+        return Err("stream: missing or malformed token".into());
+    }
+    let id = stream_id_counter().fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let resp = http()
+        .get(format!("{BASE}{path}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Accept", "text/event-stream")
+        // NO total timeout: the stream is long-lived by design. The idle watchdog
+        // below is the liveness mechanism, not the request clock.
+        .send()
+        .await
+        .map_err(|e| format!("stream: send: {e}"))?;
+    let status = resp.status().as_u16();
+    if !(200..300).contains(&status) {
+        let _ = on_event.send(serde_json::json!({ "event": "down", "data": format!("HTTP {status}") }).to_string());
+        return Ok(id);
+    }
+    let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+    stream_registry().lock().map_err(|_| "stream: registry poisoned")?.insert(id, notify.clone());
+    let pump_id = id;
+    tauri::async_runtime::spawn(async move {
+        use futures_util::StreamExt;
+        let finish = |reg_id: u64| {
+            if let Some(n) = stream_registry().lock().ok().and_then(|mut r| r.remove(&reg_id)) {
+                n.notify_waiters();
+            }
+        };
+        let mut stream = std::pin::pin!(resp.bytes_stream());
+        let mut buf: Vec<u8> = Vec::with_capacity(4096);
+        let mut event_name = String::new();
+        let mut data = String::new();
+        const IDLE: std::time::Duration = std::time::Duration::from_secs(90);
+        const LINE_CAP: usize = 64 * 1024;
+        const FRAME_CAP: usize = 256 * 1024;
+        let mut idle_deadline = tokio::time::Instant::now() + IDLE;
+        loop {
+            let chunk = tokio::select! {
+                _ = notify.notified() => { finish(pump_id); return; }
+                _ = tokio::time::sleep_until(idle_deadline) => {
+                    let _ = on_event.send(serde_json::json!({ "event": "down", "data": "idle watchdog (no bytes for 90s)" }).to_string());
+                    finish(pump_id);
+                    return;
+                }
+                c = stream.next() => match c {
+                    Some(Ok(b)) => b,
+                    Some(Err(e)) => {
+                        let _ = on_event.send(serde_json::json!({ "event": "down", "data": format!("read: {e}") }).to_string());
+                        finish(pump_id);
+                        return;
+                    }
+                    None => {
+                        let _ = on_event.send(serde_json::json!({ "event": "closed", "data": "stream ended" }).to_string());
+                        finish(pump_id);
+                        return;
+                    }
+                },
+            };
+            idle_deadline = tokio::time::Instant::now() + IDLE;
+            for byte in chunk {
+                if byte == b'\n' {
+                    let mut line = std::mem::take(&mut buf);
+                    if line.last() == Some(&b'\r') { line.pop(); }
+                    let line_s = String::from_utf8_lossy(&line);
+                    if line_s.starts_with(':') {
+                        continue; // SSE comment: the server's heartbeat — liveness proof only
+                    }
+                    if let Some(rest) = line_s.strip_prefix("event:") {
+                        event_name = rest.trim().to_string();
+                    } else if let Some(rest) = line_s.strip_prefix("data:") {
+                        let rest = rest.strip_prefix(' ').unwrap_or(rest);
+                        if data.len() + rest.len() > FRAME_CAP || data.lines().count() > 64 {
+                            data.clear(); // frame over the bound — refuse the frame, keep the transport
+                            event_name.clear();
+                            continue;
+                        }
+                        if !data.is_empty() { data.push('\n'); }
+                        data.push_str(rest);
+                    }
+                    if data.is_empty() && event_name.is_empty() {
+                        // blank line with no accumulated frame — dispatch boundary, nothing to send
+                    } else if line.is_empty() {
+                        let ev = if event_name.is_empty() { "message" } else { event_name.as_str() };
+                        let _ = on_event.send(serde_json::json!({ "event": ev, "data": data }).to_string());
+                        data.clear();
+                        event_name.clear();
+                    }
+                    if line.len() > LINE_CAP { buf.clear(); }
+                } else if buf.len() < LINE_CAP {
+                    buf.push(byte);
+                }
+            }
+        }
+    });
+    Ok(id)
+}
+
+#[tauri::command]
+async fn submission_stream_stop(id: u64) -> Result<(), String> {
+    if let Some(n) = stream_registry().lock().map_err(|_| "stream: registry poisoned")?.remove(&id) {
+        n.notify_waiters();
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn api_fetch(
     method: String,
@@ -651,7 +831,7 @@ fn main() {
     }
     tauri::Builder::default()
         .manage(CphState::default())
-        .invoke_handler(tauri::generate_handler![api_fetch, site_fetch, asset_fetch, get_layout, toggle_fullscreen, open_url, update_check, fonts_list, cph_detect, cph_set_override, cph_run, cph_compile, cph_stop, debug_start, debug_step, debug_stop, identity_apply, secure_put, secure_get, secure_del])
+        .invoke_handler(tauri::generate_handler![api_fetch, site_fetch, asset_fetch, get_layout, toggle_fullscreen, open_url, update_check, fonts_list, cph_detect, cph_set_override, cph_run, cph_compile, cph_stop, debug_start, debug_step, debug_stop, identity_apply, secure_put, secure_get, secure_del, submission_stream_start, submission_stream_stop])
         .setup(move |app| {
             {
                 use tauri::Manager;
@@ -771,16 +951,20 @@ mod asset_tests {
     #[test]
     fn v4_special_ranges_are_not_public() {
         for ip in ["127.0.0.1", "10.1.2.3", "192.168.1.1", "172.16.0.9", "169.254.9.9",
-            "0.0.0.0", "100.64.0.1", "192.0.2.9", "198.18.0.5", "255.255.255.255"] {
+            "0.0.0.0", "100.64.0.1", "192.0.2.9", "198.18.0.5", "255.255.255.255",
+            "224.0.0.1", "239.255.255.250", "240.0.0.1", "192.0.0.9",
+            "198.51.100.7", "203.0.113.9"] {
             let ip: std::net::Ipv4Addr = ip.parse().unwrap();
             assert!(!is_public_v4(ip), "{ip}");
         }
         assert!(is_public_v4("8.8.8.8".parse().unwrap()));
+        assert!(is_public_v4("93.184.216.34".parse().unwrap()));
     }
 
     #[test]
     fn v6_locals_are_not_public_and_mapped_v4_unwraps() {
-        for ip in ["::1", "::", "fc00::1", "fe80::1"] {
+        for ip in ["::1", "::", "fc00::1", "fe80::1", "fec0::9", "ff02::1",
+            "2001:db8::9", "2001:2::ac1"] {
             assert!(!is_public_v6(ip.parse().unwrap()), "{ip}");
         }
         assert!(is_public_v6("2001:4860:4860::8888".parse().unwrap()));
@@ -788,6 +972,12 @@ mod asset_tests {
         assert!(!is_public_ip("::ffff:127.0.0.1".parse().unwrap()));
         assert!(!is_public_ip("::ffff:192.168.0.9".parse().unwrap()));
         assert!(is_public_ip("::ffff:8.8.8.8".parse().unwrap()));
+        // pass #164 (W11-L15): the translation forms are judged by their EMBEDDED v4.
+        assert!(!is_public_ip("2002:0a00:0001::1".parse().unwrap())); // 6to4 wrapping 10.0.0.1
+        assert!(!is_public_ip("64:ff9b::7f00:1".parse().unwrap()));   // NAT64 wrapping 127.0.0.1
+        assert!(!is_public_ip("::7f00:1".parse().unwrap()));          // deprecated IPv4-compatible 127.0.0.1
+        assert!(is_public_ip("2002:0808:0808::1".parse().unwrap()));  // 6to4 wrapping 8.8.8.8 — allowed
+        assert!(is_public_ip("64:ff9b::808:808".parse().unwrap()));   // NAT64 wrapping 8.8.8.8 — allowed
     }
 
     #[test]

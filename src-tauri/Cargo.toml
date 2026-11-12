@@ -1,6 +1,6 @@
 [package]
 name = "delcc-app"
-version = "0.3.58-alpha"
+version = "0.3.59-alpha"
 description = "delcc — custom frontend (not TMATH's work)"
 authors = ["He"]
 edition = "2021"
@@ -13,7 +13,12 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 # Phase 3 [claude] lane: tauri-plugin-updater + pubkey + endpoints.
 # deliberately unwired here — the check binary must boot with zero config.
-reqwest = { version = "0.13", features = ["json"] }
+reqwest = { version = "0.13", features = ["json", "stream"] }
+# pass #164: the submission SSE pump rides tokio's Notify/select (tauri::async_runtime
+# IS tokio) and futures-util's StreamExt for bytes_stream. Both are already in the
+# dependency tree transitively; this pins the two features delcc's own code uses.
+tokio = { version = "1", features = ["sync", "macros", "time"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"

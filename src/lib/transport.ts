@@ -206,6 +206,8 @@ export interface DebugSnapshot {
   output_truncated: boolean;
   exited: boolean;
   exit_code: number | null;
+  /** pass #164 (W11-L06): the session died on the 32 MiB output cap — never paint that as exit 0. */
+  overflow?: boolean;
 }
 
 export async function debugStart(langKey: string, binary: string, source: string, stdinText: string, std?: string): Promise<DebugSnapshot> {

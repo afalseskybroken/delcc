@@ -19,6 +19,28 @@ function b64(buf: ArrayBuffer | Uint8Array): string {
 function unb64(s: string): Uint8Array {
   return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 }
+// pass #164 (wave-11 W11-L11): every persisted base64 field is decoded through this
+// — a malformed value fails CLOSED (null) instead of throwing out of atob mid-boot
+// or feeding crypto.subtle garbage. The consumers treat null exactly like a wrong
+// password: the record is unusable either way.
+function safeUnb64(s: unknown): Uint8Array | null {
+  if (typeof s !== "string" || !s || s.length > 8192 || !/^[A-Za-z0-9+/]*={0,2}$/.test(s)) return null;
+  try { return unb64(s); } catch { return null; }
+}
+export function isLockHash(v: unknown): v is LockHash {
+  if (!v || typeof v !== "object") return false;
+  const h = v as Partial<LockHash>;
+  return typeof h.salt === "string" && typeof h.hash === "string"
+    && boundedIterations(h.iterations) !== null
+    && safeUnb64(h.salt) !== null && safeUnb64(h.hash) !== null;
+}
+export function isEncBlob(v: unknown): v is EncBlob {
+  if (!v || typeof v !== "object") return false;
+  const b = v as Partial<EncBlob>;
+  return typeof b.salt === "string" && typeof b.iv === "string" && typeof b.ct === "string"
+    && boundedIterations(b.iterations) !== null
+    && safeUnb64(b.salt) !== null && safeUnb64(b.iv) !== null && safeUnb64(b.ct) !== null;
+}
 const randBytes = (len: number) => crypto.getRandomValues(new Uint8Array(len));
 
 async function pbkdf2Bits(pw: string, salt: Uint8Array, bits: number, iterations: number): Promise<ArrayBuffer> {
@@ -56,7 +78,9 @@ function boundedIterations(v: unknown): number | null {
 export async function verifyLockPw(pw: string, h: LockHash): Promise<boolean> {
   const iterations = boundedIterations(h.iterations);
   if (!iterations) return false;
-  const bits = await pbkdf2Bits(pw, unb64(h.salt), 256, iterations);
+  const salt = safeUnb64(h.salt);
+  if (!salt) return false;
+  const bits = await pbkdf2Bits(pw, salt, 256, iterations);
   return b64(bits) === h.hash;
 }
 
@@ -80,8 +104,10 @@ export async function decryptWithLockPw(pw: string, blob: EncBlob): Promise<stri
   const iterations = boundedIterations(blob.iterations);
   if (!iterations) return null; // corrupt record — same outcome as a wrong password
   try {
-    const key = await aesKeyFrom(pw, unb64(blob.salt), iterations);
-    const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(blob.iv) as BufferSource }, key, unb64(blob.ct) as BufferSource);
+    const salt = safeUnb64(blob.salt), iv = safeUnb64(blob.iv), ct = safeUnb64(blob.ct);
+    if (!salt || !iv || !ct) return null;
+    const key = await aesKeyFrom(pw, salt, iterations);
+    const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv as BufferSource }, key, ct as BufferSource);
     return new TextDecoder().decode(pt);
   } catch { return null; }
 }

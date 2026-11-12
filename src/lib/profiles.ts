@@ -10,6 +10,7 @@
 import type { TokenPair } from "./api";
 import { logError, logInfo } from "./applog";
 import { secureGet, securePut } from "./secure";
+import { isLockHash, isEncBlob } from "./vault";
 import { shellInvoke } from "./transport";
 
 // lockPw/savedPw used to be raw strings here (pass #9 lanes 2+3 replaced them with
@@ -42,7 +43,10 @@ export function initProfiles(): Promise<Profile[]> {
       let legacy: Profile[] = [];
       try {
         const raw = localStorage.getItem(LS);
-        if (raw) legacy = JSON.parse(raw) as Profile[];
+        // pass #164 (W11-L11): the legacy path rides the SAME sanitizer as the secure
+        // store — the auditor's point was that [null]-style junk breaks boot no matter
+        // which shelf it sits on.
+        if (raw) legacy = sanitizeProfiles(JSON.parse(raw) as unknown);
       } catch { /* fresh start */ }
       useShell = (await shellInvoke()) != null;
       if (useShell) {
@@ -119,23 +123,34 @@ export function upsertProfile(list: Profile[], p: Profile): Profile[] {
 
 // pass #144 (wave-8 W8-L14): only well-shaped records survive the load — a sanitized
 // store can be handed to any consumer without a shape guard at every read site.
+function validTokenPair(v: unknown): boolean {
+  if (v === null) return true;
+  if (!v || typeof v !== "object") return false;
+  const t = v as Record<string, unknown>;
+  return typeof t.access_token === "string" && typeof t.refresh_token === "string"
+    && Number.isFinite(t.access_expires_in) && Number.isFinite(t.refresh_expires_in);
+}
 function sanitizeProfiles(parsed: unknown): Profile[] {
   if (!Array.isArray(parsed)) return [];
   const out: Profile[] = [];
   for (const raw of parsed) {
     const p = raw as Partial<Profile> | null;
     if (!p || typeof p !== "object") continue;
-    if (typeof p.id !== "string" || !p.id) continue;
-    if (typeof p.username !== "string" || !p.username) continue;
+    if (typeof p.id !== "string" || !p.id || p.id.length > 128) continue;
+    if (typeof p.username !== "string" || !p.username || p.username.length > 200) continue;
     if (typeof p.locked !== "boolean") continue;
+    // pass #164 (W11-L11): the nested schemas are validated — lockHash/savedPwEnc via
+    // the vault's shape guards (bounded iterations, decodable base64), the token pair
+    // by shape. A poisoned field is DROPPED (the lock screen then fails closed like a
+    // wrong password) instead of being copied unchecked into the auth flow.
     out.push({
       id: p.id,
       username: p.username,
       locked: p.locked,
-      lockHash: p.lockHash ?? null,
-      savedPwEnc: p.savedPwEnc ?? null,
+      lockHash: isLockHash(p.lockHash) ? p.lockHash : null,
+      savedPwEnc: isEncBlob(p.savedPwEnc) ? p.savedPwEnc : null,
       needsReauth: p.needsReauth === true,
-      token: p.token ?? null,
+      token: validTokenPair(p.token) ? (p.token ?? null) : null,
     });
   }
   return out;

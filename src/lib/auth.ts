@@ -238,9 +238,20 @@ setRefreshHook(async () => (await silentRefresh())?.access_token ?? null);
 // old shape that awaited only the server request.
 export async function logout(): Promise<boolean> {
   const t = cur?.access_token;
+  const rt = cur?.refresh_token;
   newIntent();
   sessionTokens.clear();
   const persisted = save(null, "refresh");
-  if (t) { try { await api.logout(t); } catch { /* already dead */ } }
+  if (t) {
+    try {
+      await api.logout(t, rt);
+    } catch (e) {
+      // pass #164: the 1.1.0 logout endpoint revokes server-side; a failure here
+      // means the server may still honor the (already locally discarded) tokens.
+      // The local session is gone either way — the outcome is surfaced in the log
+      // viewer instead of being swallowed (the W8-L13 honesty shape, server side).
+      logError(`logout: server-side revocation did not confirm (${e instanceof Error ? e.message : String(e)})`);
+    }
+  }
   return persisted;
 }

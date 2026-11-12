@@ -208,6 +208,7 @@ export const viVN: Dict = {
   "debug.noOutput": "Chưa có gì được flush.",
   "debug.line": "Dòng {n}",
   "debug.exited": "Chương trình đã kết thúc (mã {n})",
+  "debug.overflowed": "Chương trình dừng — output vượt giới hạn 32 MiB của phiên",
   "debug.runStep": "Thực thi từng bước",
   "debug.sessionNote": "Phiên chạy bản đã biên dịch của draft — sửa mã sẽ áp dụng từ lần Shift+Run kế tiếp.",
   "cph.busy": "Đang biên dịch / chạy…",

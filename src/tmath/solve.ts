@@ -361,7 +361,9 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     if (snap.exited) {
       debugExited = true;
       editor?.debugLine(null);
-      status.textContent = t("debug.exited", { n: snap.exit_code ?? 0 });
+      // pass #164 (W11-L06): the output watcher killed the tree on the 32 MiB cap —
+      // an exit_code of None here used to paint as "code 0" (overflow = success).
+      status.textContent = snap.overflow ? t("debug.overflowed") : t("debug.exited", { n: snap.exit_code ?? 0 });
     } else {
       status.textContent = `${t("debug.line", { n: snap.line ?? 0 })}${snap.function ? ` · ${snap.function}` : ""}`;
       editor?.debugLine(snap.line);

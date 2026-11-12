@@ -319,6 +319,13 @@ pub struct DebugSnapshot {
     pub output_truncated: bool,
     pub exited: bool,
     pub exit_code: Option<i32>,
+    /// pass #164 (wave-11 W11-L06): the output watcher killed the tree on the 32 MiB
+    /// cap. Without this the disconnect read as an ordinary exit with an unknown code
+    /// and the UI substituted zero — overflow could look like SUCCESS. Honest flag,
+    /// surfaced verbatim; the gdb lane never sets it (serde default keeps the
+    /// constructor sites compatible).
+    #[serde(default)]
+    pub overflow: bool,
 }
 
 enum LineKind {
@@ -749,6 +756,7 @@ impl Session {
                 output_truncated,
                 exited: true,
                 exit_code,
+                overflow: false,
             });
         }
         // frame: current line + function
@@ -783,7 +791,7 @@ impl Session {
                 }
             }
         }
-        Ok(DebugSnapshot { line, function, locals, locals_truncated, output, output_truncated, exited: false, exit_code: None })
+        Ok(DebugSnapshot { line, function, locals, locals_truncated, output, output_truncated, exited: false, exit_code: None, overflow: false })
     }
 }
 
@@ -975,6 +983,19 @@ fn start_gdb(params: StartParams, consent: &dyn Fn(&str) -> bool) -> Result<Debu
     let stop_raw = s.wait_stopped(STEP_TIMEOUT)?;
     let snap = s.snapshot(&stop_raw)?;
 
+    // pass #164 (wave-11 W11-L08): the publication point re-checks the interrupt.
+    // A Stop landing anywhere during the startup round-trips (teardown, spawn,
+    // handshake, the initial wait) leaves INTERRUPT raised; publishing after it
+    // would resurrect a session the user already killed from a view that can no
+    // longer see one. The flag stays raised through the swallowed Interrupted
+    // outcomes (query_locals returns data, not Result), so this check is the one
+    // atomic gate: hold the lock only AFTER the check — stop_session takes the
+    // same lock, so a Stop racing the publish either takes the slot first (the
+    // normal path) or the check below sees the raised flag and unwinds.
+    if INTERRUPT.load(std::sync::atomic::Ordering::SeqCst) {
+        let _ = stop_inner(&mut s);
+        return Err("the session was stopped during startup".into());
+    }
     let mut slot = SESSION.lock().map_err(|_| "debug session lock poisoned")?;
     *slot = Some(Engine::Gdb(s));
     Ok(snap)
@@ -1327,10 +1348,13 @@ impl PdbSession {
             }
         }
         let (locals, locals_truncated) = self.query_locals();
-        DebugSnapshot { line, function, locals, locals_truncated, output, output_truncated, exited: false, exit_code: None }
+        DebugSnapshot { line, function, locals, locals_truncated, output, output_truncated, exited: false, exit_code: None, overflow: false }
     }
 
     fn exited_snapshot(&mut self) -> DebugSnapshot {
+        // pass #164 (W11-L06): the overflow verdict rides the snapshot — an exit caused
+        // by the output watcher's cap is flagged, never an anonymous exit_code: None
+        // that the UI would paint as code 0.
         let (mut output, output_truncated) = self.read_output();
         if !self.stderr_tail.is_empty() {
             let tail: String = self.stderr_tail.drain(..).collect::<Vec<_>>().join("\n");
@@ -1341,7 +1365,8 @@ impl PdbSession {
                 output.push_str(&tail);
             }
         }
-        DebugSnapshot { line: None, function: None, locals: Vec::new(), locals_truncated: false, output, output_truncated, exited: true, exit_code: None }
+        let overflow = self.overflow.load(std::sync::atomic::Ordering::SeqCst);
+        DebugSnapshot { line: None, function: None, locals: Vec::new(), locals_truncated: false, output, output_truncated, exited: true, exit_code: None, overflow }
     }
 
     fn step(&mut self, kind: &str) -> Result<DebugSnapshot, String> {
@@ -1427,6 +1452,22 @@ fn start_pdb(params: StartParams) -> Result<DebugSnapshot, String> {
     match s.wait_location(STEP_TIMEOUT)? {
         Some((line, function)) => {
             let snap = s.snapshot(Some(line), function);
+            // pass #164 (W11-L08): the same publication-point re-check as the gdb lane.
+            // The pdb lane has no stop_inner (that is the gdb engine's helper): the
+            // polite quit + the tree kill inline, exactly what stop_session does.
+            if INTERRUPT.load(std::sync::atomic::Ordering::SeqCst) {
+                if let Some(stdin) = s.stdin.as_mut() {
+                    let _ = writeln!(stdin, "q");
+                    let _ = stdin.flush();
+                }
+                let pid = s.child.id();
+                let _ = s.child.kill();
+                let _ = s.child.wait();
+                if pid != 0 {
+                    crate::cph::kill_tree(pid);
+                }
+                return Err("the session was stopped during startup".into());
+            }
             let mut slot = SESSION.lock().map_err(|_| "debug session lock poisoned")?;
             *slot = Some(Engine::Pdb(s));
             Ok(snap)

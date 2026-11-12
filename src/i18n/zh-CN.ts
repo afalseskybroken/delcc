@@ -208,6 +208,7 @@ export const zhCN: Dict = {
   "debug.noOutput": "尚无已刷新输出。",
   "debug.line": "第 {n} 行",
   "debug.exited": "程序已退出（代码 {n}）",
+  "debug.overflowed": "程序已停止 — 输出超出会话的 32 MiB 上限",
   "debug.runStep": "逐步执行",
   "debug.sessionNote": "会话运行草稿的已编译副本——修改将在下次 Shift+Run 时生效。",
   "cph.busy": "正在编译 / 运行…",

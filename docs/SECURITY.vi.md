@@ -12,7 +12,8 @@ report, và sửa cái sai. Bản gốc tiếng Anh: [SECURITY.md](SECURITY.md).
 | `oj.tmathcoding.vn/api/v3/client-releases/downloads` POST | chỉ khi bạn bấm nút "open official installer" trên banner cập nhật | bộ đếm tải của chính feed release — cùng lệnh gọi mà client chính thức thực hiện; chỉ mang channel, platform và release id, không có gì về bạn |
 | `oj.tmathcoding.vn/<trang profile người dùng>` | chỉ khi xem profile của người dùng khác | đọc trang profile **công khai** của site — đúng những byte mà bất kỳ browser ẩn danh nào cũng nhận được, CORS mở — để lấy hash gravatar mà chính site công bố ở đó. Được validate, cache tại máy (giới hạn FIFO); một GET *thành công* mỗi người dùng, trượt thì thử lại ở lần xem sau. Do shell Rust (`site_fetch`) thực hiện — các trang này không có header CORS cho webview. Xem `src/tmath/avatars.ts`. |
 | `api.github.com/repos/afalseskybroken/delcc/releases?per_page=1` | một lần mỗi lần khởi động (pass #134, chấm trạng thái update ở footnote) | kiểm tra READ-ONLY xem có bản delcc mới hơn không — chấm màu ở footnote của sidebar (xanh [Đã mới nhất] / đỏ [Có bản cập nhật], bấm mở trang phát hành). Feed client-releases của sàn không thể trả lời câu này (delcc nhận phiên bản client mà feed đó yêu cầu, qua shim ở trên, nên luôn "đồng bộ" với sàn một cách hiển nhiên). Không mang token hay cookie; `Accept: application/vnd.github+json` + user agent delcc; timeout 10 s; cùng giới hạn 8 MiB như mọi đường byte khác; URL được ghim vào đúng một host:path bên trong lệnh `update_check` — nội dung webview không thể nhắm nó đi đâu khác; lỗi thì chấm chuyển xám trung tính (không bằng chứng, không khẳng định) |
-| `www.gravatar.com/avatar/<sha256>` | chỉ khi server giao hash gravatar của chính bạn (self-view, tài khoản có email đăng ký Gravatar) | ảnh avatar của bạn, gọi với `referrerpolicy="no-referrer"`, `d=404` nên không thứ gì khác được fetch |
+| `www.gravatar.com/avatar/<sha256>` | mỗi khi có hash gravatar: của chính bạn VÀ của người dùng khác — hash lấy từ trang profile công khai qua `site_fetch` và từ các danh sách công khai | ảnh avatar, gợi với `referrerpolicy="no-referrer"`, `d=404` nên không thứ gì khác được fetch |
+| `www.youtube-nocookie.com/embed/<id>` (+ `www.youtube.com/embed/<id>`) | chỉ khi About của một profile nhúng video YouTube (client chính thức render cùng kiểu embed) | iframe sanitizer CHỈ giữ cho hai origin này (kiểm tra scheme+host+path); CSP `frame-src` của app đóng khung đúng hai host đó |
 
 Các request tự mang theo gì, công khai: call có xác thực mang `Authorization: Bearer <token>`;
 POST nộp bài và đọc chi tiết bài mang `X-Device-Id` (một định danh ngẫu nhiên `delcc-…`
@@ -33,10 +34,14 @@ Hết. Cụ thể là KHÔNG có:
 - không tự động tải update (manifest release chỉ được *đọc*; binary là bạn —
   con người — tự tải từ trang release)
 - không CDN/font/script bên thứ ba — mọi asset đi kèm bundle. Markdown trong ô
-  Giới thiệu cũng không thể trỏ `<img>` tới host tùy ý: từ pass #78, ảnh remote
-  trong About của người khác render thành **link** thường (client chính thức cắt
-  hẳn ảnh remote; link là điểm trung gian trung thực của mình), nên lần fetch ảnh
-  duy nhất của app là avatar gravatar trong bảng trên
+  Giới thiệu có thể chứa ảnh **remote** (pass #83 khôi phục theo pass #78 — He: cô
+  lập, đỡ cụt tính năng): ảnh tải qua lệnh `asset_fetch` của shell, KHÔNG qua webview
+  — https-only, chỉ nhận `image/*`, giới hạn 2 MiB (stream-enforced từ #141), không
+  bao giờ đính kèm cookie/token, và host được resolve-một-lần + verify-mọi-địa-chỉ +
+  pin từ pass #96; từ pass #142 MỖI hop redirect đi qua đúng quy trình resolve →
+  verify → pin đó (redirect tự động bị TẮT). Ảnh fail/lớn quá → render thành link
+  thường (tối đa 8 ảnh/pane, phần thừa thành link). Cả hai luồng ảnh (asset_fetch và
+  gravatar) nằm trong bảng trên
 - trình chạy CPH cục bộ (`src-tauri/src/cph.rs`) không bao giờ chạm mạng — nó
   biên dịch và chạy *code của bạn* trên *máy của bạn*. Từ pass #159 bước RUN được
   sandbox (xem khối Pass #159 bên dưới); bước compile và debug lane giữ tư thế

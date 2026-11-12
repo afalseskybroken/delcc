@@ -16,6 +16,7 @@ import { phIcon, type PhName } from "./phosphor";
 import { renderSettings } from "./settings";
 import { regexMatchInWorker } from "../lib/regex-probe";
 import { wireDebugHover, attachDebug, setDebugGate } from "../lib/debug-tip";
+import { openSubmissionStream, type StreamKind } from "../lib/substream";
 import { mountSolve } from "./solve";
 import "./tmath.css";
 
@@ -1638,18 +1639,54 @@ export class TmathApp {
     // official polls this view — refresh quietly in place (audit: Refresh did nothing)
     const refine = (fresh: any[]): Promise<any[]> =>
       refineRows(fresh).then(view => view.filter(s => !subId || String(s.id) === subId));
-    const poll = window.setInterval(() => {
-      if (!alive()) { window.clearInterval(poll); return; }
+    // pass #164 (He's queued lane): the same view, TWO transports. The judge's SSE
+    // streams push the update signal; every refresh still rides the documented REST
+    // call (the stream is the bell, the GET is the data). The 10 s in-place poll
+    // survives as the FALLBACK for stream drops (and for scopes no stream covers).
+    const quietRefresh = async (): Promise<void> => {
+      if (!alive()) return;
       if (document.hidden) return; // minimized: skip the beat — rows refresh on return
       const req = isContestScope
         ? api.contestSubmissions(auth.accessToken()!, contestKey).then((payload: any) => applyContestFilters(list(payload?.items)))
         : api.submissions(auth.accessToken()!,{page,page_size:pageSize,scope:serverScope,problem:serverProblem,user:serverUser,result}).then(r => refine(list(r)));
       void req.then(fresh => {
-        if (!alive()) { window.clearInterval(poll); return; }
+        if (!alive()) return;
         rows = fresh;
         paintRows();
-      }).catch(() => { /* transient — next tick retries */ });
-    }, 10_000);
+      }).catch(() => { /* transient — next beat retries */ });
+    };
+    let pollTimer = 0;
+    const startPoll = (): void => { if (!pollTimer) pollTimer = window.setInterval(() => { if (!alive()) { stopPoll(); return; } void quietRefresh(); }, 10_000); };
+    const stopPoll = (): void => { if (pollTimer) { window.clearInterval(pollTimer); pollTimer = 0; } };
+    // which streams cover this scope (probe 2026-11-12: the public stream carries
+    // public_practice; the participation stream carries one contest's rows — a past
+    // contest scope has no participation id, so it stays poll-only)
+    const streamKinds: StreamKind[] =
+      isContestScope
+        ? (scopeRaw === `contest:${this.contest?.key}` && this.part ? [{ type: "participation", id: this.part }] : [])
+        : (scopeRaw === "global" && this.part ? [{ type: "public" }, { type: "participation", id: this.part }] : [{ type: "public" }]);
+    let lastStreamUpdate = 0;
+    const streams: import("../lib/substream").SubStreamHandle[] = [];
+    for (const kind of streamKinds) {
+      void openSubmissionStream(kind, auth.accessToken()!, {
+        onReady: () => { if (alive()) stopPoll(); }, // push is live — the poll sleeps
+        onUpdate: () => {
+          if (!alive()) return;
+          const now = Date.now();
+          if (now - lastStreamUpdate < 1500) return; // bursts coalesce into one refresh
+          lastStreamUpdate = now;
+          void quietRefresh();
+        },
+        onDown: () => { if (alive()) startPoll(); }, // fallback transport takes over
+      }).then(h => { if (alive()) streams.push(h); else h.close(); });
+    }
+    startPoll();
+    const previousSubsDispose = this.disposeView;
+    this.disposeView = () => {
+      previousSubsDispose?.();
+      stopPoll();
+      for (const h of streams) h.close();
+    };
     this.pager(host,page,isContestScope ? rows.length : pageView().length,params,pageSize);
   }
 
@@ -1969,15 +2006,24 @@ export class TmathApp {
     // fetch ONCE before the denial logic sees anything — a held poll can never read
     // as 403/404, and the plain fetch keeps the pre-#155 behavior verbatim.
     const canPoll = (this.contest as { can_poll_leaderboard?: unknown }).can_poll_leaderboard === true;
+    // pass #164 (wave-11 W11-L10): the 25 s ceiling timer is CLEARED in a finally
+    // (it used to leak one timer per poll beat), the fallback only starts while the
+    // view is alive (a lost race on a closed view must not fire a stray fetch), and
+    // the long-poll transport stays uncancellable by IPC — bounded by the shell's
+    // own 30 s request cap, disclosed here instead of a new abort command surface.
     const fetchBoard = async (): Promise<any[]> => {
       if (!canPoll) return api.leaderboard(auth.accessToken()!, key);
+      let timer: number | undefined;
       try {
         return await Promise.race([
           api.leaderboard(auth.accessToken()!, key, true),
-          new Promise<never>((_, rej) => setTimeout(() => rej(new Error("poll ceiling")), 25_000)),
+          new Promise<never>((_, rej) => { timer = window.setTimeout(() => rej(new Error("poll ceiling")), 25_000); }),
         ]) as any[];
       } catch {
+        if (!alive()) throw new Error("view closed");
         return api.leaderboard(auth.accessToken()!, key);
+      } finally {
+        if (timer !== undefined) window.clearTimeout(timer);
       }
     };
     try {
@@ -2244,14 +2290,21 @@ export class TmathApp {
       paint();
     });
     paint();
+    // pass #164 (W11-L10): single-flight — a hung beat skips its next tick instead
+    // of stacking in-flight reads (the shell caps each at 30 s; two overlapping
+    // board fetches per tick were still waste).
+    let boardBusy = false;
     const poll = window.setInterval(() => {
       if (!alive()) { window.clearInterval(poll); return; }
       if (document.hidden) return; // minimized: skip the beat — standings refresh on return
+      if (boardBusy) return;
+      boardBusy = true;
       void api.leaderboard(auth.accessToken()!, key).then(lb => {
         if (!alive()) { window.clearInterval(poll); return; }
         entries = list(lb);
         paint();
-      }).catch(() => { /* transient — next tick retries */ });
+      }).catch(() => { /* transient — next tick retries */ })
+        .finally(() => { boardBusy = false; });
     }, 30_000);
     const previous = this.disposeView;
     this.disposeView = () => { previous?.(); window.clearInterval(poll); youObserver?.disconnect(); };

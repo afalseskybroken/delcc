@@ -205,7 +205,10 @@ export const api = {
     raw("/auth/login", { method: "POST", body: { username: u, password: p } }),
   refresh: (refreshToken: string): Promise<TokenPair> =>
     raw("/auth/refresh", { method: "POST", body: { refresh_token: refreshToken } }),
-  logout: (t: string) => raw("/auth/logout", { method: "POST", body: {}, token: t }),
+  // pass #164: LogoutRequestSchema carries an optional refresh_token — send it so
+  // the server revokes BOTH tokens (live probe: "Provided tokens have been revoked").
+  logout: (t: string, refresh_token?: string | null) =>
+    raw("/auth/logout", { method: "POST", body: { refresh_token: refresh_token ?? null }, token: t }),
   me: (t: string) => raw("/me", { token: t }),
   contests: (t: string, o: { tag?: string; search?: string; page?: number; page_size?: number } = {}): Promise<ContestListItem[]> => {
     const q = new URLSearchParams();

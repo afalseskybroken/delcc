@@ -14,7 +14,8 @@ file it, and fix whichever is wrong.
 | `oj.tmathcoding.vn/api/v3/client-releases/downloads` POST | only when you click the update banner's "open official installer" button | the official feed's own download counter — the same call the official client makes; carries the channel, platform and release id, nothing about you |
 | `oj.tmathcoding.vn/<user profile pages>` | only when viewing another user's profile | reads the site's **public** profile page — the exact bytes any anonymous browser gets, CORS-open — to pick up the gravatar hash the site itself publishes there. Validated (the site's empty-string hash placeholder is rejected), cached locally (FIFO-capped); one *successful* GET per user, retried on the next view if it missed. Fetched by the Rust shell (`site_fetch`) — these pages carry no CORS header for the webview. See `src/tmath/avatars.ts` for the honesty notes. |
 | `api.github.com/repos/afalseskybroken/delcc/releases?per_page=1` | once per boot (pass #134, the footnote update dot) | a READ-ONLY check whether a newer delcc release exists — the dot in the sidebar footnote (green [Up to date] / red [Update available], click opens the releases page). The judge's client-releases feed cannot answer this (delcc adopts whatever client version that feed demands, by the shim above, so it is always "in sync" by construction). Carries no tokens or cookies; `Accept: application/vnd.github+json` + the delcc user agent; 10 s timeout; the same 8 MiB body cap as every other byte path; the URL is pinned to exactly one host:path inside the `update_check` command — webview content cannot aim it elsewhere; a failure leaves a neutral grey dot (no evidence, no claim) |
-| `www.gravatar.com/avatar/<sha256>` | only when the server delivers your own gravatar hash (self-view, gravatar-registered account) | your avatar image, requested with `referrerpolicy="no-referrer"`, `d=404` so nothing else is fetched |
+| `www.gravatar.com/avatar/<sha256>` | whenever a gravatar hash is in play: your own (the server delivers it on self-view) AND other users' — hashes harvested from their public profile pages via the `site_fetch` row above, and from public list responses | avatar images, requested with `referrerpolicy="no-referrer"`, `d=404` so nothing else is fetched |
+| `www.youtube-nocookie.com/embed/<id>` (+ `www.youtube.com/embed/<id>`) | only when a profile's About markdown embeds a YouTube video (the official client renders the same embeds) | an iframe the sanitizer keeps ONLY for these two origins (scheme+host+path shape-checked); the shipped CSP `frame-src` pins the same two hosts — the page cannot frame anything else |
 
 What requests themselves carry, disclosed: authenticated calls bear `Authorization: Bearer
 <token>`; submit POSTs and problem-detail reads bear `X-Device-Id` (a fresh random identifier
@@ -41,9 +42,10 @@ That is all. Concretely absent:
   official client renders them too). Since pass #83 they load through an ISOLATED shell
   fetch, never from the webview: the `asset_fetch` command is https-only, validates the
   ORIGINAL host by resolution (every resolved address public, the client pinned to it),
-  and string-checks every redirect hop against the public-host rules — a hop's NEW
-  hostname is scheme/suffix/literal-IP checked but NOT re-resolved and IP-verified like
-  the original host (a disclosed residual; the per-hop resolution fix is queued). It
+  and drives every redirect hop through the exact same resolve → verify-all-addresses
+  → pin procedure as the original host (automatic redirect-following is OFF; the fetch
+  loop re-validates EACH hop since pass #142 — the old string-check-only residual is
+  closed). It
   accepts `image/*` content types only, caps responses at 2 MiB — enforced while
   STREAMING since pass #141 (the body is rejected at the cap instead of being fully
   buffered first) — with a 10 s timeout, and never attaches cookies or tokens — the
@@ -255,8 +257,18 @@ Licenses and the vendoring recipe are recorded in
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 Sketch tab (#112): Excalidraw 0.18.1 (MIT) renders as a lazy React component in the
-tools panel; its fonts and locales are bundled (no CDN, no runtime fetches), and the
-scene persists locally in the delcc-sketch-scene localStorage key.
+tools panel, and the scene persists locally in the delcc-sketch-scene localStorage key.
+Fonts, precisely (reconciled in pass #164, wave-11 W11-L18): the app points
+`EXCALIDRAW_ASSET_PATH` at its own same-origin copy — the five core families the
+canvas uses (Excalifont, Nunito, Liberation, Cascadia, ComicShanns; 0.3 MB under
+`public/excalidraw/fonts/`), served from `self` under the CSP's `font-src 'self' data:`.
+Excalidraw's loader keeps a hard-coded esm.sh CDN fallback AFTER the configured paths;
+the shipped CSP refuses that origin, so a skipped family's subsets (Xiaolai CJK,
+Virgil, Lilita — 13+ MB, deliberately not shipped) fall to SYSTEM fonts, honestly.
+Disclosed dev-only leak: plain-browser development has no CSP, so those skipped
+families may fetch from esm.sh during sketch use in `vite dev` — never in the shipped
+app. The claim "no CDN in the shipped app" holds; "no CDN anywhere" did not, and this
+paragraph is the correction.
 
 ## Dependency advisories (as of 0.3.20-alpha)
 

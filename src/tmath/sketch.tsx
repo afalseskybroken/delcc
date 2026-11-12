@@ -44,6 +44,20 @@ const scheduleSave = (elements: readonly unknown[]): void => {
   }, 500);
 };
 
+// pass #164 (wave-11 W11-L18): the font loader's last-resort fallback is the esm.sh
+// CDN (verified in the installed chunk: ASSETS_FALLBACK_URL is pushed UNCONDITIONALLY
+// after any configured asset paths). Pointing EXCALIDRAW_ASSET_PATH at the app's OWN
+// same-origin copy (public/excalidraw/fonts — the five core families, 0.3 MB) makes
+// the shipped fonts load from 'self' (CSP font-src 'self' data:) and keeps the CDN
+// unreachable in the shipped app (the CSP refuses it — the miss falls to system
+// fonts). Browser-dev (no CSP) may still fetch the CDN for the SKIPPED families
+// (Xiaolai CJK / Virgil / Lilita — 13 MB+ of subsets not worth shipping): disclosed
+// in SECURITY.md, dev-only.
+if (typeof (window as { EXCALIDRAW_ASSET_PATH?: unknown }).EXCALIDRAW_ASSET_PATH !== "string") {
+  (window as { EXCALIDRAW_ASSET_PATH?: string }).EXCALIDRAW_ASSET_PATH =
+    new URL("excalidraw/", document.baseURI).href;
+}
+
 async function render(dark: boolean): Promise<void> {
   if (!root || !hostEl) return;
   const { Excalidraw } = await import("@excalidraw/excalidraw");
