@@ -15,6 +15,7 @@ import { logError, logInfo } from "../lib/applog";
 import { phIcon, type PhName } from "./phosphor";
 import { renderSettings } from "./settings";
 import { regexMatchInWorker } from "../lib/regex-probe";
+import { wireDebugHover, attachDebug, setDebugGate } from "../lib/debug-tip";
 import { mountSolve } from "./solve";
 import "./tmath.css";
 
@@ -59,19 +60,24 @@ const IMAGE_CAP = 8;
 // eviction order tracks actual use, not insertion order.
 const IMAGE_CACHE_BYTES = 24 * 1024 * 1024;
 let assetCacheBytes = 0;
-// pass #161 (He, the Debug Mode): the RAW server-field tooltips. When the opt-in
-// Settings toggle is on, render sites attach a title attribute carrying the sorted,
-// pretty-printed JSON of the RAW server object — every field the judge sent, not
-// just the ones delcc's types named (restriction state, times, rate fields, flags).
-// The attribute is escaped (the doctrine: server data is untrusted input, even in a
-// tooltip). Off by default; most users never see it.
-const debugTip = (obj: unknown): string => {
-  if (!debugFieldsOn() || obj === null || typeof obj !== "object") return "";
-  const entries = Object.entries(obj as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
-  const sorted: Record<string, unknown> = {};
-  for (const [k, v] of entries) sorted[k] = v;
-  return ` title="${esc(JSON.stringify(sorted, null, 1))}"`;
-};
+// pass #162 (He: "Truncated? maybe we can make our own tooltip implementation...
+// DebugMode would allow me to see way more details"): the native title tooltip
+// truncated the payload, so the Debug Mode runs its OWN panel — a floating,
+// scrollable, monospace <pre> rendered via textContent (no injection: the JSON is
+// data, never markup). The raw server objects ride a WeakMap keyed by element; a
+// single delegated hover pair shows/hides/repositions the panel. The toggle gates
+// the hover LIVE (no reload), and the payloads attach unconditionally so flipping
+// the toggle works on already-rendered views. Sites: the contest rows, the
+// workspace (the detail + the participation merged), the problem tabs, the
+// scoreboard rows, the case rows, the submissions rows, the problems rows.
+// pass #162: the Debug Mode's panel machinery lives in ../lib/debug-tip.ts (the
+// WeakMap, the hover pair, the panel). The sites call attachDebug(el, obj);
+// the gate is the live toggle (debugFieldsOn).
+function zipDebug(scope: ParentNode, selector: string, objects: unknown[]): void {
+  scope.querySelectorAll(selector).forEach((el, i) => {
+    if (objects[i] !== undefined) attachDebug(el, objects[i]);
+  });
+}
 // pass #157 (wave-11 W11-08): the SESSION-OWNER binding. A refresh save persists to
 // the active profile only when the session's bound owner IS that profile; fresh
 // logins detach ownership until finish() binds it again. The wave-10 hole: a
@@ -299,6 +305,17 @@ export class TmathApp {
   private collapsed = read("delcc-tmath-sidebar") === "collapsed";
   private sessionReady = false;
   private stopped = false;
+  // pass #162: the case rows' raw objects (the Debug Mode payloads), exported from
+  // submissionDetailHtml for the caller's attach pass
+  private lastCaseLeaves: any[] = [];
+  // pass #162: the Debug Mode hover wiring + the live gate (the toggle flips without a reload)
+  private debugWired = false;
+  private wireDebug(): void {
+    if (this.debugWired) return;
+    this.debugWired = true;
+    setDebugGate(() => debugFieldsOn());
+    wireDebugHover();
+  }
 
   // informational update notice (honest-client: tells, never forces)
   private versionNotice: { client: string; required: string } | null = null;
@@ -350,6 +367,9 @@ export class TmathApp {
     // view can swallow it. #141: the handler is the instance field this.f11Key —
     // destroy() removes it, so remounts no longer stack anonymous listeners.
     document.addEventListener("keydown", this.f11Key, true);
+    // pass #162: the Debug Mode hover + the live gate
+    setDebugGate(() => debugFieldsOn());
+    wireDebugHover();
     auth.onTokenChange(token => {
       // pass #60-#63: this listener REPLACED the baseplate one (onTokenChange is a
       // single slot). The tmath shell has no profile switcher — the active unlocked
@@ -789,7 +809,7 @@ export class TmathApp {
       const startMs = new Date(c.start_time).getTime();
       const joinWait = !c.is_in_contest && c.can_join && startMs > now;
       const disabled = (!c.can_join && !c.can_view_tasks && !c.is_in_contest) || joinWait;
-      return `<div class="tm-contest-row"${debugTip(c)}><span class="tm-contest-icon" aria-hidden="true">${phIcon("trophy", 24)}</span><div class="tm-contest-summary"><strong>${esc(c.name)}</strong>${rated}${c.topic ? `<small class="tm-contest-topic">${esc(c.topic)}</small>` : ""}<small>${date(c.start_time)} – ${date(c.end_time)}</small></div><span class="tm-tag"${joinWait ? ` data-starts-in="${startMs}"` : ""}>${rowTag(c)}</span><button class="tm-button primary tm-contest-join" aria-label="${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")} ${esc(c.name)}" data-contest="${esc(c.key)}" data-join="${!!c.can_join && !c.is_in_contest}"${disabled ? " disabled" : ""}>${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")}</button></div>`;
+      return `<div class="tm-contest-row" data-contest="${esc(c.key)}"><span class="tm-contest-icon" aria-hidden="true">${phIcon("trophy", 24)}</span><div class="tm-contest-summary"><strong>${esc(c.name)}</strong>${rated}${c.topic ? `<small class="tm-contest-topic">${esc(c.topic)}</small>` : ""}<small>${date(c.start_time)} – ${date(c.end_time)}</small></div><span class="tm-tag"${joinWait ? ` data-starts-in="${startMs}"` : ""}>${rowTag(c)}</span><button class="tm-button primary tm-contest-join" aria-label="${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")} ${esc(c.name)}" data-contest="${esc(c.key)}" data-join="${!!c.can_join && !c.is_in_contest}"${disabled ? " disabled" : ""}>${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")}</button></div>`;
     };
     const groups: [DictKey, DictKey, "active" | "upcoming" | "ended", ContestListItem[]][] = [
       ["contests.current", "contests.currentDesc", "active", list(home?.current_contests)],
@@ -799,6 +819,12 @@ export class TmathApp {
     const all = groups.flatMap(g => g[3]);
     const joinedBanner = !this.contest ? "" : `<section class="tm-current-banner" aria-label="${text("contests.currentEyebrow")}"><div class="tm-current-info"><div class="tm-eyebrow">${text("contests.currentEyebrow")}</div><h2>${esc(this.contest.name)}</h2>${this.contest.topic ? `<p class="tm-contest-topic">${esc(this.contest.topic)}</p>` : ""}<div class="tm-current-details"><span class="tm-tag">${esc(this.contest.mode || "Contest")}</span><span>${text("contests.start")}: <time dateTime="${esc(this.contest.start_time)}">${date(this.contest.start_time)}</time></span><span>${text("contests.end")}: <time dateTime="${esc(this.contest.end_time)}">${date(this.contest.end_time)}</time></span></div></div><button class="tm-button primary" data-action="continue">${text("contests.continue")}</button></section>`;
     host.innerHTML = this.pageTitle("contests.eyebrow","contests.title","contests.desc","contests.refresh") + joinedBanner + `<section class="tm-card"><div class="tm-card-head"><h2>${text("contests.list")}</h2><span class="tm-tag">${text("contests.onPage", {n: all.length})}</span></div><form class="tm-search-row" id="tm-search-form"><label for="tm-contest-search">${text("contests.searchField")}</label><div class="tm-search-controls"><input id="tm-contest-search" name="search" aria-label="${text("common.search")}" placeholder="${text("contests.searchPlaceholder")}" value="${esc(search)}" maxlength="200">${search ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}<button class="tm-button" type="submit">${text("common.search")}</button></div></form><div id="tm-contest-message" role="status"></div>` + groups.filter(([, , , cs]) => cs.length).map(([key, desc, tone, cs]) => `<section class="tm-contest-group tm-contest-group-${tone}"><div class="tm-contest-group-header"><h3>${text(key)} (${cs.length})</h3><p>${text(desc)}</p></div><div class="tm-contest-rows">${cs.map(row).join("")}</div></section>`).join("") + (groups.every(g => !g[3].length) ? empty() : "") + `</section>`;
+    // pass #162: the Debug Mode payloads (the raw server objects)
+    const byKey = new Map(groups.flatMap(([, , , cs]) => cs).map(c => [c.key, c] as [string, unknown]));
+    host.querySelectorAll(".tm-contest-row[data-contest]").forEach(el => {
+      const obj = byKey.get(el.getAttribute("data-contest") ?? "");
+      if (obj !== undefined) attachDebug(el, obj);
+    });
     // pass #58: the auto-left notice (timer over / removed elsewhere) is one-shot
     if (this.autoLeftNotice) {
       const kind = this.autoLeftNotice; this.autoLeftNotice = null;
@@ -1105,6 +1131,8 @@ export class TmathApp {
     // legend float FREE on the page — the bordered rounded card wraps ONLY the table.
     // Ours boxed everything in one tm-card, so a border ringed the search area too.
     host.innerHTML = this.pageTitle("problems.eyebrow","problems.title","problems.desc","problems.refresh") + `<form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-problem-search">${text("problems.searchField")}</label><input id="tm-problem-search" name="search" placeholder="${text("problems.searchPlaceholder")}" value="${esc(search)}" maxlength="200"></div><div class="tm-field"><label for="tm-problem-topic">${text("problems.topic")}</label><select id="tm-problem-topic" name="type"><option value="">${text("problems.allTopics")}</option>${list<string>(topics).map(topic => `<option${topic === type ? " selected" : ""}>${esc(topic)}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-problem-group">${text("problems.group")}</label><input id="tm-problem-group" name="group" placeholder="${text("problems.group")}" value="${esc(group)}"></div></div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form>${chipBar}${legend}<section class="tm-card"><div class="tm-table-wrap"><table class="tm-table tm-problem-table"><thead><tr>${[["code","problems.code"],["name","problems.name"],["points","problems.points"],["topic","problems.topic"],["solvers","problems.solvers"]].map(([k, key]) => `<th><button type="button" class="tm-sort-h" data-sort="${k}" title="${text("problems.sortHint")}">${text(key as DictKey)}${arrow(k)}</button></th>`).join("")}</tr></thead><tbody>${display.map(p => { const st = rowState(p); return `<tr class="tm-row-${st}"><td class="tm-code-muted"><span class="tm-dot ${st}" aria-hidden="true"></span>${esc(String(p.code).toUpperCase())}</td><td><a href="#/problems?code=${encodeURIComponent(p.code)}">${esc(p.name)}</a></td><td>${esc(p.points)}</td><td>${esc(list(p.types).join(", "))}</td><td>${esc(p.user_count ?? "—")}</td></tr>`; }).join("")}</tbody></table>${display.length ? "" : empty()}</div></section>`;
+    // pass #162: the Debug Mode payloads
+    zipDebug(host, ".tm-problem-table tbody tr", display);
     const clearFilter = host.querySelector<HTMLButtonElement>('[data-action="clear"]');
     if (clearFilter) clearFilter.onclick = () => this.go("problems", {});
     host.querySelectorAll<HTMLButtonElement>("[data-chip]").forEach(b => b.onclick = () => {
@@ -1203,7 +1231,10 @@ export class TmathApp {
       const tip = `${String(p.name ?? "")}${p.name ? " · " : ""}${String(p.code).toUpperCase()}`;
       return `<button type="button" class="tm-contest-tab${active}${score ? " " + score : ""}" data-code="${esc(p.code)}" title="${esc(tip)}" aria-label="${esc(tip)}">${esc(this.probLabel(p, i))}<span class="sr-only">${this.scoreText(p.score_status)}</span></button>`;
     };
-    host.innerHTML = `<div class="tm-workspace"${debugTip({ contest, workspace })}><div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("contests.workspaceEyebrow")}</div><h1>${esc(contest?.name ?? key)}</h1><p class="tm-contest-meta">${esc(modeTxt)}${dlText ? ` · ${text("contests.deadlineAt")}: ${esc(dlText)}` : ""}</p></div><div class="tm-contest-side"><aside class="tm-contest-clock" aria-label="${text("contests.clockLabel")}"><div class="tm-clock-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span data-clock-label>${text("contests.timeUnknown")}</span></div><div class="tm-clock-value" role="timer" aria-label="${text("contests.ariaTimeLeft")}" data-clock>--:--:--</div></aside><button type="button" class="tm-button destructive" data-action="leave">${text("contests.leave")}</button></div></div><div class="tm-contest-strip"><div class="tm-contest-scroll"><nav class="tm-contest-tabs" aria-label="${text("contests.problemsListAria")}">${rows.map(tab).join("")}</nav></div><button type="button" class="tm-icon-button" data-action="refresh-problems" aria-label="${text("contests.refreshList")}" title="${text("contests.refreshList")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button></div>${workspace?.next_problem_requirement != null ? `<p class="tm-ac-banner" role="status">${t("contests.acBanner", { n: esc(String(workspace.accepted_problem_count ?? 0)), r: esc(String(workspace.next_problem_requirement)) })}</p>` : ""}<div id="tm-workspace-message" role="status"></div><div id="tm-solve-host"></div></div>`;
+    host.innerHTML = `<div class="tm-workspace" data-debug-workspace><div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("contests.workspaceEyebrow")}</div><h1>${esc(contest?.name ?? key)}</h1><p class="tm-contest-meta">${esc(modeTxt)}${dlText ? ` · ${text("contests.deadlineAt")}: ${esc(dlText)}` : ""}</p></div><div class="tm-contest-side"><aside class="tm-contest-clock" aria-label="${text("contests.clockLabel")}"><div class="tm-clock-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span data-clock-label>${text("contests.timeUnknown")}</span></div><div class="tm-clock-value" role="timer" aria-label="${text("contests.ariaTimeLeft")}" data-clock>--:--:--</div></aside><button type="button" class="tm-button destructive" data-action="leave">${text("contests.leave")}</button></div></div><div class="tm-contest-strip"><div class="tm-contest-scroll"><nav class="tm-contest-tabs" aria-label="${text("contests.problemsListAria")}">${rows.map(tab).join("")}</nav></div><button type="button" class="tm-icon-button" data-action="refresh-problems" aria-label="${text("contests.refreshList")}" title="${text("contests.refreshList")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button></div>${workspace?.next_problem_requirement != null ? `<p class="tm-ac-banner" role="status">${t("contests.acBanner", { n: esc(String(workspace.accepted_problem_count ?? 0)), r: esc(String(workspace.next_problem_requirement)) })}</p>` : ""}<div id="tm-workspace-message" role="status"></div><div id="tm-solve-host"></div></div>`;
+    // pass #162: the Debug Mode payload (the detail + the participation merged)
+    const wsHost = host.querySelector(".tm-workspace");
+    if (wsHost) attachDebug(wsHost, { contest, workspace });
     // Live countdown per the carve: ceil(deadline - now), padded HH:MM:SS, destructive tint at <=300s.
     // pass #60: the countdown runs on the SERVER clock (skew corrected by every poll —
     // live-probed payload carries server_time), and a deadline the server changes is adopted.
@@ -1539,6 +1570,11 @@ export class TmathApp {
           : await api.submission(auth.accessToken()!,Number(b.dataset.sub),detailScope || undefined);
         if (!alive() || !row.isConnected) return;
         cell.innerHTML = this.submissionDetailHtml(s);
+        // pass #162: the Debug Mode payloads (the raw case objects)
+        cell.querySelectorAll("[data-case-idx]").forEach(el => {
+          const obj = this.lastCaseLeaves[Number(el.getAttribute("data-case-idx"))];
+          if (obj !== undefined) attachDebug(el, obj);
+        });
         this.wireCaseToggles(cell);
       } catch(e) { if (alive() && row.isConnected) cell.innerHTML = errorBox(e); }
     });
@@ -1586,6 +1622,8 @@ export class TmathApp {
     // pass #54 (same case as problems): the filter form floats free — the bordered
     // card wraps ONLY the table
     host.innerHTML = this.pageTitle("subs.eyebrow","subs.title","subs.desc","subs.refresh") + `<form class="tm-filter-form" role="search"><div class="tm-filter-fields"><div class="tm-field"><label for="tm-subs-scope">${text("subs.scopeLabel")}</label><select id="tm-subs-scope" name="scope">${scopeOptions}</select></div>${userField}${problemField}<div class="tm-field"><label for="tm-subs-result">${text("subs.result")}</label><select id="tm-subs-result" name="result"><option value="">${text("subs.allResults")}</option>${SUBS_RESULTS.map(s=>`<option${result === s ? " selected" : ""}>${s}</option>`).join("")}</select></div><div class="tm-field tm-field-narrow"><label for="tm-subs-size">${text("subs.pageSize")}</label><select id="tm-subs-size" name="pageSize">${sizeOptions.map(n=>`<option value="${n}"${n === pageSize ? " selected" : ""}>${n}</option>`).join("")}</select></div>${mineField}</div><div class="tm-filter-actions"><button class="tm-button primary" type="submit">${text("common.search")}</button>${activeFilter ? `<button class="tm-button ghost" type="button" data-action="clear">${text("contests.clearFilter")}</button>` : ""}</div></form><section class="tm-card"><div class="tm-table-wrap"><table class="tm-table tm-subs-table"><thead><tr>${["subs.id","subs.user","subs.problem","subs.date","subs.language","subs.result","subs.score"].map(k=>`<th>${text(k as DictKey)}</th>`).join("")}<th class="tm-col-eye"><span class="sr-only">${text("subs.details")}</span></th></tr></thead><tbody>${pageView().map(rowHtml).join("")}</tbody></table>${rows.length ? "" : empty()}</div></section>`;
+    // pass #162: the Debug Mode payloads (the raw submission rows)
+    zipDebug(host, ".tm-subs-table tbody tr", pageView());
     const clearFilter = host.querySelector<HTMLButtonElement>('[data-action="clear"]');
     // audit: clear must ALSO forget the remembered filters — value() falls back to
     // SUBS_FILTERS_KEY, so an empty-params go() alone just re-applied the old filter
@@ -1646,6 +1684,7 @@ export class TmathApp {
     const CASE_MAX_NODES = 2000;
     let caseNodes = 0;
     let caseTruncated = false;
+    const caseLeaves: any[] = [];
     const caseRows = (items: any[], group: number | null, depth: number): string => {
       if (depth > CASE_MAX_DEPTH || caseNodes >= CASE_MAX_NODES) { caseTruncated = true; return ""; }
       return (Array.isArray(items) ? items : []).map((c: any) => {
@@ -1658,7 +1697,8 @@ export class TmathApp {
           ? (panelHtml ? `<button type="button" class="tm-case-toggle" data-case-toggle aria-expanded="false"><span>#${esc(c.case_id ?? "—")}</span>${caseChevronSvg}</button>` : `#${esc(c.case_id ?? "—")}`)
           : "—";
         const groupCell = leaf ? (group == null ? "—" : text("subs.groupN", { n: group })) : text("subs.groupN", { n: batch! });
-        return `<tr${debugTip(c)}><th scope="row" class="tm-case-cell">${testCell}</th><td>${esc(groupCell)}</td><td>${leaf ? pill(c.status) : "—"}</td><td class="tm-case-number">${esc(fmtT(c.time))}</td><td class="tm-case-number">${esc(fmtM(c.memory))}</td><td>${esc(c.points ?? "—")} / ${esc(c.total ?? "—")}</td></tr>${panelHtml ? `<tr class="tm-case-panel-row" hidden><td colspan="6">${panelHtml}</td></tr>` : ""}${Array.isArray(c.cases) && c.cases.length ? caseRows(c.cases, batch, depth + 1) : ""}`;
+        caseLeaves.push(c);
+        return `<tr data-case-idx="${caseLeaves.length - 1}"><th scope="row" class="tm-case-cell">${testCell}</th><td>${esc(groupCell)}</td><td>${leaf ? pill(c.status) : "—"}</td><td class="tm-case-number">${esc(fmtT(c.time))}</td><td class="tm-case-number">${esc(fmtM(c.memory))}</td><td>${esc(c.points ?? "—")} / ${esc(c.total ?? "—")}</td></tr>${panelHtml ? `<tr class="tm-case-panel-row" hidden><td colspan="6">${panelHtml}</td></tr>` : ""}${Array.isArray(c.cases) && c.cases.length ? caseRows(c.cases, batch, depth + 1) : ""}`;
       }).join("");
     };
     const casesHtml = Array.isArray(s.cases) && s.cases.length
@@ -1668,6 +1708,7 @@ export class TmathApp {
     // SubmissionDetailSchema.error. Compilers emit ANSI escapes (SGR colors, cursor
     // moves, OSC titles) that a <pre> renders as garbage — strip CSI/OSC sequences
     // and stray C0 controls, keeping tab/LF/CR.
+    this.lastCaseLeaves = caseLeaves;
     const err = typeof s.error === "string" && s.error.trim()
       ? s.error
           .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
@@ -2012,7 +2053,7 @@ export class TmathApp {
       const username = String(e.username ?? "");
       const you = !!me && username === me;
       const self = you ? " leaderboard-self" : "";
-      const left = `<tr class="tm-lb-row${self}"${debugTip(e)}><th scope="row" class="tm-lb-rank-cell"><span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span></th><td class="tm-lb-user"><a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)}${you ? ` <span class="tm-tag tm-lb-you">${text("rankings.you")}</span>` : ""}</td><td class="tm-lb-total"><strong>${esc(fmtNum(e.points))}</strong></td><td class="tm-lb-time">${esc(fmtClock(e.cumulative_time))}</td></tr>`;
+      const left = `<tr class="tm-lb-row${self}" data-lb-user="${esc(String(e.user ?? username))}"><th scope="row" class="tm-lb-rank-cell"><span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span></th><td class="tm-lb-user"><a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)}${you ? ` <span class="tm-tag tm-lb-you">${text("rankings.you")}</span>` : ""}</td><td class="tm-lb-total"><strong>${esc(fmtNum(e.points))}</strong></td><td class="tm-lb-time">${esc(fmtClock(e.cumulative_time))}</td></tr>`;
       const cells = Array.isArray(e.problem_cells) ? e.problem_cells : [];
       const right = `<tr class="tm-lb-row${self}">${problems.map((_, k) => cellHtml(cells[k], k, you, username)).join("")}</tr>`;
       return { left, right };
@@ -2074,6 +2115,12 @@ export class TmathApp {
       const pairs = viewRows.map((e, i) => rowHtml(e, i));
       if (leftBody) leftBody.innerHTML = pairs.map(p => p.left).join("");
       if (rightBody) rightBody.innerHTML = pairs.map(p => p.right).join("");
+      // pass #162: the Debug Mode payloads (the raw member entries)
+      const byUser = new Map(viewRows.map(e => [String((e as { user?: unknown }).user ?? ""), e] as [string, unknown]));
+      host.querySelectorAll('[data-lb-left] tr[data-lb-user]').forEach(el => {
+        const obj = byUser.get(el.getAttribute('data-lb-user') ?? '');
+        if (obj !== undefined) attachDebug(el, obj);
+      });
       const you = rightBody?.querySelector("tr.leaderboard-self");
       // pass #88 (He: "make it divided like the non-stickied rows"): the ghost is TWO
       // overlays, one inside each pane's own box — the info table lives in the left

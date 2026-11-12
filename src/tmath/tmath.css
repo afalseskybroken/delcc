@@ -1017,3 +1017,8 @@ html.dark body[data-persona="tmath"] .tm-rate-badge.no { background: #052e16; co
    submission detail just needs the same breathing room as the case panels */
 body[data-persona="tmath"] .tm-compile-error { margin: 0 0 10px; }
 body[data-persona="tmath"] .tm-compile-error pre { max-height: 240px; overflow: auto; }
+
+/* pass #162: the Debug Mode hover panel — the raw server-field viewer. A floating
+   monospace <pre> rendered via textContent (the JSON is data, never markup);
+   scrollable, viewport-clamped, and gated by the Settings toggle. */
+.tm-debug-tip { position: fixed; z-index: 300; max-width: 560px; max-height: 70vh; overflow: auto; background: var(--tmath-card); border: 1px solid var(--tmath-primary); border-radius: 8px; padding: 10px 12px; font: 11px/1.55 var(--tmath-font-mono, monospace); color: var(--tmath-foreground); pointer-events: none; box-shadow: 0 10px 34px rgb(0 0 0 / 55%); white-space: pre; }
