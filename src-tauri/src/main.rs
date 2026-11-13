@@ -522,7 +522,14 @@ async fn submission_stream_start(
 #[tauri::command]
 async fn submission_stream_stop(id: u64) -> Result<(), String> {
     if let Some(n) = stream_registry().lock().map_err(|_| "stream: registry poisoned")?.remove(&id) {
-        n.notify_waiters();
+        // pass #174 (Sonnet wave-12 L1): notify_waiters() stores NO permit — a stop
+        // landing while the pump was inside a chunk-processing iteration (its
+        // notified() future not yet created) would be LOST, and the pump would run
+        // on forever, uncounted by the MAX_STREAMS cap because the slot was already
+        // removed. notify_one() stores a permit, so the NEXT notified() future the
+        // pump creates consumes it immediately. The stop can no longer lose the race
+        // against the pump's own loop.
+        n.notify_one();
     }
     Ok(())
 }
