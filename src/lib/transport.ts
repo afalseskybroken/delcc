@@ -148,7 +148,16 @@ export interface CphCase {
   memoryLimitMb?: number; // lane 1: per-case override; enforced by the Windows Job Object (default since pass #49)
 }
 export interface CphCaseResult { id: string; verdict: string; stdout: string; stderr: string; time_ms: number; exit_code?: number | null }
-export interface CphRunResponse { compile_ok: boolean; compile_log: string; results: CphCaseResult[]; cancelled?: boolean }
+export interface CphRunResponse {
+  compile_ok: boolean;
+  compile_log: string;
+  results: CphCaseResult[];
+  cancelled?: boolean;
+  /** pass #172 (He's call): the Run sandbox's honest flag — Rust sets it false when the
+   * LOW-integrity launcher could not arm (fail-open, disclosed since #159). The UI
+   * surfaces it; it is telemetry, never a gate. */
+  sandboxed?: boolean;
+}
 export interface CphCompileResponse { compile_ok: boolean; compile_log: string; exit_code: number | null; time_ms: number; cancelled: boolean }
 
 // browser-dev (no Tauri bridge) has no process access at all -> empty list, feature stays hidden.

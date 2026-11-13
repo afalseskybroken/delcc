@@ -49,6 +49,7 @@ export interface Dict {
   "debug.exited": string;
   "debug.overflowed": string;
   "debug.runStep": string;
+  "debug.unsandboxed": string;
   "debug.sessionNote": string;
   "cph.busy": string;
   "cph.stoppedTimeout": string;
@@ -91,6 +92,8 @@ export interface Dict {
   "cph.stdinPlaceholder": string;
   "cph.fileUnsupported": string;
   "problem.ioFilesMissing": string;
+  "cph.sandboxed": string;
+  "cph.unsandboxed": string;
   "cph.notRun": string;
   "problem.undo": string;
   "problem.redo": string;
@@ -228,6 +231,7 @@ export interface Dict {
   "contests.current": string;
   "contests.upcoming": string;
   "contests.recent": string;
+  "contests.examBadge": string;
   "contests.join": string;
   "contests.leave": string;
   "contests.open": string;
