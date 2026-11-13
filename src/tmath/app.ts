@@ -1610,9 +1610,13 @@ export class TmathApp {
     ].join("");
     // problem sub-select per scope: contest scopes list that contest's problems with the
     // official "Bài <number>" naming (pass #103); Public uses the completed problems index; a scope
-    // whose problem list isn't ready (public, pre-index) falls back to the smart text box
-    const problemField = scopeRaw === "global" ? ""
-      : isContestScope && contestProblems.length ? `<div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><select id="tm-subs-problem" name="problem"><option value="">${text("subs.allProblems")}</option>${contestProblems.map((p, i) => { const label = this.probLabel(p, i); return `<option value="${esc(p.code)}"${p.code === scopeProblem ? " selected" : ""}>${esc(label)}${p.name ? ` — ${esc(p.name)}` : ""}</option>`; }).join("")}</select></div>`
+    // whose problem list isn't ready (public, pre-index) falls back to the smart text box.
+    // pass #167: Global gains the smart text box too. #58 gave Global no problem field
+    // because there is no single problem list to feed a DROPDOWN — but the smart box needs
+    // no list, and the Rankings other-user drill lands here with a problem filter that must
+    // be visible and editable (the queued item's "smart-search problem-picker"). The server
+    // already accepts problem= on the global feed (probe-verified 2026-11-13).
+    const problemField = isContestScope && contestProblems.length ? `<div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><select id="tm-subs-problem" name="problem"><option value="">${text("subs.allProblems")}</option>${contestProblems.map((p, i) => { const label = this.probLabel(p, i); return `<option value="${esc(p.code)}"${p.code === scopeProblem ? " selected" : ""}>${esc(label)}${p.name ? ` — ${esc(p.name)}` : ""}</option>`; }).join("")}</select></div>`
       : scopeRaw === "public" && this.problemsIndex?.complete ? `<div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><select id="tm-subs-problem" name="problem"><option value="">${text("subs.allProblems")}</option>${this.problemsIndex.items.map(p => `<option value="${esc(String(p.code))}"${String(p.code).toUpperCase() === problemQ.toUpperCase() ? " selected" : ""}>${esc(String(p.code).toUpperCase())} — ${esc(String(p.name))}</option>`).join("")}</select></div>`
       : `<div class="tm-field"><label for="tm-subs-problem">${text("subs.problem")}</label><input id="tm-subs-problem" name="problem" placeholder="${text("subs.problemPlaceholder")}" value="${esc(problem)}"></div>`;
     const userField = isContestScope ? "" : `<div class="tm-field"><label for="tm-subs-user">${text("subs.user")}</label><input id="tm-subs-user" name="user" placeholder="${text("subs.user")}" value="${esc(user)}"></div>`;
@@ -2088,7 +2092,9 @@ export class TmathApp {
       // contest-scoped Submissions view filtered to that problem's AC results
       // pass #99 (1.1.0 parity — official's per-cell drill, carved: the scored cell
       // becomes a button whose target is (problem, username)): EVERY scored tile now
-      // drills, 0-point rows included. Yours keep the #77 AC jump.
+      // drills, 0-point rows included. Yours keep the #77 AC jump. pass #167: the
+      // other-user drill targets the GLOBAL public-submissions list (the contest feed
+      // is participation-only — see the drill handler below).
       const code = String(problems[i]?.code ?? "");
       const jump = you && code
         ? ` class="${cls} ac-jump" data-ac-jump="${esc(code)}" title="${esc(text("rankings.acJump"))}" tabindex="0" role="link"`
@@ -2263,11 +2269,17 @@ export class TmathApp {
         td.onclick = jump;
         td.onkeydown = ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); jump(); } };
       });
-      // pass #99 (1.1.0 parity): other users' scored tiles drill to that user's
-      // submissions on that problem — the contest scope client-refines by user
-      // (app.ts refine uMatch), so the filter survives refresh/back like official's
+      // pass #167 (He's queued 1.1.0 parity, re-implemented): other users' scored tiles
+      // drill to that user's submissions on that problem via the GLOBAL public-submissions
+      // list (/submissions?user=&problem=). The #99 shape routed into the contest scope,
+      // but that feed is participation-only (normContest stamps every row as YOU, the
+      // branch never refined by user, and the user field was hidden) — so an other-user
+      // drill silently showed YOUR rows. Live probe 2026-11-13: the global feed carries
+      // other users' contest submissions (public_practice excludes some), and user= +
+      // problem= narrow it server-side; 0-point rows included (no result filter). The
+      // filter survives refresh/back via the URL params. Yours keep the #77 AC jump.
       rightBody?.querySelectorAll<HTMLTableCellElement>("[data-drill]").forEach(td => {
-        const drill = (): void => this.go("submissions", { scope: `contest:${key}`, problem: td.dataset.drill ?? "", user: td.dataset.drillUser ?? "" });
+        const drill = (): void => this.go("submissions", { scope: "global", problem: td.dataset.drill ?? "", user: td.dataset.drillUser ?? "" });
         td.onclick = drill;
         td.onkeydown = ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); drill(); } };
       });
