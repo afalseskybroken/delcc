@@ -1285,8 +1285,12 @@ const OVERRIDE_DIALOG_FLAGS: u32 = 0x4 | 0x20 | 0x10000 | 0x40000 | 0x100;
 
 #[cfg(all(windows, not(test)))]
 fn confirm_override(lang_key: &str, bin: &str) -> bool {
-    // pass #158 (wave-c C3): the FIXED warning leads; the page-influenced text follows,
-    // pre-sanitized by dialog_safe at the command boundary.
+    // pass #158 (wave-c C3): the FIXED warning leads; the page-influenced text follows.
+    // pass #166 (wave-10 bidi): sanitize at the SINK, not only at the command boundary —
+    // the planted-candidate caller passes a filesystem-discovered path that never crossed
+    // cph_set_override, so it reached MessageBoxW with Cf (U+202E) intact.
+    let bin = dialog_safe(bin);
+    let lang_key = dialog_safe(lang_key);
     confirm_dialog(
         "delcc \u{2014} toolchain override",
         &format!(
@@ -1301,6 +1305,9 @@ fn confirm_override(lang_key: &str, bin: &str) -> bool {
 // never the debugger beside it) — so "came off PATH" alone would understate the gate.
 #[cfg(all(windows, not(test)))]
 fn confirm_debugger(bin: &str) -> bool {
+    // pass #166 (wave-10 bidi): sink-side sanitization — find_gdb_candidates paths reach
+    // this dialog without ever crossing dialog_safe, and Cf could reorder the prompt.
+    let bin = dialog_safe(bin);
     confirm_dialog(
         "delcc \u{2014} debugger consent",
         &format!(
@@ -1380,8 +1387,29 @@ pub(crate) fn consent_debugger(state: &CphState, bin: &str) -> bool {
 // out of view. The language key is whitelisted to the seven real lanes; the binary is
 // control-stripped and capped; the fixed warning leads the body.
 pub const LANG_KEYS: [&str; 7] = ["cpp", "python", "java", "rust", "go", "pascal", "javascript"];
+// pass #166 (wave-10 bidi): char::is_control() covers Unicode Cc ONLY, not Cf. A path
+// carrying U+202E (RIGHT-TO-LEFT OVERRIDE) reorders the native MessageBoxW consent text,
+// so a malicious path can be DISPLAYED as a trusted one. Dependency-free Cf enumeration.
+fn is_format_char(c: char) -> bool {
+    matches!(c as u32,
+        0x00AD
+        | 0x0600..=0x0605 | 0x061C | 0x06DD | 0x070F | 0x08E2
+        | 0x180E
+        | 0x200B..=0x200F
+        | 0x202A..=0x202E
+        | 0x2060..=0x2064 | 0x2066..=0x206F
+        | 0xFEFF
+        | 0xFFF9..=0xFFFB
+        | 0x110BD | 0x110CD
+        | 0x13430..=0x1343F
+        | 0x1BCA0..=0x1BCA3
+        | 0x1D173..=0x1D17A
+        | 0xE0001 | 0xE0020..=0xE007F
+    )
+}
 fn dialog_safe(s: &str) -> String {
-    let cleaned: String = s.chars().filter(|c| !c.is_control()).take(260).collect();
+    // pass #166 (wave-10 bidi): strip Cf alongside Cc — the cap counts KEPT chars.
+    let cleaned: String = s.chars().filter(|c| !c.is_control() && !is_format_char(*c)).take(260).collect();
     cleaned
 }
 #[tauri::command]
@@ -2582,5 +2610,30 @@ mod tests {
         assert!(a.dialog_cooldown_ok("C:\\new\\g++.exe"));
         assert_eq!(a.last_dialog.len(), 128, "a new path evicts the oldest, staying at the cap");
         assert!(a.last_dialog.contains_key("C:\\new\\g++.exe"));
+    }
+
+    #[test]
+    fn dialog_safe_strips_bidi_and_format_chars() {
+        // pass #166 (wave-10 bidi): is_control() is Cc-only, so U+202E survived into the
+        // MessageBoxW consent body and could reorder it to display a malicious path as a
+        // trusted one. Cf must go too, while an ordinary toolchain path stays verbatim.
+        assert_eq!(dialog_safe("C:\\MinGW\\bin\\g++.exe"), "C:\\MinGW\\bin\\g++.exe");
+        for c in ['\u{202E}', '\u{200B}', '\u{00AD}', '\u{FEFF}', '\u{200E}'] {
+            let s = format!("C:\\tc\\{c}g++.exe");
+            let out = dialog_safe(&s);
+            assert!(!out.contains(c), "U+{:04X} must be stripped", c as u32);
+            assert_eq!(out, "C:\\tc\\g++.exe");
+        }
+        // the bidi controls that actually reorder text, plus the invisible joiners
+        assert_eq!(dialog_safe("a\u{202A}b\u{202B}c\u{202C}d\u{202D}e\u{202E}f"), "abcdef");
+        assert_eq!(dialog_safe("a\u{2066}b\u{2067}c\u{2068}d\u{2069}e"), "abcde");
+        assert_eq!(dialog_safe("a\u{200C}b\u{200D}c\u{2060}d"), "abcd");
+        assert_eq!(dialog_safe("\u{E0020}a\u{E007F}"), "a");
+        assert!(is_format_char('\u{202E}') && !is_format_char('g'));
+        // the 260-char cap holds, and counts KEPT chars (stripped Cf spend no budget)
+        assert_eq!(dialog_safe(&"a".repeat(400)).chars().count(), 260);
+        assert_eq!(dialog_safe(&format!("{}\u{202E}", "a".repeat(300))).chars().count(), 260);
+        // Cc stripping is unchanged
+        assert_eq!(dialog_safe("a\r\nb\u{0}c"), "abc");
     }
 }
