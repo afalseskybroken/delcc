@@ -136,6 +136,13 @@ MIT cho ComicShanns (© 2018 Shannon Miwa và chuỗi người sửa đổi nhú
 Dòng bản quyền được TRÍCH TỪ bảng name của chính file font (nguồn chính xác), không
 phải đoán. Bản EN chi tiết: docs/THIRD-PARTY-NOTICES.md.
 
+Gọn bundle (pass #171, lệnh của He): dist không còn hai lớp byte chết — font fallback
+woff/ttf của KaTeX (WebView2 là Chromium, luôn chọn woff2; CSS build được viết lại
+chỉ-còn-woff2 lúc build) và 48 chunk locale Excalidraw ngoài bề mặt ngôn ngữ của
+delcc (en/vi-VN/zh-CN — loader của Excalidraw có try/catch và rơi về tiếng Anh, chọn
+ngôn ngữ đã bỏ trong picker của sketch chỉ render tiếng Anh, không crash). Cả hai lần
+xóa chạy trong build (plugin delcc-slim-dist trong vite.config.ts).
+
 ## Cảnh báo phụ thuộc (tính tới 0.3.20-alpha)
 
 Pass #117 xử lý đợt quét RustSec đầu tiên mà cây mã này từng có (cargo-audit 0.22.2,

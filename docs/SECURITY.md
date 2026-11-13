@@ -282,7 +282,15 @@ Virgil, Lilita — 13+ MB, deliberately not shipped) fall to SYSTEM fonts, hones
 Disclosed dev-only leak: plain-browser development has no CSP, so those skipped
 families may fetch from esm.sh during sketch use in `vite dev` — never in the shipped
 app. The claim "no CDN in the shipped app" holds; "no CDN anywhere" did not, and this
-paragraph is the correction. License hygiene (pass #170): the five shipped families
+paragraph is the correction. Bundle slimming (pass #171, He's order): the dist no
+longer ships two dead-weight classes — the KaTeX woff/ttf fallback fonts (WebView2
+is Chromium and always selects woff2; the built CSS's @font-face src lists are
+rewritten to woff2-only at build time) and the 48 Excalidraw locale chunks beyond
+delcc's own language surface (en/vi-VN/zh-CN — Excalidraw's loader try/catches the
+dynamic import and falls back to the English strings, so picking a dropped language
+inside the sketch's own picker renders English, it cannot crash). Both removals run
+in the build (`vite.config.ts`, the delcc-slim-dist plugin) — no post-build file
+surgery, nothing upstream patched. License hygiene (pass #170): the five shipped families
 carry their authoritative license texts IN the bundle — `public/excalidraw/fonts/LICENSE-*.txt`
 (OFL-1.1 for Excalifont/Cascadia/Liberation/Nunito with the copyright lines extracted from
 the font files' own name tables; MIT for ComicShanns with the complete embedded copyright
