@@ -442,6 +442,8 @@ export const enUS: Dict = {
   "rankings.sortBy": "Sort by",
 
   "rankings.sortGlobal": "Sorts every user (fetches all pages once)",
+  "rankings.boardFinal": "Final board",
+  "rankings.boardLive": "Live board",
   "rankings.contestTitle": "Contest results",
   "rankings.participants": "{n} participations",
   "rankings.problemsInContest": "{n} problems",

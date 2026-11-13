@@ -124,6 +124,18 @@ năng khoá chặn việc dùng profile sau một hash, và đăng xuất xoá s
   `%SystemRoot%\System32` (chỉ dùng tên trần khi không lấy được biến môi trường),
   nên một `taskkill.exe` đặt cạnh app không thể che khuất nó (#154)
 
+## Giấy phép font của Sketch (pass #170)
+
+Năm bộ font đi kèm tab Vẽ nháp qua @excalidraw/excalidraw (Excalifont, Nunito,
+Liberation Sans, Cascadia Code, ComicShanns — byte-identical với bộ của npm package)
+mang giấy phép riêng của chúng, ĐÓNG GÓI CÙNG file font từ pass #170:
+`public/excalidraw/fonts/LICENSE-*.txt`. OFL-1.1 cho Excalifont (© 2024 Excalidraw),
+Cascadia Code (© 2020 Microsoft Corporation), Liberation Sans (© 2007 Ascender
+Corporation / Liberation Font Authors), Nunito (© 2014 The Nunito Project Authors);
+MIT cho ComicShanns (© 2018 Shannon Miwa và chuỗi người sửa đổi nhúng trong font).
+Dòng bản quyền được TRÍCH TỪ bảng name của chính file font (nguồn chính xác), không
+phải đoán. Bản EN chi tiết: docs/THIRD-PARTY-NOTICES.md.
+
 ## Cảnh báo phụ thuộc (tính tới 0.3.20-alpha)
 
 Pass #117 xử lý đợt quét RustSec đầu tiên mà cây mã này từng có (cargo-audit 0.22.2,

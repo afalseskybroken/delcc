@@ -325,6 +325,8 @@ export interface Dict {
   "subs.memory": string;
   "subs.score": string;
   "subs.date": string;
+  "rankings.boardFinal": string;
+  "rankings.boardLive": string;
   "rankings.contestTitle": string;
   "rankings.participants": string;
   "rankings.problemsInContest": string;

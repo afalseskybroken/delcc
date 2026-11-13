@@ -42,6 +42,17 @@ open-source libraries, credited here with their licenses.
   component ships its styles, and without the import it renders unstyled),
   fonts served from the bundle — no CDN. The scene persists locally in
   delcc-sketch-scene (localStorage, elements only, debounced).
+- **The Excalidraw font set** shipped under `public/excalidraw/fonts/` (five
+  families: Excalifont, Nunito, Liberation Sans, Cascadia Code, ComicShanns —
+  byte-identical to the npm package's own set) carries its own licenses, bundled
+  alongside the files in pass #170: OFL-1.1 for Excalifont (© 2024 Excalidraw),
+  Cascadia Code (© 2020 Microsoft Corporation), Liberation Sans (© 2007 Ascender
+  Corporation / the Liberation Font Authors), Nunito (© 2014 The Nunito Project
+  Authors); MIT for ComicShanns (© 2018 Shannon Miwa and the modifier chain
+  embedded in the font — Jesus Gonzalez, Rodrigo Batista de Moraes, Fini Jastrow,
+  Kyle Beechly). Each `LICENSE-*.txt` sits next to the files it covers; the
+  copyright lines were extracted from the font files' own name tables (the
+  authoritative source), not guessed. VI mirror of this note: see SECURITY.vi.md.
 - The official client's graph tool loads this same editor by name
   ("Đang mở Another Graph Editor…"); its sketch tab loads Excalidraw
   (also MIT) — delcc's sketch tab runs on that same basis.

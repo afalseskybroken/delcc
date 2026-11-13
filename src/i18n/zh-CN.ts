@@ -442,6 +442,8 @@ export const zhCN: Dict = {
   "rankings.sortBy": "排序方式",
 
   "rankings.sortGlobal": "全局排序（一次性拉取所有用户）",
+  "rankings.boardFinal": "最终榜单",
+  "rankings.boardLive": "实时榜单",
   "rankings.contestTitle": "比赛结果",
   "rankings.participants": "{n} 次参与",
   "rankings.problemsInContest": "{n} 道题",

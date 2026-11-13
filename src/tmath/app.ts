@@ -1920,6 +1920,7 @@ export class TmathApp {
     if (sortDir !== "asc" && sortDir !== "desc") sortDir = "desc";
     // web-OJ feel: paint NOW with what's in hand (cached sweep or the fetched page),
     // then re-sort live as each batch of the global sweep lands — never a bare wait
+    // pass #170: the ended-board toggle (contest scope only)
     const sortAll = (data: any[]): any[] =>
       [...data].sort((a, b) => (sortDir === "asc" ? 1 : -1) * (SORTS[sortKey](a) - SORTS[sortKey](b)));
     const sortedPage = (data: any[]): any[] => sortAll(data).slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -2015,12 +2016,27 @@ export class TmathApp {
     // fetch ONCE before the denial logic sees anything — a held poll can never read
     // as 403/404, and the plain fetch keeps the pre-#155 behavior verbatim.
     const canPoll = (this.contest as { can_poll_leaderboard?: unknown }).can_poll_leaderboard === true;
+    // pass #170 (He's parity order): an ended contest may offer the judge's FROZEN
+    // final board (?ended=true, gated by can_view_ended_leaderboard). Probe
+    // 2026-11-13: ?ended=true 403s for accounts without the flag, and the plain
+    // fetch of an ended board can 403 too — the flag is the honest gate; without it
+    // the view keeps today's behavior (the denial path renders when the server
+    // refuses). The board mode is a URL param so it survives refresh/back like
+    // every other filter.
+    const isEnded = new Date(this.contest!.end_time).getTime() < Date.now();
+    const canEnded = (this.contest as { can_view_ended_leaderboard?: unknown }).can_view_ended_leaderboard === true;
+    const boardMode = params.get("board") === "live" || !isEnded || !canEnded
+      ? "live"
+      : "final";
     // pass #164 (wave-11 W11-L10): the 25 s ceiling timer is CLEARED in a finally
     // (it used to leak one timer per poll beat), the fallback only starts while the
     // view is alive (a lost race on a closed view must not fire a stray fetch), and
     // the long-poll transport stays uncancellable by IPC — bounded by the shell's
     // own 30 s request cap, disclosed here instead of a new abort command surface.
     const fetchBoard = async (): Promise<any[]> => {
+      // pass #170: the final board is FROZEN — ?ended=true, no long-poll (nothing
+      // can change). The live board keeps the #155 long-poll + the #164 hygiene.
+      if (boardMode === "final") return api.leaderboard(auth.accessToken()!, key, false, true);
       if (!canPoll) return api.leaderboard(auth.accessToken()!, key);
       let timer: number | undefined;
       try {
@@ -2030,6 +2046,8 @@ export class TmathApp {
         ]) as any[];
       } catch {
         if (!alive()) throw new Error("view closed");
+        // the held-poll fallback retries PLAIN — a flag-gated ?ended failure must
+        // not leak into this path (boardMode "final" never enters the race).
         return api.leaderboard(auth.accessToken()!, key);
       } finally {
         if (timer !== undefined) window.clearTimeout(timer);
@@ -2291,13 +2309,23 @@ export class TmathApp {
       const label = probLabel(p, i);
       return `<th class="tm-lb-pcol" scope="col"><span>${esc(label)}</span><small>${esc(text("rankings.maxPoints", { n: fmtNum(p.points ?? 0) }))}</small></th>`;
     }).join("");
-    const chips = `<div class="tm-chip-row" role="group" aria-label="${text("subs.scopeLabel")}"><button type="button" class="tm-chip active" aria-pressed="true">${text("subs.scopeContest")}</button><button type="button" class="tm-chip" data-lb-global aria-pressed="false">${text("subs.scopeGlobal")}</button><button type="button" class="tm-chip" data-lb-refresh>↻ ${text("common.refresh")}</button></div>`;
+    // pass #170: the Final/Live board toggle — rendered only for an ended contest
+    // whose account carries can_view_ended_leaderboard (the server 403s the ?ended
+    // fetch otherwise; hiding the control IS the honest gate UI).
+    const boardToggle = isEnded && canEnded
+      ? `<button type="button" class="tm-chip${boardMode === "final" ? " active" : ""}" data-lb-board="final" aria-pressed="${boardMode === "final"}">${text("rankings.boardFinal")}</button><button type="button" class="tm-chip${boardMode === "live" ? " active" : ""}" data-lb-board="live" aria-pressed="${boardMode === "live"}">${text("rankings.boardLive")}</button>`
+      : "";
+    const chips = `<div class="tm-chip-row" role="group" aria-label="${text("subs.scopeLabel")}"><button type="button" class="tm-chip active" aria-pressed="true">${text("subs.scopeContest")}</button><button type="button" class="tm-chip" data-lb-global aria-pressed="false">${text("subs.scopeGlobal")}</button><button type="button" class="tm-chip" data-lb-refresh>↻ ${text("common.refresh")}</button>${boardToggle}</div>`;
     // pass #80: page + card structure mirrors Official's Ranking page (He's reference):
     // eyebrow BẢNG XẾP HẠNG → h1 = contest name → subtitle; card head "Kết quả cuộc thi"
     // + counter; the Cập nhật-lúc row lives INSIDE the card, above the table.
     host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(this.contest!.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div>${chips}</div><section class="tm-card"><div class="tm-card-head"><h2>${text("rankings.contestTitle")}</h2><span class="tm-lb-count">${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span></div><div class="tm-lb-updated" data-lb-updated role="status"></div><div class="tm-lb-split"><div class="tm-lb-left"><table class="tm-table tm-lb-table" style="width:600px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup><thead><tr><th scope="col"><button type="button" class="tm-sort-h" data-lb-sort="server" title="${text("rankings.position")}">${text("rankings.rank")}${lbArrow("server")}</button></th><th scope="col">${text("rankings.user")}</th><th scope="col">${text("rankings.totalScore")}</th><th scope="col"><button type="button" class="tm-sort-h" data-lb-sort="time" title="${text("rankings.sortBy")}">${text("subs.time")}${lbArrow("time")}</button></th></tr></thead><tbody data-lb-left></tbody></table><div class="tm-lb-ghost" data-lb-ghost hidden></div></div><div class="tm-lb-right-wrap"><div class="tm-lb-right"><table class="tm-table tm-lb-table" style="width:${problems.length * 100}px;min-width:100%"><colgroup>${problems.map(() => `<col style="width:100px">`).join("")}</colgroup><thead><tr>${head}</tr></thead><tbody data-lb-right></tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div><div class="tm-lb-ghost tm-lb-ghost-right" data-lb-ghost hidden><div class="tm-lb-ghost-tiles"></div></div></div></div></section>`;
     const lbGlobal = host.querySelector<HTMLButtonElement>('[data-lb-global]');
     if (lbGlobal) lbGlobal.onclick = () => this.go("rankings", { scope: "global" });
+    // pass #170: the board-mode chips swap the ?board= param and re-render
+    host.querySelectorAll<HTMLButtonElement>("[data-lb-board]").forEach(b => b.onclick = () => {
+      this.go("rankings", { board: b.dataset.lbBoard === "final" ? "final" : "live" });
+    });
     const lbRefresh = host.querySelector<HTMLButtonElement>('[data-lb-refresh]');
     if (lbRefresh) lbRefresh.onclick = () => void this.render();
     host.querySelectorAll<HTMLButtonElement>("[data-lb-sort]").forEach(btn => btn.onclick = () => {
@@ -2314,6 +2342,8 @@ export class TmathApp {
     const poll = window.setInterval(() => {
       if (!alive()) { window.clearInterval(poll); return; }
       if (document.hidden) return; // minimized: skip the beat — standings refresh on return
+      // pass #170: the final board is frozen — a re-poll would only burn a request
+      if (boardMode === "final") return;
       if (boardBusy) return;
       boardBusy = true;
       void api.leaderboard(auth.accessToken()!, key).then(lb => {

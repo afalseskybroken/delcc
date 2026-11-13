@@ -240,8 +240,17 @@ export const api = {
   // board changes; gated by ContestDetailSchema.can_poll_leaderboard). The caller
   // races it against its own timeout and falls back to the plain fetch — a held
   // poll must never read as an error.
-  leaderboard: (t: string, key: string, poll = false): Promise<any[]> =>
-    raw(`/contests/${encodeURIComponent(key)}/leaderboard${poll ? "?poll=true" : ""}`, { token: t }),
+  leaderboard: (t: string, key: string, poll = false, ended = false): Promise<any[]> => {
+    // pass #170 (He's parity order): ?ended=true = the judge's FROZEN final board for
+    // an ended contest (the official API added it with ContestDetail/ListItem's
+    // can_view_ended_leaderboard; the server 403s accounts without the flag — the
+    // caller gates on that field and falls back to the plain fetch on any error).
+    const q = new URLSearchParams();
+    if (poll) q.set("poll", "true");
+    if (ended) q.set("ended", "true");
+    const qs = q.toString();
+    return raw(`/contests/${encodeURIComponent(key)}/leaderboard${qs ? `?${qs}` : ""}`, { token: t });
+  },
   contestProblem: (t: string, key: string, code: string, withHeaders = false): Promise<ContestProblemDetail> =>
     raw(`/contests/${encodeURIComponent(key)}/problems/${encodeURIComponent(code)}`, { token: t, submitHeaders: withHeaders }),
   problems: (t: string, o: { page?: number; page_size?: number; search?: string; type?: string; group?: string; progress?: "attempted" | "unattempted" } = {}): Promise<ProblemListItem[]> => {

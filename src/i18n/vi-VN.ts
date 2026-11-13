@@ -442,6 +442,8 @@ export const viVN: Dict = {
   "rankings.sortBy": "Sắp xếp theo",
 
   "rankings.sortGlobal": "Sắp xếp toàn bộ người dùng (tải mọi trang một lần)",
+  "rankings.boardFinal": "Bảng chung kết",
+  "rankings.boardLive": "Bảng trực tiếp",
   "rankings.contestTitle": "Kết quả cuộc thi",
   "rankings.participants": "{n} lượt tham gia",
   "rankings.problemsInContest": "{n} bài",

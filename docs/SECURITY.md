@@ -282,7 +282,11 @@ Virgil, Lilita — 13+ MB, deliberately not shipped) fall to SYSTEM fonts, hones
 Disclosed dev-only leak: plain-browser development has no CSP, so those skipped
 families may fetch from esm.sh during sketch use in `vite dev` — never in the shipped
 app. The claim "no CDN in the shipped app" holds; "no CDN anywhere" did not, and this
-paragraph is the correction.
+paragraph is the correction. License hygiene (pass #170): the five shipped families
+carry their authoritative license texts IN the bundle — `public/excalidraw/fonts/LICENSE-*.txt`
+(OFL-1.1 for Excalifont/Cascadia/Liberation/Nunito with the copyright lines extracted from
+the font files' own name tables; MIT for ComicShanns with the complete embedded copyright
+set, including Excalidraw's modifier chain). See also docs/THIRD-PARTY-NOTICES.md.
 
 ## Dependency advisories (as of 0.3.20-alpha)
 
