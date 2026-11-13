@@ -11,6 +11,7 @@ file it, and fix whichever is wrong.
 | Destination | When | Why |
 |---|---|---|
 | `oj.tmathcoding.vn/api/v3/*` | all API traffic | the judge itself: auth, contests, problems, submissions, leaderboard, client-release manifest |
+| `oj.tmathcoding.vn/api/v3/submissions/stream` and `oj.tmathcoding.vn/api/v3/participations/<id>/submissions/stream` (SSE) | while the Submissions view is open — the public feed, or a contest you participate in | a long-lived authenticated Server-Sent Events connection used as a **bell**: any non-ready event triggers a refresh through the documented REST list call, and the stream payload itself is never trusted as data (pass #164). Opened by the Rust shell commands `submission_stream_start` / `submission_stream_stop` (EventSource cannot carry a Bearer header and `api_fetch` buffers whole bodies); a browser-dev fallback reads the same wire via `fetch` + ReadableStream (`src/lib/substream.ts`). Carries `Authorization: Bearer <token>`. The path is pinned to exactly these two shapes with a non-empty digit-only id and a 256-byte cap. Bounded: at most **4 concurrent streams** (a slot is reserved atomically under the registry lock before the connect), 64 KiB lines / 256 KiB frames / 64 lines per frame, a 90 s idle watchdog, and the pump ends when the page drops the channel (pass #168, wave-11 N1–N4). |
 | `oj.tmathcoding.vn/api/v3/client-releases/downloads` POST | only when you click the update banner's "open official installer" button | the official feed's own download counter — the same call the official client makes; carries the channel, platform and release id, nothing about you |
 | `oj.tmathcoding.vn/<user profile pages>` | only when viewing another user's profile | reads the site's **public** profile page — the exact bytes any anonymous browser gets, CORS-open — to pick up the gravatar hash the site itself publishes there. Validated (the site's empty-string hash placeholder is rejected), cached locally (FIFO-capped); one *successful* GET per user, retried on the next view if it missed. Fetched by the Rust shell (`site_fetch`) — these pages carry no CORS header for the webview. See `src/tmath/avatars.ts` for the honesty notes. |
 | `api.github.com/repos/afalseskybroken/delcc/releases?per_page=1` | once per boot (pass #134, the footnote update dot) | a READ-ONLY check whether a newer delcc release exists — the dot in the sidebar footnote (green [Up to date] / red [Update available], click opens the releases page). The judge's client-releases feed cannot answer this (delcc adopts whatever client version that feed demands, by the shim above, so it is always "in sync" by construction). Carries no tokens or cookies; `Accept: application/vnd.github+json` + the delcc user agent; 10 s timeout; the same 8 MiB body cap as every other byte path; the URL is pinned to exactly one host:path inside the `update_check` command — webview content cannot aim it elsewhere; a failure leaves a neutral grey dot (no evidence, no claim) |
@@ -93,12 +94,15 @@ That is all. Concretely absent:
   flag (true when every case ran wrapped with its temp corner labeled) for
   diagnostics, but the current UI does not surface it as a visible badge.
 
-Network code lives in three plainly named places. `src/lib/transport.ts` carries
+Network code lives in four plainly named places. `src/lib/transport.ts` carries
 all API traffic (Rust shell first, WebView `fetch` as fallback). Two deliberate
-direct-`fetch` exceptions: `src/lib/verdict.ts` (the submission-result SSE stream)
-and `src/tmath/avatars.ts` (the public profile page GET, which goes through the
-shell's `site_fetch` command). Auditing the network surface means reading those
-three files.
+direct-`fetch` exceptions: `src/lib/verdict.ts` (the single-submission verdict SSE
+stream) and `src/tmath/avatars.ts` (the public profile page GET, which goes through
+the shell's `site_fetch` command). The fourth is `src/lib/substream.ts` (pass #164):
+the submission-LIST SSE streams, opened by the Rust shell commands
+`submission_stream_start` / `submission_stream_stop` (browser-dev `fetch` fallback),
+disclosed in the table above. Auditing the network surface means reading those four
+files plus the two stream commands in `src-tauri/src/main.rs`.
 
 Path guards (pass #163, wave-12 W12-24/25): `api_fetch`/`site_fetch` reject a path that
 is not leading-`/`, contains a literal `..`, or whose canonicalized form

@@ -9,6 +9,7 @@ report, và sửa cái sai. Bản gốc tiếng Anh: [SECURITY.md](SECURITY.md).
 | Điểm đến | Khi nào | Vì sao |
 |---|---|---|
 | `oj.tmathcoding.vn/api/v3/*` | toàn bộ traffic API | sàn thi đấu: auth, contests, problems, submissions, leaderboard, manifest client-release |
+| `oj.tmathcoding.vn/api/v3/submissions/stream` và `oj.tmathcoding.vn/api/v3/participations/<id>/submissions/stream` (SSE) | khi mở view Submissions — feed công khai, hoặc contest bạn có tham gia | một kết nối Server-Sent Events xác thực, sống lâu, dùng làm **chuông**: mọi event không phải ready kích hoạt refresh qua lệnh gọi REST list đã document, và bản thân payload stream không bao giờ được tin là dữ liệu (pass #164). Do lệnh shell Rust `submission_stream_start` / `submission_stream_stop` mở (EventSource không mang được header Bearer và `api_fetch` buffer toàn bộ body); fallback browser-dev đọc cùng wire qua `fetch` + ReadableStream (`src/lib/substream.ts`). Mang `Authorization: Bearer <token>`. Path được ghim đúng hai dạng này với id khác rỗng, chỉ gồm chữ số, và giới hạn 256 byte. Có giới hạn: tối đa **4 stream đồng thời** (giữ chỗ nguyên tử dưới lock registry trước khi connect), dòng 64 KiB / frame 256 KiB / 64 dòng mỗi frame, watchdog idle 90 s, và pump kết thúc khi page thả channel (pass #168, wave-11 N1–N4). |
 | `oj.tmathcoding.vn/api/v3/client-releases/downloads` POST | chỉ khi bạn bấm nút "open official installer" trên banner cập nhật | bộ đếm tải của chính feed release — cùng lệnh gọi mà client chính thức thực hiện; chỉ mang channel, platform và release id, không có gì về bạn |
 | `oj.tmathcoding.vn/<trang profile người dùng>` | chỉ khi xem profile của người dùng khác | đọc trang profile **công khai** của site — đúng những byte mà bất kỳ browser ẩn danh nào cũng nhận được, CORS mở — để lấy hash gravatar mà chính site công bố ở đó. Được validate, cache tại máy (giới hạn FIFO); một GET *thành công* mỗi người dùng, trượt thì thử lại ở lần xem sau. Do shell Rust (`site_fetch`) thực hiện — các trang này không có header CORS cho webview. Xem `src/tmath/avatars.ts`. |
 | `api.github.com/repos/afalseskybroken/delcc/releases?per_page=1` | một lần mỗi lần khởi động (pass #134, chấm trạng thái update ở footnote) | kiểm tra READ-ONLY xem có bản delcc mới hơn không — chấm màu ở footnote của sidebar (xanh [Đã mới nhất] / đỏ [Có bản cập nhật], bấm mở trang phát hành). Feed client-releases của sàn không thể trả lời câu này (delcc nhận phiên bản client mà feed đó yêu cầu, qua shim ở trên, nên luôn "đồng bộ" với sàn một cách hiển nhiên). Không mang token hay cookie; `Accept: application/vnd.github+json` + user agent delcc; timeout 10 s; cùng giới hạn 8 MiB như mọi đường byte khác; URL được ghim vào đúng một host:path bên trong lệnh `update_check` — nội dung webview không thể nhắm nó đi đâu khác; lỗi thì chấm chuyển xám trung tính (không bằng chứng, không khẳng định) |
@@ -52,11 +53,14 @@ Hết. Cụ thể là KHÔNG có:
   — page bị chiếm không cần đánh bại sandbox, nó chỉ cần gọi debug lane. Ranh giới
   page (CSP, các sanitizer, boot gate) mới là bức tường thật
 
-Mã mạng nằm ở ba nơi có tên rõ ràng. `src/lib/transport.ts` chở toàn bộ lưu lượng
+Mã mạng nằm ở bốn nơi có tên rõ ràng. `src/lib/transport.ts` chở toàn bộ lưu lượng
 API (shell Rust trước, `fetch` WebView dự phòng). Hai ngoại lệ `fetch` trực tiếp có
-chủ đích: `src/lib/verdict.ts` (stream SSE kết quả chấm) và `src/tmath/avatars.ts`
-(GET trang profile công khai, đi qua lệnh `site_fetch` của shell). Kiểm toán bề mặt
-mạng = đọc ba file đó.
+chủ đích: `src/lib/verdict.ts` (stream SSE kết quả chấm của MỘT submission) và
+`src/tmath/avatars.ts` (GET trang profile công khai, đi qua lệnh `site_fetch` của
+shell). Nơi thứ tư là `src/lib/substream.ts` (pass #164): stream SSE danh sách
+submission, do lệnh shell Rust `submission_stream_start` / `submission_stream_stop`
+mở (fallback `fetch` browser-dev), đã công khai trong bảng trên. Kiểm toán bề mặt
+mạng = đọc bốn file đó cộng với hai lệnh stream trong `src-tauri/src/main.rs`.
 
 Bảo vệ đường dẫn (pass #163, wave-12 W12-24/25): `api_fetch`/`site_fetch` từ chối path
 không bắt đầu bằng `/`, chứa `..` literal, hoặc dạng canonical của nó
