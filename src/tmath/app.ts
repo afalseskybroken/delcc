@@ -2053,6 +2053,8 @@ export class TmathApp {
         if (timer !== undefined) window.clearTimeout(timer);
       }
     };
+    const loadingHeads: DictKey[] = ["rankings.contestRank", "rankings.participant", "rankings.totalScore", "subs.time"];
+    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(this.contest!.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div><button type="button" class="tm-button" disabled>↻ ${text("common.refresh")}</button></div><section class="tm-card tm-lb-card" aria-busy="true"><div class="tm-card-head"><h2>${text("rankings.contestTitle")}</h2></div><span role="status" class="sr-only">${text("rankings.loading")}</span><div class="tm-table-wrap"><table class="tm-table tm-lb-table" aria-hidden="true"><thead><tr>${loadingHeads.map(k => `<th>${text(k)}</th>`).join("")}</tr></thead><tbody>${Array.from({ length: 5 }, () => `<tr>${loadingHeads.map(() => `<td><span class="tm-lb-loading"></span></td>`).join("")}</tr>`).join("")}</tbody></table></div></section>`;
     try {
       const [lb, ps] = await Promise.all([
         fetchBoard(),
@@ -2065,73 +2067,64 @@ export class TmathApp {
     }
     if (!alive()) return;
     const fmtClock = (v: unknown): string => {
+      if (v == null) return "—";
       const n = Number(v);
       if (!Number.isFinite(n) || n < 0) return "—";
-      const s = Math.round(n);
-      return [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60].map(x => String(x).padStart(2, "0")).join(":");
+      const s = Math.floor(n);
+      return `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
     };
     const fmtNum = (value: unknown): string => {
+      if (value == null) return "—";
       const n = Number(value);
-      return Number.isFinite(n) ? n.toLocaleString(getLocale()) : "—";
+      return Number.isFinite(n) ? n.toLocaleString(getLocale(), { maximumFractionDigits: 3 }) : "—";
     };
     const me = String(this.user?.username ?? "");
     const medal = (rank: string): string => { const n = Number(rank); return n === 1 ? " gold" : n === 2 ? " silver" : n === 3 ? " bronze" : ""; };
-    const nameMark = (e: any): string =>
-      (typeof e.participation_type === "number" && e.participation_type > 0 ? ` <span class="tm-lb-virtual" aria-hidden="true">†</span><span class="sr-only">${text("contests.virtualMode")}</span>` : "") +
-      (e.participation_type === -1 ? ` <span class="tm-lb-virtual" aria-hidden="true">‡</span>` : "") +
-      (e.is_disqualified ? ` <span class="tm-tag tm-lb-dq">DQ</span>` : "");
-    // pass #73/#80 — CARVE COPY (assets__index-Sy2kLOLY.css .leaderboard-* +
-    // docs/tmath-contest-ranking-page.md): solid verdict tiles in the carve's dark
-    // palette, score-fastest = the fastest AC per problem (Official has it), self row
-    // = the carve's 8%-primary mix. The frozen-column split (pass #80) carries the
-    // sticky-first-four-columns outdo: info columns live in a lockstep pane, so no
-    // paint region ever overlaps a tile.
-    const fastest = problems.map((_, i) => {
-      let m = Infinity;
-      for (const e of entries) {
-        const c = (Array.isArray(e?.problem_cells) ? e.problem_cells : [])[i];
-        if (c?.has_data && this.scoreClass(String(c.status ?? "")) === "score-full") {
-          const t = Number(c.time);
-          if (Number.isFinite(t) && t < m) m = t;
-        }
-      }
-      return m;
-    });
+    const nameMark = (e: any): string => {
+      const marks = [
+        e.participation_type > 0 ? esc(t("contests.virtualMode").replace("#n", `#${e.participation_type}`)) : e.participation_type === -1 ? text("rankings.spectator") : "",
+        e.is_disqualified ? text("rankings.disqualified") : "",
+      ].filter(Boolean);
+      return marks.length ? `<small class="tm-lb-participation">${marks.join(" · ")}</small>` : "";
+    };
+    const fastestTime = (e: any, c: any): number | null =>
+      !e.is_disqualified && c?.has_data && !c.is_pretested
+      && (c.status === "AC" || c.status === "full-score")
+      && typeof c.time === "number" && Number.isFinite(c.time) && c.time >= 0 ? c.time : null;
+    let fastest: (number | null)[] = [];
+    const statusLabel = (status: string): string => {
+      const labels: Record<string, DictKey> = {
+        "full-score": "contests.scoreFull", "partial-score": "rankings.partial",
+        "failed-score": "contests.scoreFailed", AC: "rankings.correct", WA: "rankings.incorrect",
+      };
+      return Object.prototype.hasOwnProperty.call(labels, status) ? t(labels[status]) : status;
+    };
     // pass #99/#103: one label mapping shared by the header and the drill-through
     // tooltips — now the class helper (number-based per He's 1.1.0 directive)
     const probLabel = (p: any, i: number): string => this.probLabel(p, i);
-    const cellHtml = (c: any, i: number, you: boolean, username: string): string => {
-      if (!c || !c.has_data) return `<td class="score-empty">—</td>`;
-      const tone = this.scoreClass(typeof c.status === "string" ? c.status : "");
-      const isFull = tone === "score-full";
-      const cls = isFull ? (Number(c.time) === fastest[i] ? "score-fastest" : "score-full") : tone === "score-partial" ? "score-partial" : "score-failed";
-      const pen = Number(c.penalty);
-      // pass #77 (He's outdo): YOUR verdicted tiles are clickable — jump to the
-      // contest-scoped Submissions view filtered to that problem's AC results
-      // pass #99 (1.1.0 parity — official's per-cell drill, carved: the scored cell
-      // becomes a button whose target is (problem, username)): EVERY scored tile now
-      // drills, 0-point rows included. Yours keep the #77 AC jump. pass #167: the
-      // other-user drill targets the GLOBAL public-submissions list (the contest feed
-      // is participation-only — see the drill handler below).
-      // pass #173 (the fresh carve, He: "Ranking has acquired per-cell highlight"):
-      // Official 1.1.0's scored cell is now a REAL <button> (leaderboard-score-link)
-      // inside td.leaderboard-score-cell — the gate is has_data && points != null,
-      // the hover is an inset ring + the strong underline, focus-visible the primary
-      // outline, and the aria-label carries the drill target. The affordance mirrored
-      // here; the drill target stays delcc's #167 global shape.
+    const cellHtml = (c: any, i: number, you: boolean, username: string, entry: any): string => {
+      if (!c?.has_data) return `<td class="score-empty">—</td>`;
+      const status = typeof c.status === "string" ? c.status : "";
+      const verdict = status.replace(/^pretest-/, "");
+      const time = fastestTime(entry, c);
+      const isFastest = time != null && time === fastest[i];
+      const cls = [this.scoreClass(status), isFastest ? "score-fastest" : ""].filter(Boolean).join(" ");
+      const pen = c.penalty != null && Number.isFinite(Number(c.penalty)) && Number(c.penalty) >= 0
+        ? `<span class="score-penalty">${c.time != null ? " " : ""}(${esc(fmtNum(c.penalty))})</span>` : "";
+      const detail = [
+        verdict && !["full-score", "partial-score", "failed-score"].includes(verdict) ? esc(statusLabel(verdict)) : "",
+        c.is_pretested || status.startsWith("pretest-") ? text("rankings.pretest") : "",
+      ].filter(Boolean).join(" · ");
+      const body = `<strong>${esc(fmtNum(c.points))}</strong>${detail ? `<small class="score-detail">${detail}</small>` : ""}${c.time != null || pen ? `<small class="score-time">${c.time != null ? esc(fmtClock(c.time)) : ""}${pen}</small>` : ""}`;
+      const title = isFastest ? text("rankings.fastest") : esc(statusLabel(verdict));
       const code = String(problems[i]?.code ?? "");
-      const scored = c.points != null;
-      const body = `<strong>${esc(fmtNum(c.points))}</strong><small class="score-time">${esc(fmtClock(c.time))}${Number.isFinite(pen) && pen > 0 ? ` <span class="score-penalty">(${pen})</span>` : ""}</small>`;
-      if (scored && code) {
-        const aria = you
-          ? esc(text("rankings.acJump"))
-          : esc(text("rankings.drill", { p: probLabel(problems[i], i), u: username }));
-        const attrs = you
-          ? ` data-ac-jump="${esc(code)}" title="${esc(text("rankings.acJump"))}"`
-          : ` data-drill="${esc(code)}" data-drill-user="${esc(username)}" title="${esc(text("rankings.drill", { p: probLabel(problems[i], i), u: username }))}"`;
-        return `<td class="${cls} leaderboard-score-cell"><button type="button" class="leaderboard-score-link${you ? " ac-jump" : ""}"${attrs} aria-label="${aria}">${body}</button></td>`;
+      if (c.points != null && code) {
+        const aria = you ? text("rankings.acJump") : text("rankings.drill", { p: probLabel(problems[i], i), u: username });
+        const attrs = you ? ` data-ac-jump="${esc(code)}"`
+          : ` data-drill="${esc(code)}" data-drill-user="${esc(username)}"`;
+        return `<td class="${cls} leaderboard-score-cell" title="${title}"><button type="button" class="leaderboard-score-link"${attrs} aria-label="${aria}">${body}</button></td>`;
       }
-      return `<td class="${cls}"><strong>${esc(fmtNum(c.points))}</strong><small class="score-time">${esc(fmtClock(c.time))}${Number.isFinite(pen) && pen > 0 ? ` <span class="score-penalty">(${pen})</span>` : ""}</small></td>`;
+      return `<td class="${cls}" title="${title}">${body}</td>`;
     };
     // pass #80: each entry renders as a ROW PAIR — the left (info) row and the right
     // (tile) row share the index, so hover/self sync is positional. The frozen left
@@ -2140,16 +2133,16 @@ export class TmathApp {
       const username = String(e.username ?? "");
       const you = !!me && username === me;
       const self = you ? " leaderboard-self" : "";
-      const left = `<tr class="tm-lb-row${self}" data-lb-user="${esc(String(e.user ?? username))}"><th scope="row" class="tm-lb-rank-cell"><span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span></th><td class="tm-lb-user"><a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? username))}</a>${nameMark(e)}${you ? ` <span class="tm-tag tm-lb-you">${text("rankings.you")}</span>` : ""}</td><td class="tm-lb-total"><strong>${esc(fmtNum(e.points))}</strong></td><td class="tm-lb-time">${esc(fmtClock(e.cumulative_time))}</td></tr>`;
+      const rowKey = esc(JSON.stringify([e.user_id ?? username, e.participation_type ?? 0]));
+      const left = `<tr class="tm-lb-row${self}" data-lb-key="${rowKey}" data-lb-user="${esc(String(e.user ?? username))}"><td class="tm-lb-rank-cell"><span class="tm-lb-rank${medal(String(e.rank ?? ""))}">${esc(String(e.rank ?? "—"))}</span></td><th scope="row" class="tm-lb-user"><a href="#/account?user=${encodeURIComponent(username)}"${ratingStyle(e.rating)}>${esc(String(e.fullname ?? "").trim() || username)}</a>${you ? ` <span class="tm-tag tm-lb-you">${text("rankings.you")}</span>` : ""}${nameMark(e)}</th><td class="tm-lb-total"><strong>${esc(fmtNum(e.points))}</strong></td><td class="tm-lb-time">${esc(fmtClock(e.cumulative_time))}</td></tr>`;
       const cells = Array.isArray(e.problem_cells) ? e.problem_cells : [];
-      const right = `<tr class="tm-lb-row${self}">${problems.map((_, k) => cellHtml(cells[k], k, you, username)).join("")}</tr>`;
+      const right = `<tr class="tm-lb-row${self}" data-lb-key="${rowKey}">${problems.map((_, k) => cellHtml(cells[k], k, you, username, e)).join("")}</tr>`;
       return { left, right };
     };
     // pass #77/#80: the [You] ghost — a strip BELOW the split (never a sticky footer
     // inside it: that floats over the last visible rows — He's clipping), shown only
-    // while the real row is out of view (IntersectionObserver on the real row; rebuilt
-    // per paint, disposed with the view). Palette = the self-row carve hue.
-    let youObserver: IntersectionObserver | null = null;
+    // while the real row is out of view. Palette = the self-row carve hue.
+    let syncGhosts: (() => void) | null = null;
     let wheelForward: ((ev: WheelEvent) => void) | null = null;
     let scrollSync: (() => void) | null = null;
     // pass #80, THE scramble fix: every 30 s poll rebuilt tbody.innerHTML while the
@@ -2158,6 +2151,8 @@ export class TmathApp {
     // every CSS fix (the harness only ever glitched within ~2 s of a poll tick). A poll
     // whose payload is unchanged now touches nothing but the timestamp.
     let lastLb = "";
+    let alignRows: (() => void) | null = null;
+    let boardBusy = false;
     // pass #92 (He's outdo): user-selectable ordering — Official renders server order
     // only. The view is a SORTED COPY (the raw server array stays intact so switching
     // back to "server" is real), and the copy feeds the signature so a poll whose
@@ -2182,6 +2177,21 @@ export class TmathApp {
     const paint = (): void => {
       const stamp = host.querySelector<HTMLElement>("[data-lb-updated]");
       const viewRows = viewOf();
+      const complete = entries.every(e => Array.isArray(e.problem_cells) && e.problem_cells.length === problems.length);
+      const showColumns = complete && problems.length > 0;
+      host.querySelector<HTMLElement>(".tm-lb-split")!.hidden = !showColumns || entries.length === 0;
+      host.querySelector<HTMLElement>(".tm-lb-aggregate")!.hidden = showColumns || entries.length === 0;
+      host.querySelector<HTMLElement>(".tm-lb-incomplete")!.hidden = complete || denied || entries.length === 0;
+      host.querySelector<HTMLElement>(".tm-lb-empty")!.hidden = entries.length > 0;
+      host.querySelector<HTMLElement>(".tm-lb-count")!.textContent = `${t("rankings.participants", { n: entries.length })} · ${t("rankings.problemsInContest", { n: problems.length })}`;
+      fastest = problems.map((_, i) => {
+        let min: number | null = null;
+        for (const e of entries) {
+          const time = fastestTime(e, e.problem_cells?.[i]);
+          if (time != null && (min == null || time < min)) min = time;
+        }
+        return min;
+      });
       const sig = JSON.stringify(viewRows);
       if (sig === lastLb) {
         if (stamp) stamp.textContent = text("rankings.updatedAt", { t: new Date().toLocaleTimeString(getLocale(), hour12Opt(this.prefs.timeFormat)) });
@@ -2195,19 +2205,18 @@ export class TmathApp {
       // pass #95 (He: "arrows didn't update"): the header buttons are baked into the
       // template thead — paint() only rebuilds the bodies, so the indicators went stale
       // after every tap. Repaint them alongside the bodies.
-      const rankBtn = host.querySelector<HTMLButtonElement>('[data-lb-sort="server"]');
-      if (rankBtn) rankBtn.textContent = `${text("rankings.rank")}${lbArrow("server")}`;
-      const timeBtn = host.querySelector<HTMLButtonElement>('[data-lb-sort="time"]');
-      if (timeBtn) timeBtn.textContent = `${text("subs.time")}${lbArrow("time")}`;
+      host.querySelectorAll<HTMLButtonElement>('[data-lb-sort="server"]').forEach(b => { b.textContent = `${t("rankings.contestRank")}${lbArrow("server")}`; });
+      host.querySelectorAll<HTMLButtonElement>('[data-lb-sort="time"]').forEach(b => { b.textContent = `${t("subs.time")}${lbArrow("time")}`; });
+      const focused = document.activeElement as HTMLElement | null;
+      const focusKey = focused && host.contains(focused) ? focused.closest<HTMLElement>("tr[data-lb-key]")?.dataset.lbKey : undefined;
+      const focusTarget = focused?.dataset.acJump ?? focused?.dataset.drill ?? focused?.getAttribute("href");
       const pairs = viewRows.map((e, i) => rowHtml(e, i));
-      if (leftBody) leftBody.innerHTML = pairs.map(p => p.left).join("");
-      if (rightBody) rightBody.innerHTML = pairs.map(p => p.right).join("");
-      // pass #162: the Debug Mode payloads (the raw member entries)
-      const byUser = new Map(viewRows.map(e => [String((e as { user?: unknown }).user ?? (e as { username?: unknown }).username ?? ""), e] as [string, unknown]));
-      host.querySelectorAll('[data-lb-left] tr[data-lb-user]').forEach(el => {
-        const obj = byUser.get(el.getAttribute('data-lb-user') ?? '');
-        if (obj !== undefined) attachDebug(el, obj);
-      });
+      if (leftBody) leftBody.innerHTML = showColumns ? pairs.map(p => p.left).join("") : "";
+      if (rightBody) rightBody.innerHTML = showColumns ? pairs.map(p => p.right).join("") : "";
+      const aggregateBody = host.querySelector<HTMLTableSectionElement>("[data-lb-aggregate-body]")!;
+      aggregateBody.innerHTML = showColumns ? "" : pairs.map(p => p.left).join("");
+      const debugBody = showColumns ? leftBody : aggregateBody;
+      Array.from(debugBody?.rows ?? []).forEach((el, i) => attachDebug(el, viewRows[i]));
       const you = rightBody?.querySelector("tr.leaderboard-self");
       // pass #88 (He: "make it divided like the non-stickied rows"): the ghost is TWO
       // overlays, one inside each pane's own box — the info table lives in the left
@@ -2216,7 +2225,8 @@ export class TmathApp {
       const ghosts = [...host.querySelectorAll<HTMLDivElement>("[data-lb-ghost]")];
       const ghostLeft = ghosts.find(g => !g.classList.contains("tm-lb-ghost-right"));
       const ghostRight = ghosts.find(g => g.classList.contains("tm-lb-ghost-right"));
-      youObserver?.disconnect(); youObserver = null;
+      syncGhosts = null;
+      ghosts.forEach(g => { g.hidden = true; });
       if (you && rightPane && ghostLeft && ghostRight) {
         // pass #83 (He's vision): the [You] row rendered as a real row in real columns —
         // it reads your scores under whichever problem columns you're looking at.
@@ -2227,22 +2237,44 @@ export class TmathApp {
           ghostLeft.innerHTML = `<table class="tm-table tm-lb-table" style="width:600px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup><tbody>${pair.left}</tbody></table>`;
           ghostRight.innerHTML = `<div class="tm-lb-ghost-tiles"><table class="tm-table tm-lb-table" style="width:${problems.length * 100}px;min-width:100%"><colgroup>${cols}</colgroup><tbody>${pair.right}</tbody></table></div>`;
         }
-        youObserver = new IntersectionObserver(obs => {
-          for (const en of obs) {
-            // pass #83: track WHICH side the row left the view from — above the fold
-            // pins the ghosts under the header, below pins them to the bottom edge
-            // (He: a bottom-only bar is misleading when you're rank 2)
-            if (!en.isIntersecting) {
-              const above = en.rootBounds != null && en.boundingClientRect.bottom <= en.rootBounds.top + 1;
-              for (const g of ghosts) g.classList.toggle("tm-lb-ghost-top", above);
-            }
-            for (const g of ghosts) g.hidden = en.isIntersecting;
+        // An invisible row can jump from below to above without an intersection transition.
+        syncGhosts = () => {
+          const bounds = you.getBoundingClientRect();
+          const pane = rightPane.getBoundingClientRect();
+          const header = rightPane.querySelector("thead")!.getBoundingClientRect().height;
+          const top = pane.top + header;
+          const bottom = pane.top + rightPane.clientHeight;
+          const visible = bounds.bottom > top && bounds.top < bottom;
+          for (const g of ghosts) {
+            g.classList.toggle("tm-lb-ghost-top", bounds.bottom <= top);
+            g.hidden = visible;
           }
-        }, { root: rightPane, threshold: 0 });
-        youObserver.observe(you);
+        };
       }
-      // hover sync: rows are positional across the panes — entering a row in either
-      // pane tints BOTH (the wash renders on the info pane, exactly Official's visual)
+      // Both panes must use the taller row when names or verdict labels wrap.
+      alignRows = () => {
+        if (!showColumns || !leftBody || !rightBody) return;
+        const leftRows = Array.from(leftBody.rows);
+        const rightRows = Array.from(rightBody.rows);
+        for (const row of [...leftRows, ...rightRows]) {
+          row.style.height = "";
+          Array.from(row.cells).forEach(cell => { cell.style.height = ""; });
+        }
+        const heights = leftRows.map((row, i) => Math.max(row.getBoundingClientRect().height, rightRows[i].getBoundingClientRect().height));
+        leftRows.forEach((row, i) => {
+          for (const r of [row, rightRows[i]]) {
+            r.style.height = `${heights[i]}px`;
+            Array.from(r.cells).forEach(cell => { cell.style.height = `${heights[i]}px`; });
+          }
+        });
+        if (ghostLeft && ghostRight && you) {
+          const height = you.getBoundingClientRect().height;
+          for (const g of [ghostLeft, ghostRight]) {
+            g.querySelectorAll<HTMLTableCellElement>("tbody th, tbody td").forEach(cell => { cell.style.height = `${height}px`; });
+          }
+        }
+      };
+      alignRows();
       if (leftBody && rightBody) {
         const leftRows = Array.from(leftBody.children) as HTMLElement[];
         const rightRows = Array.from(rightBody.children) as HTMLElement[];
@@ -2284,6 +2316,7 @@ export class TmathApp {
           // columns stay glued to the headers above ("a real column, not a hard merge")
           const tiles = host.querySelector<HTMLElement>(".tm-lb-ghost-tiles");
           if (tiles) tiles.style.transform = `translateX(${-rightPane.scrollLeft}px)`;
+          syncGhosts?.();
         };
         leftPane.addEventListener("wheel", wheelForward, { passive: false });
         rightPane.addEventListener("scroll", scrollSync);
@@ -2311,33 +2344,86 @@ export class TmathApp {
       rightBody?.querySelectorAll<HTMLButtonElement>("button[data-drill]").forEach(td => {
         td.onclick = (): void => this.go("submissions", { scope: "global", problem: td.dataset.drill ?? "", user: td.dataset.drillUser ?? "" });
       });
+      if (focusKey && focusTarget) {
+        const next = Array.from(host.querySelectorAll<HTMLAnchorElement | HTMLButtonElement>("[data-lb-left] a, [data-lb-right] button, [data-lb-aggregate-body] a")).find(el =>
+          el.closest<HTMLElement>("tr[data-lb-key]")?.dataset.lbKey === focusKey
+          && (el.dataset.acJump ?? el.dataset.drill ?? el.getAttribute("href")) === focusTarget);
+        next?.focus({ preventScroll: true });
+      }
       if (stamp) stamp.textContent = text("rankings.updatedAt", { t: new Date().toLocaleTimeString(getLocale(), hour12Opt(this.prefs.timeFormat)) });
     };
     const head = problems.map((p, i) => {
-      // pass #76: K59 ships numeric labels ("0".."9") — Official renders letters, so a
-      // purely numeric label falls back to the "Bài + letter" mapping
       const label = probLabel(p, i);
-      return `<th class="tm-lb-pcol" scope="col"><span>${esc(label)}</span><small>${esc(text("rankings.maxPoints", { n: fmtNum(p.points ?? 0) }))}</small></th>`;
+      return `<th class="tm-lb-pcol" scope="col"><button type="button" class="tm-lb-problem" data-lb-open="${esc(p.code)}" aria-label="${text("rankings.openProblem", { p: label })}" title="${text("rankings.openProblem", { p: label })}"><span class="tm-lb-letter">${esc(label)}</span><small>${text("rankings.maxPoints", { n: fmtNum(p.points) })}</small></button></th>`;
     }).join("");
+    const infoHead = `<thead><tr><th scope="col"><button type="button" class="tm-sort-h" data-lb-sort="server" title="${text("rankings.position")}">${text("rankings.contestRank")}${lbArrow("server")}</button></th><th scope="col">${text("rankings.participant")}</th><th scope="col">${text("rankings.totalScore")}</th><th scope="col"><button type="button" class="tm-sort-h" data-lb-sort="time" title="${text("rankings.sortBy")}">${text("subs.time")}${lbArrow("time")}</button></th></tr></thead>`;
+    const infoCols = `<colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup>`;
     // pass #170: the Final/Live board toggle — rendered only for an ended contest
     // whose account carries can_view_ended_leaderboard (the server 403s the ?ended
     // fetch otherwise; hiding the control IS the honest gate UI).
     const boardToggle = isEnded && canEnded
       ? `<button type="button" class="tm-chip${boardMode === "final" ? " active" : ""}" data-lb-board="final" aria-pressed="${boardMode === "final"}">${text("rankings.boardFinal")}</button><button type="button" class="tm-chip${boardMode === "live" ? " active" : ""}" data-lb-board="live" aria-pressed="${boardMode === "live"}">${text("rankings.boardLive")}</button>`
       : "";
-    const chips = `<div class="tm-chip-row" role="group" aria-label="${text("subs.scopeLabel")}"><button type="button" class="tm-chip active" aria-pressed="true">${text("subs.scopeContest")}</button><button type="button" class="tm-chip" data-lb-global aria-pressed="false">${text("subs.scopeGlobal")}</button><button type="button" class="tm-chip" data-lb-refresh>↻ ${text("common.refresh")}</button>${boardToggle}</div>`;
+    const chips = `<div class="tm-chip-row" role="group" aria-label="${text("subs.scopeLabel")}"><button type="button" class="tm-chip active" aria-pressed="true">${text("subs.scopeContest")}</button><button type="button" class="tm-chip" data-lb-global aria-pressed="false">${text("subs.scopeGlobal")}</button><button type="button" class="tm-button" data-lb-refresh>↻ ${text("common.refresh")}</button>${boardToggle}</div>`;
     // pass #80: page + card structure mirrors Official's Ranking page (He's reference):
     // eyebrow BẢNG XẾP HẠNG → h1 = contest name → subtitle; card head "Kết quả cuộc thi"
     // + counter; the Cập nhật-lúc row lives INSIDE the card, above the table.
-    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(this.contest!.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div>${chips}</div><section class="tm-card"><div class="tm-card-head"><h2>${text("rankings.contestTitle")}</h2><span class="tm-lb-count">${esc(text("rankings.participants", { n: entries.length }))} · ${esc(text("rankings.problemsInContest", { n: problems.length }))}</span></div><div class="tm-lb-updated" data-lb-updated role="status"></div><div class="tm-lb-split"><div class="tm-lb-left"><table class="tm-table tm-lb-table" style="width:600px"><colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup><thead><tr><th scope="col"><button type="button" class="tm-sort-h" data-lb-sort="server" title="${text("rankings.position")}">${text("rankings.rank")}${lbArrow("server")}</button></th><th scope="col">${text("rankings.user")}</th><th scope="col">${text("rankings.totalScore")}</th><th scope="col"><button type="button" class="tm-sort-h" data-lb-sort="time" title="${text("rankings.sortBy")}">${text("subs.time")}${lbArrow("time")}</button></th></tr></thead><tbody data-lb-left></tbody></table><div class="tm-lb-ghost" data-lb-ghost hidden></div></div><div class="tm-lb-right-wrap"><div class="tm-lb-right"><table class="tm-table tm-lb-table" style="width:${problems.length * 100}px;min-width:100%"><colgroup>${problems.map(() => `<col style="width:100px">`).join("")}</colgroup><thead><tr>${head}</tr></thead><tbody data-lb-right></tbody></table>${entries.length ? "" : empty(denied ? "rankings.hidden" : "rankings.empty")}</div><div class="tm-lb-ghost tm-lb-ghost-right" data-lb-ghost hidden><div class="tm-lb-ghost-tiles"></div></div></div></div></section>`;
+    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(this.contest!.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div>${chips}</div>
+      <section class="tm-card tm-lb-card" aria-busy="false">
+        <div class="tm-card-head"><h2>${text("rankings.contestTitle")}</h2><span class="tm-lb-count"></span></div>
+        <div class="tm-lb-updated" data-lb-updated></div>
+        <span class="tm-lb-status sr-only" role="status"></span><div data-lb-error></div>
+        <p class="tm-lb-incomplete tm-muted" hidden>${text("rankings.incomplete")}</p>
+        <div class="tm-lb-empty" hidden>${empty(denied ? "rankings.hidden" : "rankings.empty")}</div>
+        <div class="tm-table-wrap tm-lb-aggregate" tabindex="0" role="region" aria-label="${text("rankings.region")}" hidden>
+          <table class="tm-table tm-lb-table" style="width:600px;min-width:100%">${infoCols}${infoHead}<tbody data-lb-aggregate-body></tbody></table>
+        </div>
+        <div class="tm-lb-split">
+          <div class="tm-lb-left"><table class="tm-table tm-lb-table" style="width:600px">${infoCols}${infoHead}<tbody data-lb-left></tbody></table><div class="tm-lb-ghost" data-lb-ghost aria-hidden="true" inert hidden></div></div>
+          <div class="tm-lb-right-wrap"><div class="tm-lb-right" tabindex="0" role="region" aria-label="${text("rankings.region")}">
+            <table class="tm-table tm-lb-table" style="width:${problems.length * 100}px;min-width:100%"><colgroup>${problems.map(() => `<col style="width:100px">`).join("")}</colgroup><thead><tr>${head}</tr></thead><tbody data-lb-right></tbody></table>
+          </div><div class="tm-lb-ghost tm-lb-ghost-right" data-lb-ghost aria-hidden="true" inert hidden><div class="tm-lb-ghost-tiles"></div></div></div>
+        </div>
+      </section>`;
     const lbGlobal = host.querySelector<HTMLButtonElement>('[data-lb-global]');
     if (lbGlobal) lbGlobal.onclick = () => this.go("rankings", { scope: "global" });
     // pass #170: the board-mode chips swap the ?board= param and re-render
     host.querySelectorAll<HTMLButtonElement>("[data-lb-board]").forEach(b => b.onclick = () => {
       this.go("rankings", { board: b.dataset.lbBoard === "final" ? "final" : "live" });
     });
-    const lbRefresh = host.querySelector<HTMLButtonElement>('[data-lb-refresh]');
-    if (lbRefresh) lbRefresh.onclick = () => void this.render();
+    const lbRefresh = host.querySelector<HTMLButtonElement>('[data-lb-refresh]')!;
+    const card = host.querySelector<HTMLElement>(".tm-lb-card")!;
+    const refreshStatus = host.querySelector<HTMLElement>(".tm-lb-status")!;
+    const refreshError = host.querySelector<HTMLElement>("[data-lb-error]")!;
+    const refreshBoard = async (manual = false): Promise<void> => {
+      if (!alive() || boardBusy) return;
+      boardBusy = true;
+      lbRefresh.disabled = true;
+      if (manual) {
+        card.setAttribute("aria-busy", "true");
+        refreshStatus.textContent = t("rankings.updating");
+        refreshError.replaceChildren();
+      }
+      try {
+        const lb = await api.leaderboard(auth.accessToken()!, key, false, boardMode === "final");
+        if (!alive()) return;
+        entries = list(lb);
+        paint();
+      } catch (e) {
+        if (alive() && manual) refreshError.innerHTML = errorBox(e);
+      } finally {
+        boardBusy = false;
+        if (alive()) {
+          lbRefresh.disabled = false;
+          card.setAttribute("aria-busy", "false");
+          refreshStatus.textContent = "";
+        }
+      }
+    };
+    lbRefresh.onclick = () => { void refreshBoard(true); };
+    host.querySelectorAll<HTMLButtonElement>("[data-lb-open]").forEach(b => {
+      b.onclick = () => { if (alive()) this.go("workspace", { contest: key, code: b.dataset.lbOpen! }); };
+    });
     host.querySelectorAll<HTMLButtonElement>("[data-lb-sort]").forEach(btn => btn.onclick = () => {
       const k = btn.dataset.lbSort ?? "server";
       order = order === k ? `${k}Rev` : k;
@@ -2345,26 +2431,23 @@ export class TmathApp {
       paint();
     });
     paint();
-    // pass #164 (W11-L10): single-flight — a hung beat skips its next tick instead
-    // of stacking in-flight reads (the shell caps each at 30 s; two overlapping
-    // board fetches per tick were still waste).
-    let boardBusy = false;
+    let lastWidth = 0;
+    const rowResize = new ResizeObserver(([entry]) => {
+      if (!alive()) return;
+      if (entry.contentRect.width !== lastWidth) {
+        lastWidth = entry.contentRect.width;
+        alignRows?.();
+      }
+      syncGhosts?.();
+    });
+    rowResize.observe(host.querySelector(".tm-lb-split")!);
     const poll = window.setInterval(() => {
       if (!alive()) { window.clearInterval(poll); return; }
-      if (document.hidden) return; // minimized: skip the beat — standings refresh on return
-      // pass #170: the final board is frozen — a re-poll would only burn a request
-      if (boardMode === "final") return;
-      if (boardBusy) return;
-      boardBusy = true;
-      void api.leaderboard(auth.accessToken()!, key).then(lb => {
-        if (!alive()) { window.clearInterval(poll); return; }
-        entries = list(lb);
-        paint();
-      }).catch(() => { /* transient — next tick retries */ })
-        .finally(() => { boardBusy = false; });
+      if (document.hidden || boardMode === "final") return;
+      void refreshBoard();
     }, 30_000);
     const previous = this.disposeView;
-    this.disposeView = () => { previous?.(); window.clearInterval(poll); youObserver?.disconnect(); };
+    this.disposeView = () => { previous?.(); window.clearInterval(poll); rowResize.disconnect(); };
   }
 
   // official ig: eg(value) persists + repaints; the menu updates trigger/check in place, then closes
