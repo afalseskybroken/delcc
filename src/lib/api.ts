@@ -76,7 +76,7 @@ export interface ContestListItem {
   is_spectator?: boolean;
   is_locked?: boolean; rate_ceiling?: number | null;
   // pass #172: the exam-contest marker (in the public schema; the session machinery
-  // behind it is not deployed — see docs/EXAM-CONTESTS.md)
+  // behind it is not deployed — the session vocabulary lives with the transport in the shell)
   is_exam_contest?: boolean;
   [k: string]: unknown;
 }

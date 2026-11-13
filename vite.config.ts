@@ -71,8 +71,11 @@ function slimDelccDist(): Plugin {
         delete bundle[name];
       }
     },
-    buildEnd() {
-      if (katexFontsRemoved || localesRemoved) {
+    // pass #175 (wave-13 Info, real): the summary ran from buildEnd, which fires
+    // BEFORE generateBundle — the counters were always zero and the line never
+    // printed. closeBundle runs after the bundle is fully generated.
+    closeBundle() {
+      if (katexFontsRemoved || localesRemoved || cssRewritten) {
         this.info(
           `delcc-slim-dist: katex fonts removed ${katexFontsRemoved} (${(katexFontBytes / 1024).toFixed(0)} KiB), ` +
           `excalidraw locales removed ${localesRemoved} (${(localeBytes / 1024).toFixed(0)} KiB), ` +
