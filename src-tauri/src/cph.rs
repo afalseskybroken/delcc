@@ -1731,7 +1731,8 @@ fn capture(mut cmd: Command, input: Option<&str>, limit: Duration, _memory_limit
             // inherited stdio; the session tmp dir carries a LOW mandatory label — the
             // child's writable corner. FAIL-CLOSED (W11-02 doctrine): a self-restriction
             // failure refuses the run (the launcher exits 3, reason on stderr) — there
-            // is NO plain-spawn fallback. The debug lane is likewise unwrapped.
+            // is NO plain-spawn fallback. The debug lane is likewise unwrapped — hence
+            // unsandboxed and page-reachable at full user rights (pass #166, wave-10 S1).
             let mut sandboxed = true;
             if let Some(dir) = cmd.get_current_dir() {
                 if !crate::restrict::label_dir_low(dir) {

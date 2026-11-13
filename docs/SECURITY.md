@@ -76,7 +76,14 @@ That is all. Concretely absent:
   refuses the run (the launcher exits 3 with the reason on stderr) — there is NO
   plain-spawn fallback. The COMPILE step (trusted, allowlisted toolchains) and the
   debug lane are NOT launcher-wrapped; they run at the caller's medium integrity,
-  the historical posture. Pass #163 restored this boundary: #159–#161 had
+  the historical posture. Pass #166 (wave-10 S1) states the consequence plainly: the
+  debug lane (`debug_start`) is an **unsandboxed execution path reachable by the page
+  at the user's full rights** — it compiles and runs the debuggee unwrapped. The
+  restricted-token sandbox is therefore **Run-only defense-in-depth, NOT a
+  page-compromise boundary**: a compromised page does not need to defeat it, because
+  it can simply ask for the debug lane instead. The page boundary (CSP, the
+  sanitizers, the boot gate) remains the real wall. Pass #163 restored this
+  boundary: #159–#161 had
   inadvertently wrapped the compile step too, which broke C++/Rust compilation — a
   LOW-integrity compiler cannot write its intermediate temp files to the user's
   MEDIUM-integrity `%TEMP%` (Windows MIC no-write-up). Residuals, disclosed: the
@@ -171,8 +178,11 @@ while Ctrl is held):
   directory, then PATH — and gated at gdb ≥ 8 (7.6.1 probed broken on file
   redirection); the webview cannot nominate a debugger path; since #123 the
   session spawns gdb with `-nx` (no init-file injection path);
-- gdb executes only the binary delcc just compiled (same blast radius as a
-  normal run); the whole gdb+inferior tree runs under a KILL_ON_JOB_CLOSE Job
+- gdb executes only the binary delcc just compiled — but that debuggee runs at the
+  user's FULL rights (unsandboxed), UNLIKE the sandboxed Run, so its blast radius is
+  LARGER than a sandboxed run, not equal to it (pass #166, wave-10 S1: the old "same
+  blast radius as a normal run" wording predated the #159 Run sandbox and is no longer
+  true); the whole gdb+inferior tree runs under a KILL_ON_JOB_CLOSE Job
   Object and `taskkill /T /F` on stop;
 - **Python (pass #124)** runs on its own lane: delcc generates a wrapper script
   in the session temp dir that runs the draft under `pdb` with three separated

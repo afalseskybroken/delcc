@@ -45,7 +45,12 @@ Hết. Cụ thể là KHÔNG có:
 - trình chạy CPH cục bộ (`src-tauri/src/cph.rs`) không bao giờ chạm mạng — nó
   biên dịch và chạy *code của bạn* trên *máy của bạn*. Từ pass #159 bước RUN được
   sandbox (xem khối Pass #159 bên dưới); bước compile và debug lane giữ tư thế
-  lịch sử (không bọc launcher, chạy ở medium integrity của người gọi)
+  lịch sử (không bọc launcher, chạy ở medium integrity của người gọi). Pass #166
+  (wave-10 S1) nói rõ hệ quả: debug lane (`debug_start`) là **đường thực thi KHÔNG
+  sandbox mà page chạm tới được với toàn quyền của user**; sandbox restricted-token
+  chỉ là **defense-in-depth riêng cho Run, KHÔNG phải ranh giới chống page bị chiếm**
+  — page bị chiếm không cần đánh bại sandbox, nó chỉ cần gọi debug lane. Ranh giới
+  page (CSP, các sanitizer, boot gate) mới là bức tường thật
 
 Mã mạng nằm ở ba nơi có tên rõ ràng. `src/lib/transport.ts` chở toàn bộ lưu lượng
 API (shell Rust trước, `fetch` WebView dự phòng). Hai ngoại lệ `fetch` trực tiếp có
@@ -154,7 +159,15 @@ mandatory label (góc ghi duy nhất của tiến trình sandbox). Nó là FAIL-
 self-restriction lỗi thì run bị từ chối (launcher exit 3 kèm lý do trên stderr)
 — KHÔNG có fallback về spawn thường. Bước COMPILE (toolchain tin cậy, đã
 allowlist) và debug lane KHÔNG được bọc launcher; chúng chạy ở medium integrity
-của người gọi, đúng tư thế lịch sử. Pass #163 khôi phục ranh giới này: #159–#161
+của người gọi, đúng tư thế lịch sử. Pass #166 (wave-10 S1) nói rõ hệ quả: debug lane
+(`debug_start`) là **đường thực thi KHÔNG sandbox mà page chạm tới được với toàn quyền
+của user** — debuggee chạy ở TOÀN quyền user (không sandbox), KHÁC với Run đã sandbox,
+nên bán kính ảnh hưởng của nó LỚN HƠN một run đã sandbox chứ không bằng nhau (lối viết
+"cùng bán kính ảnh hưởng như một run thường" đã lạc hậu từ khi có sandbox Run #159).
+Sandbox restricted-token vì thế là **defense-in-depth riêng cho Run, KHÔNG phải ranh
+giới chống page bị chiếm**: page bị chiếm không cần đánh bại nó, chỉ cần gọi debug lane.
+Ranh giới page (CSP, các sanitizer, boot gate) mới là bức tường thật. Pass #163
+khôi phục ranh giới này: #159–#161
 đã vô tình bọc cả bước compile, làm hỏng biên dịch C++/Rust — compiler
 low-integrity không ghi được file temp trung gian vào `%TEMP%` medium-integrity
 của user (Windows MIC no-write-up). Công bố còn lại: deny group NETWORK là
