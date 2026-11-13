@@ -493,11 +493,23 @@ async fn submission_stream_start(
                         // blank line with no accumulated frame — dispatch boundary, nothing to send
                     } else if line.is_empty() {
                         let ev = if event_name.is_empty() { "message" } else { event_name.as_str() };
-                        let _ = on_event.send(serde_json::json!({ "event": ev, "data": data }).to_string());
+                        // pass #168 (wave-11 N3): a failed send means the webview dropped the
+                        // channel (a reload without stop). End the pump with it — this dispatch is
+                        // the only send site that LOOPS, so a heartbeating server would otherwise
+                        // keep this task + socket alive forever after the page is gone (the idle
+                        // watchdog only fires on silence, and heartbeats keep resetting it). The
+                        // other four send sites already return immediately, so they need no guard.
+                        if on_event.send(serde_json::json!({ "event": ev, "data": data }).to_string()).is_err() {
+                            finish(pump_id);
+                            return;
+                        }
                         data.clear();
                         event_name.clear();
                     }
-                    if line.len() > LINE_CAP { buf.clear(); }
+                    // pass #168 (wave-11 N4): an over-long line is TRUNCATED at LINE_CAP by the
+                    // push guard below (bytes past the cap are dropped). The old post-hoc
+                    // `line.len() > LINE_CAP { buf.clear() }` could never fire — buf never exceeds
+                    // the cap — so it was dead; removed. Safe: the stream is the bell, never data.
                 } else if buf.len() < LINE_CAP {
                     buf.push(byte);
                 }
