@@ -2113,13 +2113,25 @@ export class TmathApp {
       // drills, 0-point rows included. Yours keep the #77 AC jump. pass #167: the
       // other-user drill targets the GLOBAL public-submissions list (the contest feed
       // is participation-only — see the drill handler below).
+      // pass #173 (the fresh carve, He: "Ranking has acquired per-cell highlight"):
+      // Official 1.1.0's scored cell is now a REAL <button> (leaderboard-score-link)
+      // inside td.leaderboard-score-cell — the gate is has_data && points != null,
+      // the hover is an inset ring + the strong underline, focus-visible the primary
+      // outline, and the aria-label carries the drill target. The affordance mirrored
+      // here; the drill target stays delcc's #167 global shape.
       const code = String(problems[i]?.code ?? "");
-      const jump = you && code
-        ? ` class="${cls} ac-jump" data-ac-jump="${esc(code)}" title="${esc(text("rankings.acJump"))}" tabindex="0" role="link"`
-        : !you && code
-          ? ` class="${cls} ac-jump" data-drill="${esc(code)}" data-drill-user="${esc(username)}" title="${esc(text("rankings.drill", { p: probLabel(problems[i], i), u: username }))}" tabindex="0" role="link"`
-          : ` class="${cls}"`;
-      return `<td ${jump}><strong>${esc(fmtNum(c.points))}</strong><small class="score-time">${esc(fmtClock(c.time))}${Number.isFinite(pen) && pen > 0 ? ` <span class="score-penalty">(${pen})</span>` : ""}</small></td>`;
+      const scored = c.points != null;
+      const body = `<strong>${esc(fmtNum(c.points))}</strong><small class="score-time">${esc(fmtClock(c.time))}${Number.isFinite(pen) && pen > 0 ? ` <span class="score-penalty">(${pen})</span>` : ""}</small>`;
+      if (scored && code) {
+        const aria = you
+          ? esc(text("rankings.acJump"))
+          : esc(text("rankings.drill", { p: probLabel(problems[i], i), u: username }));
+        const attrs = you
+          ? ` data-ac-jump="${esc(code)}" title="${esc(text("rankings.acJump"))}"`
+          : ` data-drill="${esc(code)}" data-drill-user="${esc(username)}" title="${esc(text("rankings.drill", { p: probLabel(problems[i], i), u: username }))}"`;
+        return `<td class="${cls} leaderboard-score-cell"><button type="button" class="leaderboard-score-link${you ? " ac-jump" : ""}"${attrs} aria-label="${aria}">${body}</button></td>`;
+      }
+      return `<td class="${cls}"><strong>${esc(fmtNum(c.points))}</strong><small class="score-time">${esc(fmtClock(c.time))}${Number.isFinite(pen) && pen > 0 ? ` <span class="score-penalty">(${pen})</span>` : ""}</small></td>`;
     };
     // pass #80: each entry renders as a ROW PAIR — the left (info) row and the right
     // (tile) row share the index, so hover/self sync is positional. The frozen left
@@ -2282,10 +2294,10 @@ export class TmathApp {
         scrollSync();
       }
       // your verdicted tiles jump to the problem's AC submissions (contest scope)
-      rightBody?.querySelectorAll<HTMLTableCellElement>("[data-ac-jump]").forEach(td => {
-        const jump = (): void => this.go("submissions", { scope: `contest:${key}`, problem: td.dataset.acJump ?? "", result: "AC" });
-        td.onclick = jump;
-        td.onkeydown = ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); jump(); } };
+      rightBody?.querySelectorAll<HTMLButtonElement>("button[data-ac-jump]").forEach(td => {
+        // pass #173: a real button — the browser fires click on Enter/Space natively;
+        // the old td keydown wrapper would now double-fire.
+        td.onclick = (): void => this.go("submissions", { scope: `contest:${key}`, problem: td.dataset.acJump ?? "", result: "AC" });
       });
       // pass #167 (He's queued 1.1.0 parity, re-implemented): other users' scored tiles
       // drill to that user's submissions on that problem via the GLOBAL public-submissions
@@ -2296,10 +2308,8 @@ export class TmathApp {
       // other users' contest submissions (public_practice excludes some), and user= +
       // problem= narrow it server-side; 0-point rows included (no result filter). The
       // filter survives refresh/back via the URL params. Yours keep the #77 AC jump.
-      rightBody?.querySelectorAll<HTMLTableCellElement>("[data-drill]").forEach(td => {
-        const drill = (): void => this.go("submissions", { scope: "global", problem: td.dataset.drill ?? "", user: td.dataset.drillUser ?? "" });
-        td.onclick = drill;
-        td.onkeydown = ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); drill(); } };
+      rightBody?.querySelectorAll<HTMLButtonElement>("button[data-drill]").forEach(td => {
+        td.onclick = (): void => this.go("submissions", { scope: "global", problem: td.dataset.drill ?? "", user: td.dataset.drillUser ?? "" });
       });
       if (stamp) stamp.textContent = text("rankings.updatedAt", { t: new Date().toLocaleTimeString(getLocale(), hour12Opt(this.prefs.timeFormat)) });
     };

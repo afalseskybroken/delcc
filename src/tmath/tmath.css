@@ -918,6 +918,15 @@ body[data-persona="tmath"] .tm-lb-ghost .tm-lb-ghost-right tbody td { padding-le
 body[data-persona="tmath"] .tm-lb-row.leaderboard-self th,
 body[data-persona="tmath"] .tm-lb-row.leaderboard-self td { background: color-mix(in srgb, var(--tmath-primary) 8%, var(--tmath-background)); }
 body[data-persona="tmath"] .tm-lb-row.leaderboard-self .tm-lb-rank-cell { box-shadow: inset 3px 0 0 var(--tmath-primary); }
+
+/* pass #173: the per-cell button (the fresh 1.1.0 carve, verbatim affordance):
+   the scored cell is a real button — full-bleed, centered column, the inset
+   ring on hover, the strong underline, the primary focus-visible outline. */
+body[data-persona="tmath"] .leaderboard-ranking td.leaderboard-score-cell { padding: 0; }
+body[data-persona="tmath"] .leaderboard-ranking .leaderboard-score-link { width: 100%; height: 100%; min-height: 64px; color: inherit; background: 0 0; border: 0; border-radius: 0; flex-direction: column; justify-content: center; align-items: center; padding: 7px 8px; display: flex; font: inherit; }
+body[data-persona="tmath"] .leaderboard-ranking .leaderboard-score-link:hover:not(:disabled) { background: 0 0; box-shadow: inset 0 0 0 1px; }
+body[data-persona="tmath"] .leaderboard-ranking .leaderboard-score-link:hover strong { text-decoration: underline; }
+body[data-persona="tmath"] .leaderboard-ranking .leaderboard-score-link:focus-visible { outline: 2px solid var(--tmath-primary); outline-offset: -2px; }
 body[data-persona="tmath"] td.ac-jump { cursor: pointer; }
 body[data-persona="tmath"] .tm-lb-rank-cell { text-align: center; }
 body[data-persona="tmath"] .tm-lb-user { overflow-wrap: anywhere; white-space: normal; }
@@ -1022,3 +1031,7 @@ body[data-persona="tmath"] .tm-compile-error pre { max-height: 240px; overflow: 
    monospace <pre> rendered via textContent (the JSON is data, never markup);
    scrollable, viewport-clamped, and gated by the Settings toggle. */
 .tm-debug-tip { position: fixed; z-index: 300; max-width: 560px; max-height: 70vh; overflow: auto; background: var(--tmath-card); border: 1px solid var(--tmath-primary); border-radius: 8px; padding: 10px 12px; font: 11px/1.55 var(--tmath-font-mono, monospace); color: var(--tmath-foreground); pointer-events: none; box-shadow: 0 10px 34px rgb(0 0 0 / 55%); white-space: pre; }
+/* pass #173b: the PINNED debug panel — click a payload element to freeze the panel
+   in place: pointer-events on (the wheel scrolls it), a stronger frame so the
+   pinned state reads at a glance. Esc / outside click / re-click unpins. */
+.tm-debug-tip.tm-debug-tip-pinned { pointer-events: auto; max-width: 640px; border-width: 2px; box-shadow: 0 18px 48px rgb(0 0 0 / 65%); }
