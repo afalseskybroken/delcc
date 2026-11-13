@@ -356,6 +356,33 @@ fn stream_id_counter() -> &'static std::sync::atomic::AtomicU64 {
     ID.get_or_init(|| std::sync::atomic::AtomicU64::new(1))
 }
 
+// pass #166 (wave-10 SSE-1/2): the registry is a bounded resource. Each start spawns a
+// tokio pump + a TCP connection, so a page looping the command grew tasks/sockets without
+// bound (the 90 s watchdog only reaps IDLE streams — a heartbeating server keeps them
+// alive). The slot is reserved UNDER the registry lock BEFORE the send, so concurrent
+// starts cannot race past the cap; every early return after the reservation releases it.
+const MAX_STREAMS: usize = 4;
+const MAX_STREAM_PATH_LEN: usize = 256;
+
+// pass #166 (wave-10 SSE-2): the path check, extracted so it is unit-testable. Exactly the
+// two documented shapes; the id segment is non-empty all-ASCII-digit, and the whole path
+// is length-capped (the token already was, the path was not).
+fn is_documented_stream_path(path: &str) -> bool {
+    if path.len() > MAX_STREAM_PATH_LEN {
+        return false;
+    }
+    path == "/submissions/stream"
+        || (path.starts_with("/participations/")
+            && path.ends_with("/submissions/stream")
+            // pass #166: prefix and suffix can OVERLAP on a short path
+            // ("/participations/submissions/stream"), which would slice backwards.
+            && path.len() >= "/participations/".len() + "/submissions/stream".len()
+            && {
+                let seg = &path["/participations/".len()..path.len() - "/submissions/stream".len()];
+                !seg.is_empty() && seg.bytes().all(|b| b.is_ascii_digit())
+            })
+}
+
 #[tauri::command]
 async fn submission_stream_start(
     path: String,
@@ -363,21 +390,24 @@ async fn submission_stream_start(
     on_event: tauri::ipc::Channel<String>,
 ) -> Result<u64, String> {
     const BASE: &str = "https://oj.tmathcoding.vn/api/v3";
-    let is_documented_stream = path == "/submissions/stream"
-        || (path.starts_with("/participations/")
-            && path.ends_with("/submissions/stream")
-            && {
-                let seg = &path["/participations/".len()..path.len() - "/submissions/stream".len()];
-                !seg.is_empty() && seg.bytes().all(|b| b.is_ascii_digit())
-            });
-    if !is_documented_stream {
+    if !is_documented_stream_path(&path) {
         return Err("stream: path is not a documented submissions stream".into());
     }
     if token.is_empty() || token.len() > 4096 || token.chars().any(|c| c.is_control()) {
         return Err("stream: missing or malformed token".into());
     }
     let id = stream_id_counter().fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let resp = http()
+    // pass #166 (wave-10 SSE-1): reserve the slot atomically — check-and-insert in ONE
+    // lock hold, before any await, so N concurrent starts cannot all pass a stale len().
+    let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+    {
+        let mut reg = stream_registry().lock().map_err(|_| "stream: registry poisoned")?;
+        if reg.len() >= MAX_STREAMS {
+            return Err("stream: too many concurrent streams".into());
+        }
+        reg.insert(id, notify.clone());
+    }
+    let resp = match http()
         .get(format!("{BASE}{path}"))
         .header("Authorization", format!("Bearer {token}"))
         .header("Accept", "text/event-stream")
@@ -385,14 +415,21 @@ async fn submission_stream_start(
         // below is the liveness mechanism, not the request clock.
         .send()
         .await
-        .map_err(|e| format!("stream: send: {e}"))?;
+    {
+        Ok(r) => r,
+        Err(e) => {
+            // pass #166: the slot is already reserved — release it or it leaks forever.
+            let _ = stream_registry().lock().map(|mut r| r.remove(&id));
+            return Err(format!("stream: send: {e}"));
+        }
+    };
     let status = resp.status().as_u16();
     if !(200..300).contains(&status) {
         let _ = on_event.send(serde_json::json!({ "event": "down", "data": format!("HTTP {status}") }).to_string());
+        // pass #166: no pump is spawned on this path, so nothing else will remove the slot.
+        let _ = stream_registry().lock().map(|mut r| r.remove(&id));
         return Ok(id);
     }
-    let notify = std::sync::Arc::new(tokio::sync::Notify::new());
-    stream_registry().lock().map_err(|_| "stream: registry poisoned")?.insert(id, notify.clone());
     let pump_id = id;
     tauri::async_runtime::spawn(async move {
         use futures_util::StreamExt;
@@ -992,5 +1029,30 @@ mod asset_tests {
             "https://8.8.8.8/img.png", "https://[2001:4860:4860::8888]/img.png"] {
             assert!(public_https_host(&u(good)), "{good}");
         }
+    }
+
+    #[test]
+    fn stream_path_validator_pins_the_documented_paths() {
+        // pass #166 (wave-10 SSE-1/2): the two documented shapes only, the id segment
+        // non-empty all-digit, no query smuggling, no dot-segments, and a length cap
+        // (the token was capped at 4096 while the path was unbounded).
+        assert!(is_documented_stream_path("/submissions/stream"));
+        assert!(is_documented_stream_path("/participations/42/submissions/stream"));
+        assert!(is_documented_stream_path("/participations/000123/submissions/stream"));
+        assert!(!is_documented_stream_path("/participations/12a4/submissions/stream"), "non-digit id");
+        assert!(!is_documented_stream_path("/participations/-1/submissions/stream"), "signed id");
+        assert!(!is_documented_stream_path("/participations//submissions/stream"), "empty id");
+        assert!(!is_documented_stream_path("/submissions/stream?x=1"), "query suffix");
+        assert!(!is_documented_stream_path("/participations/42/submissions/stream?x=1"), "query suffix");
+        assert!(!is_documented_stream_path("/submissions/stream/"), "trailing slash");
+        assert!(!is_documented_stream_path(""), "empty path");
+        assert!(!is_documented_stream_path("/submissions/../stream"), "dot-segment");
+        assert!(!is_documented_stream_path("/participations/../submissions/stream"), "dot-segment id");
+        // prefix/suffix overlap: the old inline slice would have panicked here
+        assert!(!is_documented_stream_path("/participations/submissions/stream"));
+        let long_id = "9".repeat(300);
+        assert!(!is_documented_stream_path(&format!("/participations/{long_id}/submissions/stream")), "over-long path");
+        assert!(!is_documented_stream_path(&"a".repeat(MAX_STREAM_PATH_LEN + 1)), "the cap itself");
+        assert_eq!(MAX_STREAMS, 4, "the concurrency bound is a small fixed number");
     }
 }
