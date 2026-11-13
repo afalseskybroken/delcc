@@ -334,48 +334,6 @@ async fn asset_fetch(url: String) -> Result<String, String> {
 // page does the rendering. Same trick the official client uses — except ours
 // is inspectable right here. Returns {status, body} as JSON text; the frontend
 // decides what statuses mean.
-// pass #175: the contest-session vocabulary, kept with the rest of the judge-flow
-// transport. The public API does not expose an exam-session surface yet (the mirror
-// carries zero such paths; the live endpoint 404s) — this is naming, not wiring:
-// no command, no HTTP call, no client-visible behavior beyond the contest-row badge
-// and the server-verbatim join gate. delcc renders whatever the server adjudicates
-// verbatim and never fabricates a client-side lockdown or a compliance report of
-// its own; the wire-up happens when, and only when, the public OpenAPI grows the
-// paths. #[allow(dead_code)] because dormancy is the state.
-#[allow(dead_code)]
-pub(crate) enum SessionState {
-    Unconfirmed,
-    Confirmed,
-    Resumed,
-}
-#[allow(dead_code)]
-pub(crate) enum SessionErrorCode {
-    SessionNotFound,
-    SessionNotActive,
-    SessionVersionConflict,
-    SessionStateConflict,
-    IdempotencyConflict,
-    DraftVersionConflict,
-    ClientPlatformMismatch,
-    DeviceMismatch,
-    ExamEnded,
-    ExamNotOpen,
-    ExamNotEnrolled,
-    OtherExamActive,
-    LockRequirementsNotMet,
-    InvalidPreflightChecks,
-    PreflightPolicyChanged,
-    ProfileRequired,
-    AccessCodeRequired,
-}
-#[allow(dead_code)]
-pub(crate) mod session_paths {
-    pub(crate) const SESSIONS: &str = "/exam-sessions";
-    pub(crate) const HEARTBEAT: &str = "/heartbeat";
-    pub(crate) const PREFLIGHT_POLICY: &str = "/preflight-policy";
-    pub(crate) const START: &str = "/start";
-}
-
 // pass #164 (He's queued lane): the submission SSE streams. EventSource cannot carry
 // an Authorization header, and api_fetch buffers whole bodies — a stream handed to it
 // would never yield — so the shell opens the SSE GET itself on the same judge client,
