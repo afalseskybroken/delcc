@@ -97,7 +97,10 @@ export interface ContestProblemDetail extends ContestProblem {
 export interface ProblemListItem {
   code: string; name: string; group?: unknown; types: string[];
   points: number; partial: boolean; is_public: boolean;
-  is_organization_private: boolean; user_count?: unknown;
+  // pass #169: the official API dropped is_organization_private from the problem
+  // schemas (live spec 2026-11-13); contests still carry it. Optional now — the
+  // baseplate "org" flag degrades to absent when the field is gone.
+  is_organization_private?: boolean; user_count?: unknown;
   user_progress?: "solved" | "attempted" | "unattempted";
 }
 
