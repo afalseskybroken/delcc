@@ -38,6 +38,8 @@ jobs:
         run: node --test scripts/security-markup.test.mjs
       - name: production build
         run: npx vite build
+      - name: dist closure gate (slim invariants + chunk reachability, pass #176)
+        run: node scripts/test-dist-closure.mjs
       - name: dependency audit (production, high+)
         run: npm audit --omit=dev --audit-level=high
 

@@ -6,6 +6,25 @@ delcc's promise is simple: **you can read everything it does.** This file is the
 auditable summary. If the code and this file disagree, one of them is a bug —
 file it, and fix whichever is wrong.
 
+## Scope posture — what this repo decides in the open (2026-11-14)
+
+- This repository documents what ships. Direction decisions of consequence are
+  made off-repo; they arrive here as ordinary commits like any other change.
+  Every behavior that exists is auditable in this tree; planned behavior is
+  not documented here until it exists.
+- delcc speaks only the judge's public, documented API. If the official spec
+  grows new surfaces, support is added under the same rules as everything
+  above: no invented endpoints, no telemetry, escape-first rendering, and any
+  new network call updates this file in the same commit.
+- **The attestation line:** if the judge's protocol ever carries a claim about
+  client integrity or lockdown state, delcc reports its true state and never
+  asserts a level it does not hold. Where attestation is graded, delcc states
+  its level honestly and lets the server weigh it; any such reporting is
+  disclosed in this file before it ships.
+- The current contest-list exam surface is display-only (the badge and the
+  typed display field). The README's warning stands: delcc is not for graded,
+  ranked or proctored contests.
+
 ## The complete network surface (as of 0.3.49-alpha)
 
 | Destination | When | Why |

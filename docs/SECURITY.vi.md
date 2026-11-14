@@ -4,6 +4,25 @@ Lời hứa của delcc đơn giản: **bạn đọc được mọi thứ nó l�
 tắt có thể kiểm toán. Nếu code và file này mâu thuẫn thì một trong hai là bug —
 report, và sửa cái sai. Bản gốc tiếng Anh: [SECURITY.md](SECURITY.md).
 
+## Tư thế phạm vi — những gì repo này quyết định công khai (2026-11-14)
+
+- Repo này ghi lại những gì đã xuất bản. Các quyết định hướng đi quan trọng
+  được thực hiện ngoài repo; chúng đến đây như những commit bình thường như
+  mọi thay đổi khác. Mọi hành vi hiện có đều kiểm toán được trong cây này;
+  hành vi còn trong kế hoạch không được ghi lại ở đây cho đến khi nó tồn tại.
+- delcc chỉ nói API công khai có tài liệu của sàn thi. Nếu spec chính thức mở
+  thêm bề mặt mới, việc hỗ trợ sẽ tuân cùng quy tắc như mọi thứ ở trên: không
+  bịa endpoint, không telemetry, render escape-first, và mọi call mạng mới
+  cập nhật file này trong cùng commit.
+- **Ranh giới attestation:** nếu giao thức của sàn thi có mang tuyên bố về
+  tính toàn vẹn hay khóa máy của client, delcc báo đúng trạng thái thật và
+  không bao giờ nhận một mức mà nó không giữ. Khi attestation có phân mức,
+  delcc nêu mức của mình một cách trung thực và để server tự đánh giá; mọi
+  dạng báo cáo như vậy sẽ được công bố trong file này trước khi xuất bản.
+- Bề mặt exam trên danh sách contest hiện chỉ là hiển thị (badge và trường
+  display có kiểu). Cảnh báo trong README vẫn đứng: delcc không dành cho các
+  contest có chấm điểm, xếp hạng hay giám sát.
+
 ## Toàn bộ bề mặt mạng (tính từ 0.3.37-alpha)
 
 | Điểm đến | Khi nào | Vì sao |
