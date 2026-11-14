@@ -45,7 +45,18 @@ and `X-Client-Version`, which reports the newest version from the official relea
 delcc's own — the judge 426-gates older strings, so this shim is load-bearing for any independent
 client. Maintainer verdict 2026-10-29: the judge publishes no Terms of Service, and the shim is
 disclosed openly (README §Notices, `src/lib/api.ts`) — concealment is what doctrine forbids, not
-the shim.
+the shim. Pass #177 (the parity reconciliation, 2026-11-14) adds three more headers on the same
+attach conditions: `X-Client-Platform` — a build-class disclosure in the official feed's platform
+vocabulary (windows-x64 …), sent only when honestly mappable, omitted otherwise; `X-Request-Id` —
+a fresh random correlation id per request, memory-only, echoed back by the server in error
+envelopes (the official client caches one per launch; delcc deliberately mints per request —
+indistinguishable to an authenticated server, strictly less linkable); `Idempotency-Key` — a fresh
+random key per logical submit POST, minted once so the version-bump and token-refresh replays
+reuse it (the server replays the original result; a different operation reusing the key gets
+`IDEMPOTENCY_CONFLICT`), memory-only, never persisted, never spanning two logical submits.
+`X-API-Scope` is deliberately absent: the live probe proved the server ignores it on every read
+surface, and the write-side per-endpoint literal mapping is unverified — sending a mislabeled
+scope could trigger the adjudication the absent header does not.
 
 That is all. Concretely absent:
 

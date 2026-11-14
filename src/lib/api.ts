@@ -17,6 +17,46 @@ export const API_BASE = "https://oj.tmathcoding.vn/api/v3";
 // forbids; disclosure does not.
 let _clientVersion = "1.0.8";
 export const clientVersion = () => _clientVersion;
+// pass #177: X-Client-Platform — the feed's platform-enum vocabulary
+// (windows-x64 / macos-x64 / macos-arm64 / linux-x64 / linux-arm64). A build-class
+// disclosure (the same string for every install of a build; the server computes
+// joinBlockedReason from it), sent only when honestly mappable — an unmappable
+// platform OMITS the header (the pre-#177 behavior) rather than sending a wrong
+// value that could trigger CLIENT_PLATFORM_MISMATCH. delcc's shipped binary is
+// windows-x64, so the practical value is constant.
+let _clientPlatform: string | null = null;
+try {
+  const nav = navigator as { platform?: string; userAgent?: string };
+  const p = nav.platform || "";
+  if (/^Win/i.test(p)) _clientPlatform = "windows-x64";
+  else if (/^Mac/i.test(p)) _clientPlatform = "macos-x64"; // UA-Chrome-Client-Hints could split arm; sync APIs cannot
+  else if (/Linux/i.test(p)) _clientPlatform = /aarch64|arm/i.test(nav.userAgent || "") ? "linux-arm64" : "linux-x64";
+  else _clientPlatform = null;
+} catch { _clientPlatform = null; }
+export const clientPlatform = (): string | null => _clientPlatform;
+// pass #177: X-Request-Id — a per-request correlation id, memory-only. Official
+// caches ONE id per launch (client-state offset 0x120) and stamps it on every
+// request; delcc deliberately goes FRESH PER REQUEST — indistinguishable to an
+// authenticated server, strictly less linkable, and the server's error-envelope
+// echo (ClientErrorResponse.request_id, the support loop) still matches the
+// failing request. Recorded divergence: delcc is LESS trackable than Official here.
+function newRequestId(): string {
+  try {
+    return "delcc-req-" + Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map((b) => b.toString(16).padStart(2, "0")).join("");
+  } catch { return "delcc-req-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 0xffffffff).toString(36); }
+}
+// pass #177: Idempotency-Key — one key per logical submit, minted ONCE per raw()
+// invocation so the 426 version-bump and 401 refresh REPLAYS reuse it (Official's
+// contract: the same key replays the original result; a different operation reusing
+// a key gets IDEMPOTENCY_CONFLICT). Memory-only, never persisted, never spanning
+// two logical submits.
+function newIdempotencyKey(): string {
+  try {
+    return "delcc-idem-" + Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map((b) => b.toString(16).padStart(2, "0")).join("");
+  } catch { return "delcc-idem-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 0xffffffff).toString(36); }
+}
 
 export async function syncClientVersion(platform = "windows-x64", manifest?: unknown): Promise<string> {
   try {
@@ -168,6 +208,18 @@ export async function raw(
   if (inTauri || isSubmit || opt.submitHeaders || isDetail) {
     headers["X-Client-Version"] = clientVersion();
     headers["X-Device-Id"] = deviceId();
+    // pass #177 (the parity reconciliation): the correlation + disclosure class.
+    // Same attach conditions as the identity headers — the plain-browser fetch
+    // fallback keeps custom headers to submits (the CORS Allow-Headers note).
+    const platform = clientPlatform();
+    if (platform) headers["X-Client-Platform"] = platform;
+    headers["X-Request-Id"] = newRequestId();
+    if (isSubmit) headers["Idempotency-Key"] = newIdempotencyKey();
+    // X-API-Scope: deliberately ABSENT — the live probe (2026-11-14) proved the
+    // server ignores it on every read surface (16/16 combos 200, byte-identical),
+    // and the write-side per-endpoint literal mapping is unverified; a mislabeled
+    // scope could trigger the adjudication the absent header does not. Probe-
+    // pending until the exam surface makes it load-bearing.
   }
   if (opt.token) headers["Authorization"] = "Bearer " + opt.token;
   const bodyText = opt.body !== undefined ? JSON.stringify(opt.body) : undefined;

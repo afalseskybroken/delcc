@@ -42,6 +42,18 @@ không phải tài khoản, không bao giờ lưu; key cũ đã lưu bị xoá k
 của delcc — sàn 426-chặn chuỗi cũ hơn, nên shim này chịu tải cho bất kỳ client độc lập nào. Phán
 quyết của maintainer 2026-10-29: sàn không công bố ToS nào, và shim được công khai rõ ràng
 (README §thông báo, `src/lib/api.ts`) — che giấu mới là điều doctrine cấm, không phải shim.
+Pass #177 (cuộc đối chiếu parity, 2026-11-14) thêm ba header nữa trên cùng điều kiện gắn:
+`X-Client-Platform` — nhãn lớp build theo từ vựng platform của feed chính thức (windows-x64 …),
+chỉ gửi khi ánh xạ trung thực được, bỏ qua trong trượng hợp ngược lại; `X-Request-Id` — id tương
+quan ngẫu nhiên MỖI request, chỉ trong bộ nhớ, server echo lại trong error envelope (client
+chính thức cache một id mỗi lần chạy; delcc chủ động mint mỗi request — không phân biệt được với
+server khi đã xác thực, và ít liên kết hơn hẳn); `Idempotency-Key` — khóa ngẫu nhiên cho MỖI
+lần submit hợp lệ, mint một lần để các lần replay (bump phiên bản 426, refresh token 401) dùng
+lại (server replay kết quả gốc; thao tác khác tái dùng khóa sẽ nhận `IDEMPOTENCY_CONFLICT`), chỉ
+trong bộ nhớ, không bao giờ lưu đĩa, không bao giờ phủ hai lần submit khác nhau. `X-API-Scope`
+chủ động VẮNG MẶT: probe trực tiếp chứng minh server bỏ qua nó trên mọi bề mặt đọc, và bản đồ
+literal theo từng endpoint phía ghi chưa được kiểm chứng — gửi sai nhãn có thể kích hoạt phán
+xét mà việc vắng header thì không.
 
 Hết. Cụ thể là KHÔNG có:
 
