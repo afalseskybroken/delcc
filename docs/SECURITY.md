@@ -38,9 +38,9 @@ file it, and fix whichever is wrong.
 | `www.youtube-nocookie.com/embed/<id>` (+ `www.youtube.com/embed/<id>`) | only when a profile's About markdown embeds a YouTube video (the official client renders the same embeds) | an iframe the sanitizer keeps ONLY for these two origins (scheme+host+path shape-checked); the shipped CSP `frame-src` pins the same two hosts — the page cannot frame anything else |
 
 What requests themselves carry, disclosed: authenticated calls bear `Authorization: Bearer
-<token>`; submit POSTs and problem-detail reads bear `X-Device-Id` (a fresh random identifier
-`delcc-…` per app launch, memory-only, derived from nothing — not hardware, not account, never
-persisted; the legacy stored key is deleted on load)
+<token>`; submit POSTs and problem-detail reads bear `X-Device-Id` (a fresh random UUID v4
+per app launch — pass #178 matched Official's id shape; memory-only, derived from nothing — not
+hardware, not account, never persisted; the legacy stored key is deleted on load)
 and `X-Client-Version`, which reports the newest version from the official release feed rather than
 delcc's own — the judge 426-gates older strings, so this shim is load-bearing for any independent
 client. Maintainer verdict 2026-10-29: the judge publishes no Terms of Service, and the shim is

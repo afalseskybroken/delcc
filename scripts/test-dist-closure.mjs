@@ -86,4 +86,11 @@ if (missing.length || badFontRefs.length || strayLocales.length) {
   if (strayLocales.length) console.error("  stray locale chunks:", strayLocales.slice(0, 6));
   process.exit(1);
 }
+// pass #178 rider (the empty-dist hole): a crashed build must fail this gate, not
+// pass vacuously — the real build scans ~110 files and ~239 references; anything
+// materially below that means dist is not the build we think it is.
+if (checked < 100 || referenced.size < 150) {
+  console.error(`dist-closure FAILED: dist looks truncated (${checked} files scanned, ${referenced.size} references — a real build is ~110/~239); was the build itself successful?`);
+  process.exit(1);
+}
 console.log(`dist-closure: ${checked} built files scanned, ${referenced.size} asset references (${slimDead} slim-dead locale refs, by design), all live refs resolve; slim invariants hold (woff2-only katex, 3 locales)`);
