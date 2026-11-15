@@ -34,28 +34,38 @@ try {
   else _clientPlatform = null;
 } catch { _clientPlatform = null; }
 export const clientPlatform = (): string | null => _clientPlatform;
-// pass #177: X-Request-Id — a per-request correlation id, memory-only. Official
-// caches ONE id per launch (client-state offset 0x120) and stamps it on every
-// request; delcc deliberately goes FRESH PER REQUEST — indistinguishable to an
-// authenticated server, strictly less linkable, and the server's error-envelope
-// echo (ClientErrorResponse.request_id, the support loop) still matches the
-// failing request. Recorded divergence: delcc is LESS trackable than Official here.
-function newRequestId(): string {
-  try {
-    return "delcc-req-" + Array.from(crypto.getRandomValues(new Uint8Array(16)))
-      .map((b) => b.toString(16).padStart(2, "0")).join("");
-  } catch { return "delcc-req-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 0xffffffff).toString(36); }
+// pass #177/#179: X-Request-Id — a per-request correlation id, memory-only.
+// Official stamps ONE cached id per launch on every request (observable on the
+// wire; the internal mechanics live in the off-repo research); delcc deliberately
+// mints FRESH PER REQUEST — the linkability properties are strictly weaker (an
+// authenticated session is already correlated by its JWT; the fresh id adds
+// nothing to correlate), and the server's error-envelope echo
+// (ClientErrorResponse.request_id, the support loop) still matches the failing
+// request. Recorded divergence: delcc is LESS trackable than Official here.
+// H2 (the wave-15 audit): the value is a UUID v4 — the same shape match the
+// device id got in #178, so the ids carry no delcc- prefix a format check could
+// flag and no format divergence exists to observe.
+// H1 (the wave-15 audit): NO degraded fallback — a Date.now()+Math.random() id
+// is exactly the collision class this layer exists to refuse. No CSPRNG context
+// means the request fails, consistently with deviceId() failing closed.
+function mintUuidV4(): string {
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40; // version 4
+  b[8] = (b[8] & 0x3f) | 0x80; // RFC 4122 variant
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
 }
-// pass #177: Idempotency-Key — one key per logical submit, minted ONCE per raw()
-// invocation so the 426 version-bump and 401 refresh REPLAYS reuse it (Official's
-// contract: the same key replays the original result; a different operation reusing
-// a key gets IDEMPOTENCY_CONFLICT). Memory-only, never persisted, never spanning
-// two logical submits.
+function newRequestId(): string {
+  return mintUuidV4();
+}
+// pass #177/#179: Idempotency-Key — one key per logical submit, minted ONCE per
+// raw() invocation so the 426 version-bump and 401 refresh REPLAYS reuse it
+// (Official's contract: the same key replays the original result; a different
+// operation reusing a key gets IDEMPOTENCY_CONFLICT). Memory-only, never
+// persisted, never spanning two logical submits. H1: no degraded fallback; H2:
+// the UUID v4 shape, like the request id.
 function newIdempotencyKey(): string {
-  try {
-    return "delcc-idem-" + Array.from(crypto.getRandomValues(new Uint8Array(16)))
-      .map((b) => b.toString(16).padStart(2, "0")).join("");
-  } catch { return "delcc-idem-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 0xffffffff).toString(36); }
+  return mintUuidV4();
 }
 
 export async function syncClientVersion(platform = "windows-x64", manifest?: unknown): Promise<string> {
