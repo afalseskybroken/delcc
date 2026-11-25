@@ -86,12 +86,12 @@ try {
   const importRanking = () => ranking.evaluate(async () => {
     // Load the app's border-box baseline before measuring scoped table geometry.
     await import("/src/app.css");
-    const [appModule, apiModule, preferences, i18n] = await Promise.all([
+    const [appModule, apiModule, preferences, i18n, clock, auth] = await Promise.all([
       import("/src/tmath/app.ts"), import("/src/lib/api.ts"),
       import("/src/tmath/preferences.ts"), import("/src/i18n/index.ts"),
-      import("/src/tmath/tmath.css"),
+      import("/src/lib/server-clock.ts"), import("/src/lib/auth.ts"), import("/src/tmath/tmath.css"),
     ]);
-    window.rankingModules = { TmathApp: appModule.TmathApp, api: apiModule.api, preferences, i18n };
+    window.rankingModules = { TmathApp: appModule.TmathApp, api: apiModule.api, ApiError: apiModule.ApiError, preferences, i18n, clock, auth };
   });
   try { await importRanking(); }
   catch (e) {
@@ -116,6 +116,7 @@ try {
       window.boardCalls.push({ key, poll, ended });
       const next = window.boardQueue.shift();
       if (next === "defer") return new Promise((resolve, reject) => window.boardPending.push({ resolve, reject }));
+      if (next === "denied") return Promise.reject(new window.rankingModules.ApiError(403, "fixture denied"));
       return Promise.resolve(structuredClone(next ?? window.fixtureRows));
     };
     api.contestProblems = async (_token, key) => {
@@ -147,6 +148,42 @@ try {
       preferences.applyPreferences(app.prefs);
       await app.contestRankings(document.getElementById("app"), new URLSearchParams(params), () => window.fixtureAlive);
       window.scrollTo(0, 0);
+    };
+    window.contestListCalls = [];
+    window.joinCalls = [];
+    window.workspaceCalls = [];
+    api.contests = async (_token, query) => {
+      window.contestListCalls.push(query);
+      if (window.contestListFailure) throw new Error("fixture list failed");
+      if (window.contestListDeferred) return new Promise(resolve => { window.resolveContestList = resolve; });
+      return structuredClone(window.fixtureContests);
+    };
+    api.home = async () => ({ current_contests: [], future_contests: [] });
+    api.join = async (_token, key) => { window.joinCalls.push(key); };
+    api.workspace = async (_token, key) => { window.workspaceCalls.push(key); return {}; };
+    window.renderContestRoute = async ({ hash, contests = [], active = null, board = null, failList = false, deferList = false }) => {
+      const app = window.rankingApp;
+      app.disposeView?.();
+      app.disposeView = null;
+      app.contest = active;
+      app.route = "contests";
+      app.prefs = { ...preferences.loadPreferences(), theme: "light", locale: "vi-VN", timeFormat: "24h" };
+      app.user = { username: "fixture-self" };
+      i18n.setLocale("vi-VN");
+      preferences.applyPreferences(app.prefs);
+      window.fixtureContests = contests;
+      window.contestListFailure = failList;
+      window.contestListDeferred = deferList;
+      window.contestListCalls = [];
+      window.joinCalls = [];
+      window.workspaceCalls = [];
+      window.navigationCalls = [];
+      window.boardCalls = [];
+      window.problemCalls = [];
+      window.boardQueue = board ? [board] : [];
+      window.boardPending = [];
+      history.replaceState(null, "", hash);
+      await app.render();
     };
   });
 
@@ -664,6 +701,263 @@ try {
     await ranking.evaluate(() => window.staleObserver.disconnect());
   });
 
+  await check("server clock uses samples, GMT+7 and one navigation-stable ticker disposed on destroy", async () => {
+    try {
+      await ranking.evaluate(async () => {
+        const { TmathApp, auth, clock, preferences, i18n } = window.rankingModules;
+        const nativeNow = Date.now, nativePerformanceNow = performance.now.bind(performance);
+        const nativeInterval = window.setInterval.bind(window), nativeClear = window.clearInterval.bind(window);
+        window.clockMonotonic = nativePerformanceNow();
+        window.clockIntervals = new Map();
+        window.clockDelays = [];
+        let nextId = -100;
+        Object.defineProperty(performance, "now", { configurable: true, value: () => window.clockMonotonic });
+        window.setInterval = (callback, delay, ...args) => {
+          if (delay !== 1000) return nativeInterval(callback, delay, ...args);
+          const id = nextId--;
+          window.clockDelays.push(delay);
+          window.clockIntervals.set(id, callback);
+          return id;
+        };
+        window.clearInterval = id => { if (!window.clockIntervals.delete(id)) nativeClear(id); };
+        window.restoreClockFixture = () => {
+          window.clockApp?.destroy();
+          Date.now = nativeNow;
+          Object.defineProperty(performance, "now", { configurable: true, value: nativePerformanceNow });
+          window.setInterval = nativeInterval;
+          window.clearInterval = nativeClear;
+        };
+        auth.seed({ access_token: "offline-fixture", refresh_token: "offline-fixture", token_type: "bearer", access_expires_in: 3600, refresh_expires_in: 7200, server_time: "2099-01-01T00:00:00Z" });
+        window.clockNoSeed = clock.serverTimeNow();
+        window.fixtureContests = [];
+        window.contestListFailure = false;
+        window.contestListDeferred = false;
+        window.clockApp = new TmathApp(document.getElementById("app"));
+        window.clockApp.prefs = { ...preferences.loadPreferences(), locale: "vi-VN", timeFormat: "24h" };
+        i18n.setLocale("vi-VN");
+        history.replaceState(null, "", "#/settings");
+        await window.clockApp.render();
+        window.clockTick = [...window.clockIntervals.values()][0];
+      });
+      assert.equal(await ranking.evaluate(() => window.clockNoSeed), null, "seeded token timestamps are not clock evidence");
+      const clock = ranking.locator("[data-server-clock]");
+      assert.equal(await clock.innerText(), "—", "no sample is a placeholder, not local wall time");
+      assert.equal(await clock.getAttribute("datetime"), null);
+      assert.match(await clock.getAttribute("title"), /máy chủ/);
+      assert.deepEqual(await clock.evaluate(el => [el.parentElement.getAttribute("role"), el.parentElement.getAttribute("aria-live")]), ["timer", "off"]);
+      await ranking.evaluate(() => {
+        window.clockApp.prefs.timeFormat = "12h";
+        window.rankingModules.i18n.setLocale("en-US");
+        window.clockApp.paintServerClock();
+      });
+      const placeholder12Width = (await clock.boundingBox()).width;
+      assert.ok(await clock.evaluate(el => el.classList.contains("tm-server-clock-hour12")));
+      await ranking.evaluate(() => {
+        window.clockApp.prefs.timeFormat = "24h";
+        window.rankingModules.i18n.setLocale("vi-VN");
+        window.clockApp.paintServerClock();
+        window.rankingModules.clock.observeServerTime("not-a-date");
+        window.clockTick();
+      });
+      assert.equal(await clock.innerText(), "—", "invalid samples do not invent time");
+      await ranking.evaluate(() => {
+        window.rankingModules.clock.observeServerTime("2026-11-24T18:23:45Z");
+        window.clockTick();
+      });
+      assert.equal(await clock.innerText(), "01:23:45", "time is explicitly GMT+7, including day rollover");
+      assert.equal(await clock.getAttribute("datetime"), "2026-11-24T18:23:45.000Z");
+      const tooltip = await clock.getAttribute("title");
+      assert.match(tooltip, /25.*11.*2026/);
+      assert.match(tooltip, /01:23:45/);
+      assert.match(tooltip, /GMT\+7/);
+      for (const locale of ["en-US", "vi-VN", "zh-CN"]) {
+        await ranking.evaluate(locale => {
+          window.clockApp.prefs.timeFormat = "12h";
+          window.rankingModules.i18n.setLocale(locale);
+          window.clockApp.paintServerClock();
+        }, locale);
+        assert.ok(await clock.evaluate(el => el.scrollWidth <= el.clientWidth), `${locale} 12-hour time fits its reserved slot`);
+        if (locale === "en-US") assert.ok(Math.abs((await clock.boundingBox()).width - placeholder12Width) < 1, "12-hour placeholder and valid time have the same width");
+      }
+      await ranking.evaluate(() => {
+        window.clockApp.prefs.timeFormat = "auto";
+        window.rankingModules.i18n.setLocale("en-US");
+        window.clockApp.paintServerClock();
+      });
+      assert.ok(await clock.evaluate(el => el.classList.contains("tm-server-clock-hour12")), "locale-default 12-hour formatting also reserves the wide slot");
+      await ranking.evaluate(() => {
+        window.clockApp.prefs.timeFormat = "24h";
+        window.rankingModules.i18n.setLocale("vi-VN");
+        window.clockApp.paintServerClock();
+        window.clockMonotonic += 1000;
+        window.clockTick();
+        window.clockBeforeJump = document.querySelector("[data-server-clock]").dateTime;
+        Date.now = () => 4_000_000_000_000;
+        window.clockTick();
+      });
+      assert.equal(await clock.innerText(), "01:23:46");
+      assert.ok(await ranking.evaluate(() => document.querySelector("[data-server-clock]").dateTime === window.clockBeforeJump), "Date.now jumps cannot advance server time");
+      await ranking.evaluate(async () => { window.clockApp.go("contests"); await window.clockApp.render(); });
+      assert.equal(await clock.count(), 1, "navigation replaces the marker without stacking clocks");
+      assert.equal(await clock.innerText(), "01:23:46", "the sample survives navigation");
+      await ranking.locator('[data-action="collapse"]').click();
+      assert.ok(await ranking.locator(".tm-shell").evaluate(el => el.classList.contains("collapsed")));
+      assert.ok(await clock.isVisible(), "clock remains outside the collapsed sidebar");
+      await ranking.evaluate(async () => { window.clockApp.go("settings"); await window.clockApp.render(); });
+      assert.deepEqual(await ranking.evaluate(() => window.clockDelays), [1000], "one one-second interval across view renders");
+      assert.equal(await ranking.evaluate(() => window.clockIntervals.size), 1);
+      await ranking.evaluate(() => {
+        window.clockApp.destroy();
+        window.clockDestroyedHtml = document.getElementById("app").innerHTML;
+        window.clockMonotonic += 5000;
+        window.clockTick();
+      });
+      assert.equal(await ranking.evaluate(() => window.clockIntervals.size), 0, "destroy clears the clock ticker immediately");
+      assert.ok(await ranking.evaluate(() => document.getElementById("app").innerHTML === window.clockDestroyedHtml), "a late tick cannot mutate a destroyed shell");
+    } finally {
+      await ranking.evaluate(() => window.restoreClockFixture?.());
+    }
+  });
+
+  const endedContest = { key: "ended-fixture", name: "Cuộc thi đã kết thúc", topic: "", mode: "contest", start_time: "2020-01-01T00:00:00Z", end_time: "2020-01-02T00:00:00Z", is_rated: false, tags: [], can_join: true, can_view_tasks: true, is_in_contest: false, can_view_ended_leaderboard: true, can_poll_leaderboard: true };
+  const activeContest = { ...endedContest, key: "active-fixture", end_time: "2099-01-01T00:00:00Z" };
+  const sourceSearch = "ended & fixture";
+  const finalHash = `#/rankings?${new URLSearchParams({ contest: endedContest.key, board: "final", sourcePage: "3", sourceSearch })}`;
+  const route = options => ranking.evaluate(options => window.renderContestRoute(options), { hash: finalHash, contests: [endedContest], ...options });
+  await ranking.evaluate(({ rows, problems }) => { window.fixtureRows = rows; window.fixtureProblems = problems; }, { rows, problems });
+
+  await check("ended-card permission is strict and its separate action never joins or sets an active contest", async () => {
+    const items = [endedContest, ...[false, "true", 1, null].map((flag, i) => ({ ...endedContest, key: `flag-${i}`, can_view_ended_leaderboard: flag })),
+      ...["2099-01-01T00:00:00Z", "not-a-date", "", null].map((end_time, i) => ({ ...endedContest, key: `end-${i}`, end_time }))];
+    await route({ hash: `#/contests?page=3&search=${encodeURIComponent(sourceSearch)}`, contests: items });
+    assert.equal(await ranking.locator("[data-ended-rankings]").count(), 1);
+    assert.equal(await ranking.locator(".tm-contest-join").count(), items.length, "existing join/open actions remain separate");
+    assert.match(await ranking.locator("[data-ended-rankings]").innerText(), /bảng xếp hạng.*cuối cùng/i);
+    await ranking.locator("[data-ended-rankings]").click();
+    assert.deepEqual(await ranking.evaluate(() => window.navigationCalls), [{ route: "rankings", params: { contest: endedContest.key, board: "final", sourcePage: "3", sourceSearch } }]);
+    assert.equal(await ranking.evaluate(() => window.rankingApp.contest), null);
+    assert.deepEqual(await ranking.evaluate(() => [window.joinCalls, window.workspaceCalls]), [[], []]);
+    await ranking.evaluate(active => { window.rankingApp.contest = active; window.navigationCalls = []; }, activeContest);
+    await ranking.locator("[data-ended-rankings]").click();
+    assert.deepEqual(await ranking.evaluate(() => window.navigationCalls), [], "the click rechecks a newly active contest");
+    await route({ hash: "#/contests", active: activeContest });
+    assert.equal(await ranking.locator("[data-ended-rankings]").count(), 0, "active participation hides ended-entry controls");
+  });
+
+  await check("standalone final queries, readonly drills, focus/sort, back and global navigation retain only their context", async () => {
+    await route();
+    assert.deepEqual(await ranking.evaluate(() => window.contestListCalls), [{ page: 3, page_size: 20, search: sourceSearch }], "reload resolves the same fresh list page through the existing wrapper");
+    assert.deepEqual(await ranking.evaluate(() => window.boardCalls), [{ key: endedContest.key, poll: false, ended: true }]);
+    assert.deepEqual(await ranking.evaluate(() => window.problemCalls), [endedContest.key]);
+    assert.equal(await ranking.locator("h1").innerText(), endedContest.name);
+    assert.equal(await ranking.evaluate(() => window.rankingApp.contest), null);
+    assert.equal(await ranking.locator("[data-lb-open], [data-ac-jump], [data-lb-board]").count(), 0, "standalone final has neither workspace headers, own AC jumps nor a live toggle");
+    assert.equal(await ranking.locator("[data-lb-left] > tr").count(), rows.length);
+    assert.equal(await ranking.locator("[data-lb-right] > tr.leaderboard-self").count(), 1);
+    assert.deepEqual(await ranking.locator("[data-lb-ghost]").evaluateAll(gs => gs.map(g => [g.inert, g.getAttribute("aria-hidden")])), [[true, "true"], [true, "true"]]);
+    await tile(28, 3).locator("[data-drill]").evaluate(b => b.click());
+    assert.deepEqual(await ranking.evaluate(() => window.navigationCalls.at(-1)), { route: "submissions", params: { scope: "global", problem: "fixture-p4", user: "fixture-self" } });
+    await tile(0, 3).locator("[data-drill]").evaluate(b => b.click());
+    assert.deepEqual(await ranking.evaluate(() => window.navigationCalls.at(-1)), { route: "submissions", params: { scope: "global", problem: "fixture-p4", user: "fixture-user-0" } });
+    await ranking.locator('.tm-lb-left [data-lb-sort="server"]').click();
+    assert.deepEqual(await ranking.locator("[data-lb-left] > tr").evaluateAll(trs => trs.map(tr => tr.dataset.lbUser)), rows.map(r => r.user).reverse());
+    await ranking.locator('.tm-lb-left [data-lb-sort="server"]').click();
+    await tile(28, 3).locator("[data-drill]").focus();
+    await ranking.evaluate(() => { window.boardQueue.push("defer"); document.querySelector("[data-lb-refresh]").click(); });
+    assert.ok(await ranking.locator("[data-lb-refresh]").isDisabled());
+    await ranking.evaluate(() => {
+      const changed = structuredClone(window.fixtureRows);
+      changed[1].problem_cells[0].time = 60;
+      window.boardPending.shift().resolve(changed);
+    });
+    await ranking.waitForFunction(() => !document.querySelector("[data-lb-refresh]").disabled);
+    assert.ok(await tile(28, 3).locator("[data-drill]").evaluate(b => document.activeElement === b), "readonly self drill retains focus on refresh");
+    assert.ok(await ranking.evaluate(hash => location.hash === hash, finalHash), "manual refresh preserves source filters and board mode");
+    assert.ok(await ranking.evaluate(() => window.boardCalls.every(c => c.ended && !c.poll && c.key === "ended-fixture")));
+    assert.equal(await ranking.evaluate(() => window.contestListCalls.length), 1, "local manual refresh does not refetch list context");
+    await ranking.locator('[data-action="back-contests"]').click();
+    assert.deepEqual(await ranking.evaluate(() => window.navigationCalls.at(-1)), { route: "contests", params: { page: "3", search: sourceSearch } });
+    await ranking.locator("[data-lb-global]").click();
+    assert.deepEqual(await ranking.evaluate(() => window.navigationCalls.at(-1)), { route: "rankings", params: { scope: "global" } }, "global navigation strips standalone parameters");
+    try {
+      await ranking.evaluate(async () => {
+        window.nativeFixtureFetch = window.fetch;
+        window.globalListCalls = [];
+        window.fetch = (url, ...args) => {
+          const u = new URL(String(url), location.href);
+          if (u.origin === "https://oj.tmathcoding.vn" && u.pathname === "/api/v3/users") {
+            window.globalListCalls.push(u.search);
+            return Promise.resolve(new Response(JSON.stringify([{ username: "fixture-user-0" }]), { status: 200 }));
+          }
+          return window.nativeFixtureFetch(url, ...args);
+        };
+        history.replaceState(null, "", "#/rankings?scope=global");
+        localStorage.removeItem("delcc-rankings-sort");
+        await window.rankingApp.render();
+      });
+      assert.equal(await ranking.locator("[data-lb-contest], [data-lb-open], [data-ac-jump]").count(), 0, "global board has no leaked contest controls");
+      assert.deepEqual(await ranking.evaluate(() => window.globalListCalls), ["?page=1&page_size=20"]);
+      assert.equal(await ranking.evaluate(() => window.rankingApp.contest), null);
+    } finally {
+      await ranking.evaluate(() => { if (window.nativeFixtureFetch) window.fetch = window.nativeFixtureFetch; });
+    }
+    assert.deepEqual(await ranking.evaluate(() => [window.joinCalls, window.workspaceCalls]), [[], []]);
+  });
+
+  await check("crafted/denied/missing/list-failure and active contexts fail closed without joining", async () => {
+    const cases = [
+      { contests: [] }, { contests: [{ ...endedContest, can_view_ended_leaderboard: false }] },
+      { contests: [{ ...endedContest, can_view_ended_leaderboard: "true" }] },
+      { contests: [{ ...endedContest, end_time: "2099-01-01T00:00:00Z" }] },
+      { contests: [{ ...endedContest, end_time: "not-a-date" }] }, { active: activeContest },
+      ...["#/rankings?contest=ended-fixture&board=live", "#/rankings?board=final", "#/rankings?contest=&board=final",
+        finalHash + "&scope=global", finalHash + "&contest=ended-fixture", finalHash + "&board=final",
+        ...["0", "-1", "1.5", "NaN", "Infinity", "9007199254740991"].map(page => `#/rankings?contest=ended-fixture&board=final&sourcePage=${page}`),
+        `#/rankings?contest=ended-fixture&board=final&sourceSearch=${"x".repeat(201)}`].map(hash => ({ hash })),
+    ];
+    for (const options of cases) {
+      await route(options);
+      assert.deepEqual(await ranking.evaluate(() => window.boardCalls), [], JSON.stringify(options));
+      assert.deepEqual(await ranking.evaluate(() => [window.joinCalls, window.workspaceCalls]), [[], []]);
+      assert.equal(await ranking.locator('[data-action="back-contests"]').count(), 1);
+      assert.equal(await ranking.locator("[data-lb-open], [data-ac-jump]").count(), 0);
+    }
+    await route({ failList: true });
+    assert.match(await ranking.locator('[role="alert"]').innerText(), /fixture list failed/);
+    assert.deepEqual(await ranking.evaluate(() => window.boardCalls), []);
+    assert.equal(await ranking.locator('[data-action="retry"]').count(), 1);
+    await ranking.locator('[data-action="back-contests"]').click();
+    assert.deepEqual(await ranking.evaluate(() => window.navigationCalls.at(-1)), { route: "contests", params: { page: "3", search: sourceSearch } });
+    await route({ board: "denied" });
+    assert.match(await ranking.locator(".tm-lb-empty").innerText(), /không.*(xem|hiển thị)|ẩn/i);
+    assert.deepEqual(await ranking.evaluate(() => window.boardCalls), [{ key: endedContest.key, poll: false, ended: true }], "denial never retries as a live board");
+    assert.equal(await ranking.locator('[data-action="back-contests"]').count(), 1);
+    assert.deepEqual(await ranking.evaluate(() => [window.joinCalls, window.workspaceCalls]), [[], []]);
+    await route({ hash: "#/rankings", active: activeContest });
+    assert.deepEqual(await ranking.evaluate(() => window.boardCalls), [{ key: activeContest.key, poll: true, ended: false }], "ordinary active rankings keep their original context/capability");
+    assert.equal(await ranking.locator("[data-lb-open]").count(), problems.length);
+    assert.ok(await ranking.locator("[data-ac-jump]").count() > 0);
+  });
+
+  await check("a current contest appearing during fresh-list or initial-board resolution refuses standalone data", async () => {
+    await ranking.evaluate(args => { window.routePending = window.renderContestRoute({ ...args, deferList: true }); }, { hash: finalHash, contests: [endedContest] });
+    await ranking.waitForFunction(() => !!window.resolveContestList);
+    await ranking.evaluate(({ active, ended }) => {
+      window.rankingApp.contest = active;
+      window.resolveContestList([ended]);
+      window.resolveContestList = null;
+    }, { active: activeContest, ended: endedContest });
+    await ranking.evaluate(() => window.routePending);
+    assert.deepEqual(await ranking.evaluate(() => window.boardCalls), []);
+    await ranking.evaluate(args => { window.routePending = window.renderContestRoute({ ...args, board: "defer" }); }, { hash: finalHash, contests: [endedContest] });
+    await ranking.waitForFunction(() => window.boardPending.length === 1);
+    await ranking.evaluate(active => { window.rankingApp.contest = active; window.boardPending.shift().resolve(window.fixtureRows); }, activeContest);
+    await ranking.evaluate(() => window.routePending);
+    assert.equal(await ranking.locator("[data-lb-right] > tr").count(), 0, "late board data does not paint as a standalone view while active");
+    assert.equal(await ranking.locator('[data-action="back-contests"]').count(), 1);
+    assert.deepEqual(await ranking.evaluate(() => [window.joinCalls, window.workspaceCalls]), [[], []]);
+  });
+
   // Older out-of-tree Playwright installations may lack clock control.
   if (ranking.clock) {
     await check("30-second poll shares the refresh flight; disposal and final mode do not poll", async () => {
@@ -685,6 +979,9 @@ try {
       await ranking.clock.fastForward(30_000);
       assert.equal(await ranking.evaluate(() => window.boardCalls.length), 2, "first 30-second beat reads once");
       assert.equal(await ranking.evaluate(() => window.boardPending.length), 1);
+      assert.ok(await ranking.locator("[data-lb-refresh]").isEnabled(), "deferred background refresh never disables the manual button");
+      assert.equal(await ranking.locator(".tm-lb-card").getAttribute("aria-busy"), "false", "background work does not dim or announce a manual refresh");
+      assert.equal(await ranking.locator("[data-lb-refresh]").evaluate(b => getComputedStyle(b).opacity), "1", "background button keeps normal brightness");
       await ranking.clock.fastForward(30_000);
       assert.equal(await ranking.evaluate(() => window.boardCalls.length), 2, "held background read skips the next beat");
       await ranking.locator("[data-lb-refresh]").evaluate(button => button.click());
@@ -698,6 +995,8 @@ try {
       });
       const manualCalls = await ranking.evaluate(() => window.boardCalls.length);
       assert.equal(await ranking.evaluate(() => window.boardPending.length), 1);
+      assert.ok(await ranking.locator("[data-lb-refresh]").isDisabled(), "deferred manual refresh alone disables the button");
+      assert.equal(await ranking.locator(".tm-lb-card").getAttribute("aria-busy"), "true");
       await ranking.clock.fastForward(30_000);
       assert.equal(await ranking.evaluate(() => window.boardCalls.length), manualCalls, "background beat cannot overlap a held manual refresh");
       await ranking.evaluate(() => {
@@ -719,6 +1018,10 @@ try {
       assert.deepEqual(await ranking.evaluate(() => window.boardCalls), [
         { key: "fixture", poll: false, ended: true }, { key: "fixture", poll: false, ended: true },
       ], "explicit final refresh preserves ended=true/no poll");
+      await route();
+      assert.equal(await ranking.evaluate(() => window.fixturePollIntervals.size), 0, "standalone final does not install a polling interval");
+      await ranking.clock.fastForward(90_000);
+      assert.deepEqual(await ranking.evaluate(() => window.boardCalls), [{ key: endedContest.key, poll: false, ended: true }], "standalone final never polls automatically");
     });
   }
   await check("ranking has no page errors, unhandled refresh rejection or unexpected CSP/network traffic", async () => {
@@ -729,7 +1032,7 @@ try {
     assert.deepEqual(unexpected, [], "unexpected ranking CSP violations");
     assert.deepEqual(externalRequests, [], "in-memory leaderboard/problem mocks never contact the judge");
   });
-  await ranking.evaluate(() => { window.fixtureAlive = false; window.rankingApp?.disposeView?.(); });
+  await ranking.evaluate(() => { window.fixtureAlive = false; window.rankingApp?.destroy(); window.rankingModules.auth.seed(null); });
   await rankingContext.close();
   assert.deepEqual(failures, [], `ranking parity failures:\n${failures.join("\n")}`);
   console.log("TMATH ranking: synthetic standings preserve the Official score affordances, split geometry, keyboard navigation and refresh lifecycle under production CSP.");

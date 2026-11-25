@@ -194,6 +194,7 @@ export class SessionChangedError extends Error {
 
 import { deviceId } from "./device";
 import { transport } from "./transport";
+import { observeServerTime } from "./server-clock";
 
 // 12 calls the shell needs (todo Phase 0): login, refresh, contests,
 // workspace, problem, submit, submission, stream-url, join, leave, release, me.
@@ -257,7 +258,10 @@ export async function raw(
     guard();
     if (nt) { headers["Authorization"] = "Bearer " + nt; r = await send(); }
   }
-  if (r.status >= 200 && r.status < 300) return r.json;
+  if (r.status >= 200 && r.status < 300) {
+    if (!authPath) observeServerTime(r.json?.server_time);
+    return r.json;
+  }
   const d = (r.json && ((r.json as any).detail ?? (r.json as any).message)) || (r.text || "").slice(0, 200) || ("HTTP " + r.status);
   throw new ApiError(r.status, typeof d === "string" ? d : JSON.stringify(d));
 }

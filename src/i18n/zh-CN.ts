@@ -3,6 +3,12 @@ import type { Dict } from "./index";
 
 export const zhCN: Dict = {
   "app.topbar.logout": "退出登录",
+  "app.serverClock": "服务器时间",
+  "app.serverClockUnavailable": "尚无服务器时间",
+  "app.serverClockTip": "服务器时间 · {date} · GMT+7",
+  "contests.viewRankings": "查看最终排名",
+  "rankings.backContests": "返回比赛列表",
+  "rankings.endedUnavailable": "此比赛的最终排名不可用，或当前正在参加比赛",
   "auth.username": "账号",
   "auth.password": "密码",
   "auth.login": "登录",

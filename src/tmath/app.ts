@@ -1,5 +1,6 @@
 import { api, raw, ApiError, clientVersion, syncClientVersion, type ContestListItem, type ContestProblem } from "../lib/api";
 import { recordDownload } from "../lib/updater";
+import { serverTimeNow } from "../lib/server-clock";
 import * as auth from "../lib/auth";
 import { activeId, initProfiles, loadProfiles, saveProfiles, setActiveId, upsertProfile } from "../lib/profiles";
 import { googleLogin, GoogleAbort } from "../lib/google";
@@ -306,6 +307,7 @@ export class TmathApp {
   private collapsed = read("delcc-tmath-sidebar") === "collapsed";
   private sessionReady = false;
   private stopped = false;
+  private serverClockTicker: number | null = null;
   // pass #165 (wave-12 W12-L3): the case rows' raw objects, keyed by submission id —
   // the single shared field let two concurrently-expanded details race (the second
   // open poisoned the first's payloads on re-attach). Bounded, drop-oldest.
@@ -462,6 +464,8 @@ export class TmathApp {
 
   destroy(): void {
     this.stopped = true; this.generation++; this.disposeView?.(); this.oauth?.abort();
+    if (this.serverClockTicker != null) window.clearInterval(this.serverClockTicker);
+    this.serverClockTicker = null;
     window.removeEventListener("hashchange", this.hashChange);
     document.removeEventListener("keydown", this.f11Key, true); // pass #141 (W8-L09): remounts stop stacking
     this.media.removeEventListener("change", this.themeChange);
@@ -578,7 +582,7 @@ export class TmathApp {
     const displayName = this.user?.display_name ?? this.user?.username ?? "?";
     this.host.innerHTML = `<div class="tm-shell${this.collapsed ? " collapsed" : ""}">
       <aside class="tm-sidebar"><div class="tm-sidebar-header">${brand()}<button type="button" class="tm-sidebar-toggle" data-action="collapse" aria-controls="tm-navigation" aria-expanded="${!this.collapsed}" aria-label="${text(this.collapsed ? "app.expandSidebar" : "app.collapseSidebar")}">${phIcon("sidebar-simple", 22)}</button></div><div class="tm-nav-label">${text("app.navigation")}</div><nav class="tm-nav" id="tm-navigation">${loggedIn ? (this.contest ? nav("workspace") : nav("contests") + nav("problems")) + nav("submissions") + nav("rankings") + nav("account") : ""}${nav("settings")}</nav><div class="tm-sidebar-footer"><button type="button" class="tm-connection" data-update-dot data-state="unknown" aria-label="${esc(text("app.updateUnknown"))}" title="${esc(text("app.updateUnknown"))}"><span data-update-text>${esc(text("app.updateUnknown"))}</span></button><div class="tm-fine" data-footnote-fine>${sanitizeFooterNote(read(FOOTER_NOTE_KEY)) || `independent · ${esc(manifest.version)}`}</div>${loggedIn ? "" : button("auth.login","login")}</div></aside>
-      <div class="tm-main"><header class="tm-topbar"><div class="tm-topbar-page"><span class="tm-topbar-page-icon" aria-hidden="true">${phIcon(navIcons[this.route] ?? "user-circle", 22)}</span><div class="tm-topbar-page-copy"><span class="tm-topbar-eyebrow">TMATH / STUDENT</span><strong class="tm-topbar-title">${text(titles[this.route])}</strong></div></div><div class="tm-topbar-actions">${themeMenuHtml(this.prefs.theme)}${loggedIn ? `<button type="button" class="tm-topbar-account" data-route="account">${avatarHtml(displayName, this.user?.gravatarHash ?? this.user?.gravatar_hash ?? cachedAvatar(String(this.user?.username ?? "")), 34)}<span class="tm-topbar-account-name"${ratingStyle(this.user?.rating)}>${esc(displayName)}</span></button><button type="button" class="tm-topbar-logout" data-action="logout" aria-label="${text("app.topbar.logout")}" title="${text("app.topbar.logout")}">${phIcon("sign-out", 18, "regular")}<span>${text("app.topbar.logout")}</span></button>` : button("auth.login","login")}</div></header>${this.versionNotice && !this.bannerDismissed ? this.bannerHtml() : ""}<main class="tm-content" id="tm-content"></main></div></div>`;
+      <div class="tm-main"><header class="tm-topbar"><div class="tm-topbar-page"><span class="tm-topbar-page-icon" aria-hidden="true">${phIcon(navIcons[this.route] ?? "user-circle", 22)}</span><div class="tm-topbar-page-copy"><span class="tm-topbar-eyebrow">TMATH / STUDENT</span><strong class="tm-topbar-title">${text(titles[this.route])}</strong></div></div><div class="tm-topbar-actions"><div class="tm-server-clock" role="timer" aria-live="off" aria-label="${text("app.serverClock")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><time data-server-clock>—</time></div>${themeMenuHtml(this.prefs.theme)}${loggedIn ? `<button type="button" class="tm-topbar-account" data-route="account">${avatarHtml(displayName, this.user?.gravatarHash ?? this.user?.gravatar_hash ?? cachedAvatar(String(this.user?.username ?? "")), 34)}<span class="tm-topbar-account-name"${ratingStyle(this.user?.rating)}>${esc(displayName)}</span></button><button type="button" class="tm-topbar-logout" data-action="logout" aria-label="${text("app.topbar.logout")}" title="${text("app.topbar.logout")}">${phIcon("sign-out", 18, "regular")}<span>${text("app.topbar.logout")}</span></button>` : button("auth.login","login")}</div></header>${this.versionNotice && !this.bannerDismissed ? this.bannerHtml() : ""}<main class="tm-content" id="tm-content"></main></div></div>`;
     this.host.querySelectorAll<HTMLElement>("[data-route]").forEach(b => b.onclick = () => this.go(b.dataset.route as Route, b.dataset.route === "workspace" && this.contest ? {contest:this.contest.key} : {}));
     this.host.querySelector<HTMLButtonElement>('[data-action="collapse"]')!.onclick = () => {
       this.collapsed = !this.collapsed; write("delcc-tmath-sidebar", this.collapsed ? "collapsed" : "expanded");
@@ -594,6 +598,43 @@ export class TmathApp {
     this.host.querySelectorAll<HTMLImageElement>(".tm-avatar-img").forEach(img => img.onerror = () => img.remove());
     this.bindBanner();
     this.paintUpdateDot();
+    this.paintServerClock();
+    if (this.serverClockTicker == null && !this.stopped) {
+      this.serverClockTicker = window.setInterval(() => this.paintServerClock(), 1000);
+    }
+  }
+
+  private paintServerClock(): void {
+    if (this.stopped) return;
+    const clock = this.host.querySelector<HTMLTimeElement>("[data-server-clock]");
+    if (!clock) return;
+    const options = { timeZone: "Asia/Ho_Chi_Minh", ...hour12Opt(this.prefs.timeFormat) };
+    const formatter = new Intl.DateTimeFormat(getLocale(), { ...options, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    clock.classList.toggle("tm-server-clock-hour12", formatter.resolvedOptions().hour12 === true);
+    const now = serverTimeNow();
+    if (now == null) {
+      clock.textContent = "—";
+      clock.removeAttribute("datetime");
+      clock.title = t("app.serverClockUnavailable");
+      clock.setAttribute("aria-label", clock.title);
+      return;
+    }
+    clock.textContent = formatter.format(now);
+    clock.dateTime = new Date(now).toISOString();
+    clock.title = t("app.serverClockTip", { date: new Intl.DateTimeFormat(getLocale(), { ...options, dateStyle: "medium", timeStyle: "medium" }).format(now) });
+    clock.setAttribute("aria-label", clock.title);
+  }
+
+  private canViewEndedRankings(contest: ContestListItem): boolean {
+    const end = typeof contest.end_time === "string" ? Date.parse(contest.end_time) : NaN;
+    return Number.isFinite(end) && end < Date.now() && contest.can_view_ended_leaderboard === true;
+  }
+
+  private endedRankingsMessage(host: HTMLElement, back: Record<string, string>, error?: unknown): void {
+    host.innerHTML = (error === undefined ? empty("rankings.endedUnavailable") : errorBox(error) + button("common.retry", "retry")) + button("rankings.backContests", "back-contests");
+    host.querySelector<HTMLButtonElement>('[data-action="back-contests"]')!.onclick = () => this.go("contests", back);
+    const retry = host.querySelector<HTMLButtonElement>('[data-action="retry"]');
+    if (retry) retry.onclick = () => void this.render();
   }
 
   // pass #134 (He: the footnote update dot, visible even with the tools panel minimized):
@@ -772,8 +813,10 @@ export class TmathApp {
   }
 
   private async contests(host: HTMLElement, params: URLSearchParams, alive: () => boolean): Promise<void> {
-    const page = Math.max(1, Number(params.get("page")) || 1);
-    const search = params.get("search") ?? "";
+    const requestedPage = Number(params.get("page") ?? "1");
+    const page = Number.isSafeInteger(requestedPage) && requestedPage > 0
+      && requestedPage <= Math.floor(Number.MAX_SAFE_INTEGER / PAGE_SIZE) ? requestedPage : 1;
+    const search = (params.get("search") ?? "").slice(0, 200);
     const [joined, home] = await Promise.all([api.contests(auth.accessToken()!, {page,page_size:PAGE_SIZE,search}), api.home(auth.accessToken()!)]);
     if (!alive()) return;
     // a contest shown in an active group is not repeated in the logged/recent list
@@ -806,7 +849,7 @@ export class TmathApp {
       const startMs = new Date(c.start_time).getTime();
       const joinWait = !c.is_in_contest && c.can_join && startMs > now;
       const disabled = (!c.can_join && !c.can_view_tasks && !c.is_in_contest) || joinWait;
-      return `<div class="tm-contest-row" data-debug-contest="${esc(c.key)}"><span class="tm-contest-icon" aria-hidden="true">${phIcon("trophy", 24)}</span><div class="tm-contest-summary"><strong>${esc(c.name)}</strong>${rated}${c.topic ? `<small class="tm-contest-topic">${esc(c.topic)}</small>` : ""}<small>${date(c.start_time)} – ${date(c.end_time)}</small></div>${String((c as unknown as { is_exam_contest?: unknown }).is_exam_contest) === "true" || (c as unknown as { is_exam_contest?: unknown }).is_exam_contest === true ? `<span class="tm-tag tm-exam-tag">${text("contests.examBadge")}</span>` : ""}<span class="tm-tag"${joinWait ? ` data-starts-in="${startMs}"` : ""}>${rowTag(c)}</span><button class="tm-button primary tm-contest-join" aria-label="${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")} ${esc(c.name)}" data-contest="${esc(c.key)}" data-join="${!!c.can_join && !c.is_in_contest}"${disabled ? " disabled" : ""}>${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")}</button></div>`;
+      return `<div class="tm-contest-row" data-debug-contest="${esc(c.key)}"><span class="tm-contest-icon" aria-hidden="true">${phIcon("trophy", 24)}</span><div class="tm-contest-summary"><strong>${esc(c.name)}</strong>${rated}${c.topic ? `<small class="tm-contest-topic">${esc(c.topic)}</small>` : ""}<small>${date(c.start_time)} – ${date(c.end_time)}</small></div>${String((c as unknown as { is_exam_contest?: unknown }).is_exam_contest) === "true" || (c as unknown as { is_exam_contest?: unknown }).is_exam_contest === true ? `<span class="tm-tag tm-exam-tag">${text("contests.examBadge")}</span>` : ""}<span class="tm-tag"${joinWait ? ` data-starts-in="${startMs}"` : ""}>${rowTag(c)}</span><button class="tm-button primary tm-contest-join" aria-label="${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")} ${esc(c.name)}" data-contest="${esc(c.key)}" data-join="${!!c.can_join && !c.is_in_contest}"${disabled ? " disabled" : ""}>${text(c.can_join && !c.is_in_contest ? "contests.join" : "contests.open")}</button>${!this.contest && this.canViewEndedRankings(c) ? `<button type="button" class="tm-button" data-ended-rankings="${esc(c.key)}" aria-label="${text("contests.viewRankings")} ${esc(c.name)}">${text("contests.viewRankings")}</button>` : ""}</div>`;
     };
     const groups: [DictKey, DictKey, "active" | "upcoming" | "ended", ContestListItem[]][] = [
       ["contests.current", "contests.currentDesc", "active", list(home?.current_contests)],
@@ -885,6 +928,11 @@ export class TmathApp {
         }
         this.contest = c; this.go("workspace", {contest:c.key});
       } catch(e) { if (alive()) { host.querySelector("#tm-contest-message")!.innerHTML = errorBox(e); b.disabled = false; } }
+    });
+    host.querySelectorAll<HTMLButtonElement>("[data-ended-rankings]").forEach(b => b.onclick = () => {
+      const c = all.find(c => c.key === b.dataset.endedRankings);
+      if (!alive() || this.contest || !c || !this.canViewEndedRankings(c)) return;
+      this.go("rankings", { contest: c.key, board: "final", sourcePage: String(page), sourceSearch: search });
     });
     this.pager(host,page,deduped.length,params);
   }
@@ -1885,6 +1933,37 @@ export class TmathApp {
   }
   private async rankings(host: HTMLElement, alive: () => boolean): Promise<void> {
     const params = new URLSearchParams(location.hash.split("?")[1] ?? "");
+    const standalone = params.has("contest") || params.has("sourcePage") || params.has("sourceSearch")
+      || (!this.contest && params.has("board"));
+    if (standalone) {
+      const key = params.get("contest") ?? "";
+      const pageText = params.get("sourcePage") ?? "1";
+      const sourcePage = Number(pageText);
+      const sourceSearch = params.get("sourceSearch") ?? "";
+      const validPage = /^\d+$/.test(pageText) && Number.isSafeInteger(sourcePage) && sourcePage > 0
+        && sourcePage <= Math.floor(Number.MAX_SAFE_INTEGER / PAGE_SIZE);
+      const back = { page: validPage ? String(sourcePage) : "1", search: sourceSearch.slice(0, 200) };
+      if (this.contest || !key.trim() || key.length > 200 || /[\u0000-\u001f\u007f]/.test(key)
+        || params.get("board") !== "final" || params.has("scope") || !validPage || sourceSearch.length > 200
+        || ["contest", "board", "sourcePage", "sourceSearch"].some(k => params.getAll(k).length > 1)) {
+        this.endedRankingsMessage(host, back);
+        return;
+      }
+      try {
+        const contests = list<ContestListItem>(await api.contests(auth.accessToken()!, { page: sourcePage, page_size: PAGE_SIZE, search: sourceSearch }));
+        if (!alive()) return;
+        const matches = contests.filter(c => c?.key === key);
+        const context = matches.length === 1 ? matches[0] : null;
+        if (this.contest || !context || !this.canViewEndedRankings(context)) {
+          this.endedRankingsMessage(host, back);
+          return;
+        }
+        await this.contestRankings(host, params, alive, context, back);
+      } catch (e) {
+        if (alive()) this.endedRankingsMessage(host, back, e);
+      }
+      return;
+    }
     // pass #59: inside a contest the Rankings page IS the contest standings (Official's
     // "Kết quả cuộc thi"); a chip switches back to the global user rankings
     if (this.contest && params.get("scope") !== "global") {
@@ -2007,15 +2086,19 @@ export class TmathApp {
   // (score + AC time + red non-AC attempt count), amber partial tiles, grey "—",
   // row hover tint, own row tinted + [You] tag, QoL: sticky name columns, sticky header,
   // stickied own row. 30 s quiet re-poll with a fresh "Cập nhật lúc" stamp.
-  private async contestRankings(host: HTMLElement, params: URLSearchParams, alive: () => boolean): Promise<void> {
-    const key = this.contest!.key;
+  private async contestRankings(host: HTMLElement, params: URLSearchParams, alive: () => boolean, context: ContestListItem | null = this.contest, back?: Record<string, string>): Promise<void> {
+    if (!context) return;
+    const standalone = back !== undefined;
+    const permitted = () => !standalone || (!this.contest && this.canViewEndedRankings(context));
+    if (!permitted()) { this.endedRankingsMessage(host, back!); return; }
+    const key = context.key;
     let entries: any[] = [], problems: ContestProblem[] = [], denied = false;
     // pass #155: adopt the judge's leaderboard long-poll when the contest offers it
     // (ContestDetailSchema.can_poll_leaderboard, shipped 2026-11-10). The poll fetch
     // races a 25 s ceiling; a lost race (or any poll error) falls back to the plain
     // fetch ONCE before the denial logic sees anything — a held poll can never read
     // as 403/404, and the plain fetch keeps the pre-#155 behavior verbatim.
-    const canPoll = (this.contest as { can_poll_leaderboard?: unknown }).can_poll_leaderboard === true;
+    const canPoll = !standalone && context.can_poll_leaderboard === true;
     // pass #170 (He's parity order): an ended contest may offer the judge's FROZEN
     // final board (?ended=true, gated by can_view_ended_leaderboard). Probe
     // 2026-11-13: ?ended=true 403s for accounts without the flag, and the plain
@@ -2023,9 +2106,9 @@ export class TmathApp {
     // the view keeps today's behavior (the denial path renders when the server
     // refuses). The board mode is a URL param so it survives refresh/back like
     // every other filter.
-    const isEnded = new Date(this.contest!.end_time).getTime() < Date.now();
-    const canEnded = (this.contest as { can_view_ended_leaderboard?: unknown }).can_view_ended_leaderboard === true;
-    const boardMode = params.get("board") === "live" || !isEnded || !canEnded
+    const isEnded = typeof context.end_time === "string" && Number.isFinite(Date.parse(context.end_time)) && Date.parse(context.end_time) < Date.now();
+    const canEnded = context.can_view_ended_leaderboard === true;
+    const boardMode = standalone ? "final" : params.get("board") === "live" || !isEnded || !canEnded
       ? "live"
       : "final";
     // pass #164 (wave-11 W11-L10): the 25 s ceiling timer is CLEARED in a finally
@@ -2054,7 +2137,7 @@ export class TmathApp {
       }
     };
     const loadingHeads: DictKey[] = ["rankings.contestRank", "rankings.participant", "rankings.totalScore", "subs.time"];
-    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(this.contest!.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div><button type="button" class="tm-button" disabled>↻ ${text("common.refresh")}</button></div><section class="tm-card tm-lb-card" aria-busy="true"><div class="tm-card-head"><h2>${text("rankings.contestTitle")}</h2></div><span role="status" class="sr-only">${text("rankings.loading")}</span><div class="tm-table-wrap"><table class="tm-table tm-lb-table" aria-hidden="true"><thead><tr>${loadingHeads.map(k => `<th>${text(k)}</th>`).join("")}</tr></thead><tbody>${Array.from({ length: 5 }, () => `<tr>${loadingHeads.map(() => `<td><span class="tm-lb-loading"></span></td>`).join("")}</tr>`).join("")}</tbody></table></div></section>`;
+    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(context.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div><button type="button" class="tm-button" disabled>↻ ${text("common.refresh")}</button></div><section class="tm-card tm-lb-card" aria-busy="true"><div class="tm-card-head"><h2>${text("rankings.contestTitle")}</h2></div><span role="status" class="sr-only">${text("rankings.loading")}</span><div class="tm-table-wrap"><table class="tm-table tm-lb-table" aria-hidden="true"><thead><tr>${loadingHeads.map(k => `<th>${text(k)}</th>`).join("")}</tr></thead><tbody>${Array.from({ length: 5 }, () => `<tr>${loadingHeads.map(() => `<td><span class="tm-lb-loading"></span></td>`).join("")}</tr>`).join("")}</tbody></table></div></section>`;
     try {
       const [lb, ps] = await Promise.all([
         fetchBoard(),
@@ -2066,6 +2149,7 @@ export class TmathApp {
       else throw e;
     }
     if (!alive()) return;
+    if (!permitted()) { this.endedRankingsMessage(host, back!); return; }
     const fmtClock = (v: unknown): string => {
       if (v == null) return "—";
       const n = Number(v);
@@ -2119,8 +2203,9 @@ export class TmathApp {
       const title = isFastest ? text("rankings.fastest") : esc(statusLabel(verdict));
       const code = String(problems[i]?.code ?? "");
       if (c.points != null && code) {
-        const aria = you ? text("rankings.acJump") : text("rankings.drill", { p: probLabel(problems[i], i), u: username });
-        const attrs = you ? ` data-ac-jump="${esc(code)}"`
+        const jump = you && !standalone;
+        const aria = jump ? text("rankings.acJump") : text("rankings.drill", { p: probLabel(problems[i], i), u: username });
+        const attrs = jump ? ` data-ac-jump="${esc(code)}"`
           : ` data-drill="${esc(code)}" data-drill-user="${esc(username)}"`;
         return `<td class="${cls} leaderboard-score-cell" title="${title}"><button type="button" class="leaderboard-score-link"${attrs} aria-label="${aria}">${body}</button></td>`;
       }
@@ -2354,21 +2439,22 @@ export class TmathApp {
     };
     const head = problems.map((p, i) => {
       const label = probLabel(p, i);
-      return `<th class="tm-lb-pcol" scope="col"><button type="button" class="tm-lb-problem" data-lb-open="${esc(p.code)}" aria-label="${text("rankings.openProblem", { p: label })}" title="${text("rankings.openProblem", { p: label })}"><span class="tm-lb-letter">${esc(label)}</span><small>${text("rankings.maxPoints", { n: fmtNum(p.points) })}</small></button></th>`;
+      const body = `<span class="tm-lb-letter">${esc(label)}</span><small>${text("rankings.maxPoints", { n: fmtNum(p.points) })}</small>`;
+      return `<th class="tm-lb-pcol" scope="col">${standalone ? `<span class="tm-lb-problem">${body}</span>` : `<button type="button" class="tm-lb-problem" data-lb-open="${esc(p.code)}" aria-label="${text("rankings.openProblem", { p: label })}" title="${text("rankings.openProblem", { p: label })}">${body}</button>`}</th>`;
     }).join("");
     const infoHead = `<thead><tr><th scope="col"><button type="button" class="tm-sort-h" data-lb-sort="server" title="${text("rankings.position")}">${text("rankings.contestRank")}${lbArrow("server")}</button></th><th scope="col">${text("rankings.participant")}</th><th scope="col">${text("rankings.totalScore")}</th><th scope="col"><button type="button" class="tm-sort-h" data-lb-sort="time" title="${text("rankings.sortBy")}">${text("subs.time")}${lbArrow("time")}</button></th></tr></thead>`;
     const infoCols = `<colgroup><col style="width:64px"><col style="width:280px"><col style="width:112px"><col style="width:144px"></colgroup>`;
     // pass #170: the Final/Live board toggle — rendered only for an ended contest
     // whose account carries can_view_ended_leaderboard (the server 403s the ?ended
     // fetch otherwise; hiding the control IS the honest gate UI).
-    const boardToggle = isEnded && canEnded
+    const boardToggle = standalone ? `<span class="tm-chip active">${text("rankings.boardFinal")}</span>` : isEnded && canEnded
       ? `<button type="button" class="tm-chip${boardMode === "final" ? " active" : ""}" data-lb-board="final" aria-pressed="${boardMode === "final"}">${text("rankings.boardFinal")}</button><button type="button" class="tm-chip${boardMode === "live" ? " active" : ""}" data-lb-board="live" aria-pressed="${boardMode === "live"}">${text("rankings.boardLive")}</button>`
       : "";
-    const chips = `<div class="tm-chip-row" role="group" aria-label="${text("subs.scopeLabel")}"><button type="button" class="tm-chip active" aria-pressed="true">${text("subs.scopeContest")}</button><button type="button" class="tm-chip" data-lb-global aria-pressed="false">${text("subs.scopeGlobal")}</button><button type="button" class="tm-button" data-lb-refresh>↻ ${text("common.refresh")}</button>${boardToggle}</div>`;
+    const chips = `<div class="tm-chip-row" role="group" aria-label="${text("subs.scopeLabel")}">${standalone ? button("rankings.backContests", "back-contests") : `<button type="button" class="tm-chip active" aria-pressed="true">${text("subs.scopeContest")}</button>`}<button type="button" class="tm-chip" data-lb-global aria-pressed="false">${text("subs.scopeGlobal")}</button><button type="button" class="tm-button" data-lb-refresh>↻ ${text("common.refresh")}</button>${boardToggle}</div>`;
     // pass #80: page + card structure mirrors Official's Ranking page (He's reference):
     // eyebrow BẢNG XẾP HẠNG → h1 = contest name → subtitle; card head "Kết quả cuộc thi"
     // + counter; the Cập nhật-lúc row lives INSIDE the card, above the table.
-    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(this.contest!.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div>${chips}</div>
+    host.innerHTML = `<div class="tm-page-title tm-contest-head"><div><div class="tm-eyebrow">${text("rankings.eyebrow")}</div><h1>${esc(context.name)}</h1><p class="tm-muted">${text("rankings.desc")}</p></div>${chips}</div>
       <section class="tm-card tm-lb-card" aria-busy="false">
         <div class="tm-card-head"><h2>${text("rankings.contestTitle")}</h2><span class="tm-lb-count"></span></div>
         <div class="tm-lb-updated" data-lb-updated></div>
@@ -2387,9 +2473,11 @@ export class TmathApp {
       </section>`;
     const lbGlobal = host.querySelector<HTMLButtonElement>('[data-lb-global]');
     if (lbGlobal) lbGlobal.onclick = () => this.go("rankings", { scope: "global" });
+    const lbBack = host.querySelector<HTMLButtonElement>('[data-action="back-contests"]');
+    if (lbBack) lbBack.onclick = () => this.go("contests", back!);
     // pass #170: the board-mode chips swap the ?board= param and re-render
     host.querySelectorAll<HTMLButtonElement>("[data-lb-board]").forEach(b => b.onclick = () => {
-      this.go("rankings", { board: b.dataset.lbBoard === "final" ? "final" : "live" });
+      this.go("rankings", { ...Object.fromEntries(params), board: b.dataset.lbBoard === "final" ? "final" : "live" });
     });
     const lbRefresh = host.querySelector<HTMLButtonElement>('[data-lb-refresh]')!;
     const card = host.querySelector<HTMLElement>(".tm-lb-card")!;
@@ -2397,9 +2485,10 @@ export class TmathApp {
     const refreshError = host.querySelector<HTMLElement>("[data-lb-error]")!;
     const refreshBoard = async (manual = false): Promise<void> => {
       if (!alive() || boardBusy) return;
+      if (!permitted()) { this.endedRankingsMessage(host, back!); return; }
       boardBusy = true;
-      lbRefresh.disabled = true;
       if (manual) {
+        lbRefresh.disabled = true;
         card.setAttribute("aria-busy", "true");
         refreshStatus.textContent = t("rankings.updating");
         refreshError.replaceChildren();
@@ -2407,13 +2496,14 @@ export class TmathApp {
       try {
         const lb = await api.leaderboard(auth.accessToken()!, key, false, boardMode === "final");
         if (!alive()) return;
+        if (!permitted()) { this.endedRankingsMessage(host, back!); return; }
         entries = list(lb);
         paint();
       } catch (e) {
         if (alive() && manual) refreshError.innerHTML = errorBox(e);
       } finally {
         boardBusy = false;
-        if (alive()) {
+        if (alive() && manual) {
           lbRefresh.disabled = false;
           card.setAttribute("aria-busy", "false");
           refreshStatus.textContent = "";
@@ -2441,13 +2531,13 @@ export class TmathApp {
       syncGhosts?.();
     });
     rowResize.observe(host.querySelector(".tm-lb-split")!);
-    const poll = window.setInterval(() => {
-      if (!alive()) { window.clearInterval(poll); return; }
+    const poll = standalone ? null : window.setInterval(() => {
+      if (!alive()) { window.clearInterval(poll!); return; }
       if (document.hidden || boardMode === "final") return;
       void refreshBoard();
     }, 30_000);
     const previous = this.disposeView;
-    this.disposeView = () => { previous?.(); window.clearInterval(poll); rowResize.disconnect(); };
+    this.disposeView = () => { previous?.(); if (poll != null) window.clearInterval(poll); rowResize.disconnect(); };
   }
 
   // official ig: eg(value) persists + repaints; the menu updates trigger/check in place, then closes

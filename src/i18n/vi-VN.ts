@@ -3,6 +3,12 @@ import type { Dict } from "./index";
 
 export const viVN: Dict = {
   "app.topbar.logout": "Đăng xuất",
+  "app.serverClock": "Giờ máy chủ",
+  "app.serverClockUnavailable": "Chưa có giờ máy chủ",
+  "app.serverClockTip": "Giờ máy chủ · {date} · GMT+7",
+  "contests.viewRankings": "Xem bảng xếp hạng cuối cùng",
+  "rankings.backContests": "Về danh sách cuộc thi",
+  "rankings.endedUnavailable": "Không thể xem bảng cuối cùng của cuộc thi này hoặc khi đang tham gia cuộc thi",
   "auth.username": "Tài khoản",
   "auth.password": "Mật khẩu",
   "auth.login": "Đăng nhập",

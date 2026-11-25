@@ -4,6 +4,12 @@ import type { Dict } from "./index";
 // values here may carry sanitized HTML — route through the statement-sanitize pass.
 export const enUS: Dict = {
   "app.topbar.logout": "Log out",
+  "app.serverClock": "Server time",
+  "app.serverClockUnavailable": "Server time unavailable",
+  "app.serverClockTip": "Server time · {date} · GMT+7",
+  "contests.viewRankings": "View final rankings",
+  "rankings.backContests": "Back to contests",
+  "rankings.endedUnavailable": "Final rankings are unavailable for this contest or while a contest is active",
   "auth.username": "Username",
   "auth.password": "Password",
   "auth.login": "Log in",

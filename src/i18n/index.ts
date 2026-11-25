@@ -13,6 +13,12 @@ export type Locale = "en-US" | "vi-VN" | "zh-CN";
 // that every language defines every key.
 export interface Dict {
   "app.topbar.logout": string;
+  "app.serverClock": string;
+  "app.serverClockUnavailable": string;
+  "app.serverClockTip": string;
+  "contests.viewRankings": string;
+  "rankings.backContests": string;
+  "rankings.endedUnavailable": string;
   "auth.username": string;
   "auth.password": string;
   "auth.login": string;

@@ -9,6 +9,7 @@ import { api, SessionChangedError, setRefreshHook, setSessionGuardHook, type Tok
 import { logError, logInfo } from "./applog";
 import { secureDel, secureGet, securePut } from "./secure";
 import { shellInvoke } from "./transport";
+import { observeServerTime } from "./server-clock";
 
 const LS = "delcc-auth";
 const SEC_NAME = "auth";
@@ -51,6 +52,7 @@ export function initAuthStore(): Promise<void> {
       const stored = await secureGet(SEC_NAME);
       if (stored) {
         try { cur = JSON.parse(stored) as TokenPair; } catch { cur = null; }
+        try { localStorage.removeItem(LS); } catch {}
       } else if (cur) {
         // migrate the legacy plaintext copy, then delete it — one boot, no ceremony
         if (await securePut(SEC_NAME, JSON.stringify(cur))) {
@@ -177,6 +179,7 @@ export async function login(u: string, p: string, signal?: AbortSignal): Promise
     assertCurrent(intent, signal);
     const t = await api.login(u, p);
     assertCurrent(intent, signal);
+    observeServerTime(t.server_time);
     loginVersion = null;
     sessionTokens.clear();
     save(t, "fresh"); schedule();
@@ -204,6 +207,7 @@ export async function silentRefresh(): Promise<TokenPair | null> {
     try {
       const t = await api.refresh(refreshToken);
       assertCurrent(expected);
+      observeServerTime(t.server_time);
       save(t, "refresh"); schedule();
       return cur;
     } catch (e) {

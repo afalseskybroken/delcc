@@ -14,13 +14,15 @@ const flush = async () => { for (let i = 0; i < 30; ++i) await Promise.resolve()
 const changed = e => e?.name === 'SessionChangedError';
 const aborted = e => e?.constructor?.name === 'GoogleAbort';
 
-async function fixture({ holdPkce = false } = {}) {
-  const requests = [], timers = new Map(), storage = new Map(), published = [];
+async function fixture({ holdPkce = false, secureStore = null, legacyToken = null } = {}) {
+  const requests = [], timers = new Map(), storage = new Map(legacyToken ? [['delcc-auth', JSON.stringify(legacyToken)]] : []), published = [];
   const digest = deferred();
-  let timerId = 0;
+  let timerId = 0, monotonicTime = 0, wallTime = Date.now();
   const setTimer = (fn, ms) => { const id = timerId++; timers.set(id, { fn, ms }); return id; };
   const context = createContext({
-    URL, URLSearchParams, TextEncoder, Uint8Array, Date,
+    URL, URLSearchParams, TextEncoder, Uint8Array,
+    Date: class extends Date { static now() { return wallTime; } },
+    performance: { now: () => monotonicTime },
     btoa: text => Buffer.from(text, 'binary').toString('base64'),
     localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v), removeItem: k => storage.delete(k) },
     window: { setTimeout: setTimer }, setTimeout: setTimer, clearTimeout: id => timers.delete(id),
@@ -32,7 +34,7 @@ async function fixture({ holdPkce = false } = {}) {
     });
     // pass #79: shellInvoke (lib/secure.ts's bridge probe) — null = no shell in the VM,
     // which keeps auth/profiles on the localStorage fallback these tests assert on.
-    this.setExport('shellInvoke', async () => null);
+    this.setExport('shellInvoke', async () => secureStore == null ? null : async () => null);
   }, { context });
   const device = new SyntheticModule(['deviceId'], function () { this.setExport('deviceId', () => 'synthetic-device'); }, { context });
   // pass #79: auth.ts logs persistence failures to the diagnostics ring (lib/applog) and
@@ -44,12 +46,12 @@ async function fixture({ holdPkce = false } = {}) {
     this.setExport('logInfo', () => {});
   }, { context });
   const secure = new SyntheticModule(['secureGet', 'securePut', 'secureDel'], function () {
-    this.setExport('secureGet', async () => null);
-    this.setExport('securePut', async () => false);
+    this.setExport('secureGet', async () => secureStore);
+    this.setExport('securePut', async () => secureStore != null);
     this.setExport('secureDel', async () => {});
   }, { context });
   const modules = new Map([['./transport', transport], ['./device', device], ['./applog', applog], ['./secure', secure]]);
-  for (const name of ['api', 'auth', 'google']) {
+  for (const name of ['server-clock', 'api', 'auth', 'google']) {
     const file = path.join(root, 'src/lib', `${name}.ts`);
     modules.set(`./${name}`, new SourceTextModule(stripTypeScriptTypes(fs.readFileSync(file, 'utf8')), { context, identifier: file }));
   }
@@ -60,7 +62,9 @@ async function fixture({ holdPkce = false } = {}) {
   const auth = authModule.namespace, api = modules.get('./api').namespace;
   auth.onTokenChange(t => published.push(t?.access_token ?? null));
   return {
-    auth, api, google: googleModule.namespace, requests, timers, storage, published, digest,
+    auth, api, google: googleModule.namespace, clock: modules.get('./server-clock').namespace, requests, timers, storage, published, digest,
+    advanceClock(ms) { monotonicTime += ms; },
+    setWallTime(ms) { wallTime = ms; },
     async count(n) { await flush(); assert.equal(requests.length, n); },
     respond(index, status, json = {}) { requests[index].resolve({ status, json, text: JSON.stringify(json) }); },
     async fireTimer() { assert.equal(timers.size, 1); const [id, timer] = timers.entries().next().value; timers.delete(id); timer.fn(); await flush(); return timer.ms; },
@@ -68,6 +72,69 @@ async function fixture({ holdPkce = false } = {}) {
 }
 
 const tests = [
+  ['Auth store: existing secure credentials remove the leftover plaintext copy', async () => {
+    const f = await fixture({ secureStore: JSON.stringify(token('B')), legacyToken: token('A') });
+    assert.equal(f.auth.accessToken(), 'A-access');
+    await f.auth.initAuthStore();
+    assert.equal(f.auth.accessToken(), 'B-access');
+    assert.equal(f.storage.has('delcc-auth'), false);
+    assert.equal(f.clock.serverTimeNow(), null); await f.count(0);
+    await assert.rejects(f.api.api.me('A-access'), changed); await f.count(0);
+  }],
+  ['Clock: persisted token timing is not a fresh server sample', async () => {
+    const f = await fixture(); f.auth.seed(token('A'));
+    assert.equal(f.clock.serverTimeNow(), null); await f.count(0);
+  }],
+  ['Clock: successful existing reads anchor monotonic time without extra traffic', async () => {
+    const f = await fixture(); f.auth.seed(token('A'));
+    const pending = f.api.api.me('A-access'); await f.count(1);
+    const stamp = '2026-11-24T00:00:00.000Z', start = Date.parse(stamp);
+    f.respond(0, 200, { username: 'A', server_time: stamp }); await pending;
+    assert.equal(f.clock.serverTimeNow(), start);
+    f.advanceClock(1234); assert.equal(f.clock.serverTimeNow(), start + 1234);
+    f.setWallTime(Date.now() + 86_400_000); assert.equal(f.clock.serverTimeNow(), start + 1234);
+    f.setWallTime(0); assert.equal(f.clock.serverTimeNow(), start + 1234);
+    await f.count(1);
+  }],
+  ['Clock: delayed newer samples cannot rewind extrapolated time', async () => {
+    const f = await fixture(), start = Date.parse('2026-11-24T00:00:00Z');
+    f.clock.observeServerTime(new Date(start).toISOString()); f.advanceClock(20_000);
+    f.clock.observeServerTime(new Date(start + 5_000).toISOString());
+    assert.equal(f.clock.serverTimeNow(), start + 20_000);
+    f.clock.observeServerTime(new Date(start + 30_000).toISOString());
+    assert.equal(f.clock.serverTimeNow(), start + 30_000);
+  }],
+  ['Clock: only accepted login and refresh completions publish auth samples', async () => {
+    const f = await fixture(), start = Date.parse('2026-11-24T00:00:00Z');
+    const direct = f.api.api.refresh('synthetic-refresh'); await f.count(1);
+    f.respond(0, 200, { ...token('direct'), server_time: new Date(start).toISOString() }); await direct;
+    assert.equal(f.clock.serverTimeNow(), null);
+    const login = f.auth.login('A', 'synthetic'); await f.count(2);
+    f.respond(1, 200, { ...token('A'), server_time: new Date(start).toISOString() }); await login;
+    assert.equal(f.clock.serverTimeNow(), start);
+    f.advanceClock(1000); const refresh = f.auth.silentRefresh(); await f.count(3);
+    f.respond(2, 200, { ...token('A2'), server_time: new Date(start + 5000).toISOString() }); await refresh;
+    assert.equal(f.clock.serverTimeNow(), start + 5000);
+  }],
+  ['Clock: invalid, unzoned, equal and older samples retain the last anchor', async () => {
+    const f = await fixture(), stamp = '2026-11-24T00:00:00.000Z', start = Date.parse(stamp);
+    for (const value of [undefined, null, true, 123, '', '1', 'invalid', '2026-11-24T00:00:00', '2026-99-24T00:00:00Z', '2026-02-30T00:00:00Z', '2026-02-29T07:00:00+07:00', '2026-11-24T24:00:00Z']) f.clock.observeServerTime(value);
+    assert.equal(f.clock.serverTimeNow(), null);
+    f.clock.observeServerTime(stamp); f.advanceClock(1000);
+    f.clock.observeServerTime(stamp); f.clock.observeServerTime('2026-11-23T00:00:00Z');
+    f.clock.observeServerTime('not a date'); assert.equal(f.clock.serverTimeNow(), start + 1000);
+    f.clock.observeServerTime('2026-11-24T07:00:10+07:00');
+    assert.equal(f.clock.serverTimeNow(), start + 10_000);
+  }],
+  ['Clock: stale session responses and HTTP errors cannot publish a sample', async () => {
+    const f = await fixture(); f.auth.seed(token('A'));
+    const pending = assert.rejects(f.api.api.me('A-access'), changed); await f.count(1);
+    f.auth.seed(token('B')); f.respond(0, 200, { server_time: '2026-11-24T00:00:00Z' }); await pending;
+    assert.equal(f.clock.serverTimeNow(), null);
+    const failed = assert.rejects(f.api.api.me('B-access'), e => e.status === 503); await f.count(2);
+    f.respond(1, 503, { server_time: '2026-11-24T00:00:00Z', detail: 'offline' }); await failed;
+    assert.equal(f.clock.serverTimeNow(), null);
+  }],
   ['F01: refresh success cannot overwrite a replacement session', async () => {
     const f = await fixture(); f.auth.seed(token('A'));
     const pending = assert.rejects(f.auth.silentRefresh(), changed); await f.count(1);
@@ -75,6 +142,7 @@ const tests = [
     assert.equal(f.auth.accessToken(), 'B-access');
     assert.equal(JSON.parse(f.storage.get('delcc-auth')).access_token, 'B-access');
     assert.deepEqual(f.published, ['A-access', 'B-access']);
+    assert.equal(f.clock.serverTimeNow(), null, 'rejected refresh completion cannot seed the clock');
   }],
   ['F01: refresh completion cannot resurrect logout', async () => {
     const f = await fixture(); f.auth.seed(token('A'));
@@ -107,6 +175,7 @@ const tests = [
     const pending = assert.rejects(f.auth.login('A', 'synthetic', abort.signal), changed);
     await f.count(1); abort.abort(); f.respond(0, 200, token('A')); await pending;
     assert.equal(f.auth.accessToken(), 'old-access'); assert.deepEqual(f.published, ['old-access']);
+    assert.equal(f.clock.serverTimeNow(), null, 'aborted login cannot seed the clock');
     await assert.rejects(f.auth.login('A', 'synthetic', abort.signal), changed); await f.count(1);
   }],
   ['F01: logout invalidates an in-flight password login', async () => {
