@@ -225,34 +225,27 @@ pub fn restricted_child_main(child_line: &str) -> i32 {
 /// Labels `dir` with a LOW mandatory label so a sandboxed child (low-IL) can create
 /// files inside it. Called by the capture BEFORE the spawn; idempotent.
 pub fn label_dir_low(dir: &std::path::Path) -> bool {
-    use windows_sys::Win32::Security::ACL;
-    use windows_sys::Win32::Security::LABEL_SECURITY_INFORMATION;
     use windows_sys::Win32::Security::Authorization::{
-        ConvertStringSecurityDescriptorToSecurityDescriptorW, SetNamedSecurityInfoW,
-        SE_FILE_OBJECT,
+        ConvertStringSecurityDescriptorToSecurityDescriptorW,
+        SetNamedSecurityInfoW, SE_FILE_OBJECT,
     };
+    use windows_sys::Win32::Security::{ACL, GetSecurityDescriptorSacl, LABEL_SECURITY_INFORMATION};
     const SDDL_LOW_LABEL: &str = "S:(ML;;NW;;;LW)";
     unsafe {
         let mut sddl_w = wide(SDDL_LOW_LABEL);
         let mut sd: *mut std::ffi::c_void = std::ptr::null_mut();
         if ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            sddl_w.as_mut_ptr(),
-            1, /* SDDL_REVISION_1 */
-            &mut sd,
-            std::ptr::null_mut(),
-        ) == 0
-        {
-            return false;
-        }
+            sddl_w.as_mut_ptr(), 1, &mut sd, std::ptr::null_mut(),
+        ) == 0 { return false; }
+        let mut present = 0;
+        let mut sacl: *mut ACL = std::ptr::null_mut();
+        let mut defaulted = 0;
+        let got = GetSecurityDescriptorSacl(sd, &mut present, &mut sacl, &mut defaulted);
+        if got == 0 || present == 0 || sacl.is_null() { LocalFree(sd as _); return false; }
         let mut dir_w = wide(&dir.to_string_lossy());
         let ok = SetNamedSecurityInfoW(
-            dir_w.as_mut_ptr(),
-            SE_FILE_OBJECT,
-            LABEL_SECURITY_INFORMATION,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            sd as *const ACL,
+            dir_w.as_mut_ptr(), SE_FILE_OBJECT, LABEL_SECURITY_INFORMATION,
+            std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), sacl,
         ) == 0;
         LocalFree(sd as _);
         ok

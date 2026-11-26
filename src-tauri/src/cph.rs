@@ -1733,12 +1733,18 @@ fn capture(mut cmd: Command, input: Option<&str>, limit: Duration, _memory_limit
             // failure refuses the run (the launcher exits 3, reason on stderr) — there
             // is NO plain-spawn fallback. The debug lane is likewise unwrapped — hence
             // unsandboxed and page-reachable at full user rights (pass #166, wave-10 S1).
-            let mut sandboxed = true;
-            if let Some(dir) = cmd.get_current_dir() {
-                if !crate::restrict::label_dir_low(dir) {
-                    sandboxed = false; // no LOW label = the child could not write its corner
-                }
+            // pass #182: EVERY run now carries the session cwd. FAIL CLOSED when
+            // there is no corner or the LOW label cannot be installed — a run
+            // without its promised containment does not happen (W11-02 doctrine).
+            let dir = match cmd.get_current_dir() {
+                Some(d) => d.to_path_buf(),
+                None => { result.spawn_err = Some("sandbox: no session cwd".into()); return result; }
+            };
+            if !crate::restrict::label_dir_low(&dir) {
+                result.spawn_err = Some("sandbox: LOW label failed".into());
+                return result;
             }
+            let sandboxed = true;
             let exe = match std::env::current_exe() {
                 Ok(e) => e,
                 Err(e) => { result.spawn_err = Some(format!("current_exe: {e}")); return result; }
@@ -1750,6 +1756,7 @@ fn capture(mut cmd: Command, input: Option<&str>, limit: Duration, _memory_limit
                 line.push_str(&quote_windows_arg(a));
             }
             let mut launcher = crate::cph::new_cmd(exe.to_string_lossy().as_ref());
+            launcher.current_dir(&dir); // pass #182: the launcher must carry the session cwd
             launcher.arg("__cph-restricted-child").arg("--").arg(&line);
             match &stdin_file {
                 Some(f) => match f.try_clone() {
@@ -1937,7 +1944,14 @@ fn run_command(lang_key: &str, binary: &str, tmp: &Path) -> Result<Command, Stri
     let pinned = pinned_binary(binary)?; // pass #163 (W12-04): execute the PATH-pinned path, never an exe-dir neighbor
     let binary = pinned.as_str();
     match lang_key {
-        "cpp" | "rust" | "pascal" | "go" => Ok(new_cmd(exe_path(tmp).to_string_lossy().as_ref())),
+        "cpp" | "rust" | "pascal" | "go" => {
+            // pass #182: the restricted launcher inherits this cwd; without it the
+            // child inherited delcc's launch directory and CreateProcessW got
+            // ERROR_ACCESS_DENIED from a LOW token.
+            let mut c = new_cmd(exe_path(tmp).to_string_lossy().as_ref());
+            c.current_dir(tmp);
+            Ok(c)
+        }
         "java" => {
             // pass #123 (attack-surface A4): the allowlist validates a specific javac
             // path — run ITS SIBLING java so the runtime is the same JDK the detector
