@@ -164,6 +164,78 @@ export interface ProblemDetail extends ProblemListItem {
   online_judges: unknown[]; latest_submission?: unknown;
 }
 
+// pass #181 — the Official 1.1.1 homework surface. The live spec (2026-11-25,
+// 64 paths / 88 schemas, byte-identical to the 2026-11-23 harvest) defines seven
+// paths and twelve schemas; these are the wire shapes verbatim. `state`,
+// `user_progress` and `submit_blocked_reason` are the server's own tokens — the
+// UI renders them as-is, never invents a local status.
+export interface HomeworkFilters { page?: number; page_size?: number; search?: string; contest?: string }
+export interface HomeworkPageFilters { page?: number; page_size?: number }
+export interface HomeworkHistoryFilters { page?: number; page_size?: number; problem?: string }
+export interface HomeworkEnvelope { server_time: string; page: number; page_size: number; has_more: boolean }
+export interface HomeworkProblem {
+  contest_key: string; contest_name: string; code: string; name: string;
+  points: number; partial: boolean; homework_start_time: string; homework_due_at: string;
+  best_points: number | null; submission_count: number;
+  user_progress: "unattempted" | "grading" | "attempted" | "solved";
+  can_submit: boolean; submit_blocked_reason: string | null;
+}
+export interface HomeworkPage extends HomeworkEnvelope { items: HomeworkProblem[] }
+export interface HomeworkContext extends HomeworkEnvelope {
+  contest_key: string; contest_name: string;
+  homework_start_time: string; homework_due_at: string;
+  state: "scheduled" | "open" | "closed";
+  can_submit: boolean; submit_blocked_reason: string | null;
+  items: HomeworkProblem[];
+}
+export interface HomeworkProblemDetail extends HomeworkProblem {
+  server_time: string; state: "open" | "closed"; statement: string;
+  time_limit: number; memory_limit: number; short_circuit: boolean;
+  allowed_languages: string[]; io_method: unknown; version_update: number;
+  fastio: boolean; forbidden_words: string[]; can_run: boolean;
+}
+export interface HomeworkSubmitRequest { language_key: string; source: string }
+export interface HomeworkSubmission {
+  version: number; is_terminal: boolean; current_testcase?: number | null;
+  id: number; problem: string; problem_name: string;
+  can_view_detail: boolean; can_view_source: boolean;
+  user: string; user_display_name?: string | null; user_rating?: number | null;
+  date: string; language?: string | null; time?: number | null; memory?: number | null;
+  points?: number | null; result?: string | null; status: string; contest_key: string;
+}
+export interface HomeworkHistoryPage extends HomeworkEnvelope { items: HomeworkSubmission[] }
+export interface HomeworkSubmissionDetail extends HomeworkSubmission {
+  error?: string | null; case_points: number; case_total: number; cases: SubmissionCase[];
+}
+export interface HomeworkSource {
+  submission_id: number; language_key?: string | null; source: string;
+  version_update: number; submitted_at: string; contest_key: string; problem: string;
+}
+
+// pass #183 — the remaining low-hanging Official surfaces. All shapes below are
+// from the live 2026-11-25 spec (api-docs.md checklist); no endpoint is invented.
+export interface CodeShareMetadata {
+  contest_key: string; student_id: number; username: string; display_name: string;
+  user_rating?: number | null; participation_id: number; problem_code: string; problem_name: string;
+  language_key: string; revision: number; updated_at: string; expires_at: string; active: boolean;
+}
+export interface CodeShareState {
+  contest_key: string; student_id: number; active: boolean; revision: number;
+  can_share_code: boolean; can_view_shared_codes: boolean; item: CodeShareMetadata | null;
+}
+export interface CodeShareSource extends CodeShareMetadata { source: string }
+export interface CodeSharePut {
+  expected_revision: number; participation_id: number; problem_code: string;
+  language_key: string; source: string;
+}
+export interface OrganizationListItem {
+  id: number; slug: string; name: string; short_name: string; is_open: boolean;
+  is_hidden: boolean; logo_override_image: string; member_count?: number | null;
+}
+export interface OrganizationDetail extends OrganizationListItem {
+  about: string; creation_date: string; admins: string[]; members_preview: any[];
+}
+
 export interface SubmitResponse { detail: string; submission_id: number; replaced_existing: boolean; }
 
 export interface SubmissionCase {
@@ -270,6 +342,13 @@ let refreshHook: null | (() => Promise<string | null>) = null;
 export function setRefreshHook(f: () => Promise<string | null>) { refreshHook = f; }
 let sessionGuardHook: null | ((token: string, requireCurrentToken: boolean) => () => void) = null;
 export function setSessionGuardHook(f: (token: string, requireCurrentToken: boolean) => () => void) { sessionGuardHook = f; }
+
+// pass #181: the homework endpoints share the spec's hard paging caps — a bad
+// URL param degrades to the documented default instead of being forwarded.
+const boundedInt = (value: unknown, fallback: number, max: number): number => {
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n >= 1 && n <= max ? n : fallback;
+};
 
 export const api = {
   login: (u: string, p: string): Promise<TokenPair> =>
@@ -383,6 +462,62 @@ export const api = {
   // 2026-10-22 (Nyx, audit-sheet follow-up #3): tmath previously called these raw() — now wrapped.
   submissionSource: (t: string, id: number, scope?: string): Promise<any> =>
     raw(`/submissions/${id}/source${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`, { token: t }),
+  // ---- Official 1.1.1 homework (pass #181) ----
+  // Same verbs and grading funnel as the contest lane; NO homework stream path
+  // exists in the spec, so callers poll version/is_terminal instead.
+  homework: (t: string, o: HomeworkFilters = {}): Promise<HomeworkPage> => {
+    const q = new URLSearchParams({ page: String(boundedInt(o.page, 1, 1_000_000)), page_size: String(boundedInt(o.page_size, 20, 100)) });
+    if (o.search && o.search.length <= 200) q.set("search", o.search);
+    if (o.contest && o.contest.length <= 128) q.set("contest", o.contest);
+    return raw(`/homework?${q.toString()}`, { token: t });
+  },
+  homeworkContext: (t: string, key: string, o: HomeworkPageFilters = {}): Promise<HomeworkContext> => {
+    const q = new URLSearchParams({ page: String(boundedInt(o.page, 1, 1_000_000)), page_size: String(boundedInt(o.page_size, 20, 100)) });
+    return raw(`/contests/${encodeURIComponent(key)}/homework?${q.toString()}`, { token: t });
+  },
+  homeworkProblem: (t: string, key: string, code: string): Promise<HomeworkProblemDetail> =>
+    raw(`/contests/${encodeURIComponent(key)}/homework/problems/${encodeURIComponent(code)}`, { token: t, submitHeaders: true }),
+  submitHomework: (t: string, key: string, code: string, language_key: string, source: string): Promise<SubmitResponse> =>
+    raw(`/contests/${encodeURIComponent(key)}/homework/problems/${encodeURIComponent(code)}/submit`,
+      { method: "POST", token: t, body: { language_key, source } }),
+  homeworkSubmissions: (t: string, key: string, o: HomeworkHistoryFilters = {}): Promise<HomeworkHistoryPage> => {
+    const q = new URLSearchParams({ page: String(boundedInt(o.page, 1, 1_000_000)), page_size: String(boundedInt(o.page_size, 20, 100)) });
+    if (o.problem && o.problem.length <= 128) q.set("problem", o.problem);
+    return raw(`/contests/${encodeURIComponent(key)}/homework/submissions?${q.toString()}`, { token: t });
+  },
+  homeworkSubmission: (t: string, key: string, id: number): Promise<HomeworkSubmissionDetail> =>
+    raw(`/contests/${encodeURIComponent(key)}/homework/submissions/${encodeURIComponent(String(id))}`, { token: t }),
+  homeworkSubmissionSource: (t: string, key: string, id: number): Promise<HomeworkSource> =>
+    raw(`/contests/${encodeURIComponent(key)}/homework/submissions/${encodeURIComponent(String(id))}/source`, { token: t }),
+  // ---- pass #183: code-shares, account settings gate, community browsing ----
+  codeShareState: (t: string, key: string): Promise<CodeShareState> =>
+    raw(`/contests/${encodeURIComponent(key)}/code-share/me`, { token: t }),
+  putCodeShare: (t: string, key: string, body: CodeSharePut): Promise<CodeShareState> =>
+    raw(`/contests/${encodeURIComponent(key)}/code-share/me`, { method: "PUT", token: t, body }),
+  stopCodeShare: (t: string, key: string, expected_revision: number): Promise<CodeShareState> =>
+    raw(`/contests/${encodeURIComponent(key)}/code-share/me`, { method: "DELETE", token: t, body: { expected_revision } }),
+  codeShares: (t: string, key: string, o: { student?: string; problem_code?: string; page?: number; page_size?: number } = {}): Promise<any> => {
+    const q = new URLSearchParams({ page: String(boundedInt(o.page, 1, 1_000_000)), page_size: String(boundedInt(o.page_size, 20, 100)) });
+    if (o.student && o.student.length <= 150) q.set("student", o.student);
+    if (o.problem_code && o.problem_code.length <= 128) q.set("problem_code", o.problem_code);
+    return raw(`/contests/${encodeURIComponent(key)}/code-shares?${q.toString()}`, { token: t });
+  },
+  codeShare: (t: string, key: string, student_id: number, revision?: number): Promise<CodeShareSource> =>
+    raw(`/contests/${encodeURIComponent(key)}/code-shares/${encodeURIComponent(String(student_id))}${revision != null ? `?revision=${encodeURIComponent(String(revision))}` : ""}`, { token: t }),
+  codeShareStatus: (t: string, key: string, student_id: number): Promise<CodeShareMetadata> =>
+    raw(`/contests/${encodeURIComponent(key)}/code-shares/${encodeURIComponent(String(student_id))}/status`, { token: t }),
+  verifyPassword: (t: string, password: string): Promise<any> =>
+    raw("/auth/verify-password", { method: "POST", token: t, body: { password } }),
+  organizations: (t: string, o: { is_open?: boolean; page?: number; page_size?: number } = {}): Promise<OrganizationListItem[]> => {
+    const q = new URLSearchParams({ page: String(boundedInt(o.page, 1, 1_000_000)), page_size: String(boundedInt(o.page_size, 20, 100)) });
+    if (o.is_open !== undefined) q.set("is_open", String(o.is_open).toLowerCase());
+    return raw(`/organizations?${q.toString()}`, { token: t });
+  },
+  organization: (t: string, id: number): Promise<OrganizationDetail> =>
+    raw(`/organizations/${encodeURIComponent(String(id))}`, { token: t }),
+  years: (): Promise<any[]> => raw("/years"),
+  achievements: (): Promise<any[]> => raw("/achievements"),
+  achievementsFeatured: (): Promise<any[]> => raw("/achievements/featured"),
   user: (t: string, username: string): Promise<any> =>
     raw(`/users/${encodeURIComponent(username)}`, { token: t }),
   users: (t: string, query: string): Promise<any> =>

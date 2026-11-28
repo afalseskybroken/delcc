@@ -1,0 +1,17 @@
+/* pass #181 — the Official 1.1.1 homework surface. Reuses the shared table/card
+   vocabulary; these rules only cover the new header, filters and state chips. */
+body[data-persona="tmath"] .tm-hw-title { margin-bottom: 16px; }
+body[data-persona="tmath"] .tm-hw-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 0 0 16px; }
+body[data-persona="tmath"] .tm-hw-filters label { display: grid; gap: 4px; color: var(--tmath-muted-foreground); font-size: 12px; font-weight: 600; }
+body[data-persona="tmath"] .tm-hw-filters input { min-width: 220px; max-width: 100%; padding: 8px 10px; border: 1px solid var(--tmath-border); border-radius: 9px; background: var(--tmath-card); color: var(--tmath-foreground); font: inherit; }
+body[data-persona="tmath"] .tm-hw-card { overflow: hidden; }
+body[data-persona="tmath"] .tm-hw-card .tm-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+body[data-persona="tmath"] .tm-hw-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 16px; padding: 12px 16px; color: var(--tmath-muted-foreground); font-size: 13px; }
+body[data-persona="tmath"] .tm-hw-reason { margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--tmath-selected-border); border-radius: 9px; background: var(--tmath-selected-background); color: var(--tmath-foreground); white-space: pre-wrap; overflow-wrap: anywhere; }
+body[data-persona="tmath"] .tm-hw-table td { vertical-align: top; }
+body[data-persona="tmath"] .tm-hw-open { padding: 0; border: 0; background: none; color: var(--tmath-primary); font: inherit; font-weight: 600; cursor: pointer; }
+body[data-persona="tmath"] .tm-hw-open:hover { text-decoration: underline; }
+body[data-persona="tmath"] .tm-hw-pager { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+body[data-persona="tmath"] .tm-hw-blocked { max-width: 640px; padding: 22px 24px; }
+body[data-persona="tmath"] .tm-hw-blocked h2 { margin: 0 0 10px; font-size: 18px; }
+body[data-persona="tmath"] .tm-hw-blocked p { margin: 0 0 18px; line-height: 1.6; }

@@ -1,4 +1,4 @@
-import { api, type ProblemDetail, type ContestProblemDetail } from "../lib/api";
+import { api, type ProblemDetail, type ContestProblemDetail, type SubmitResponse } from "../lib/api";
 import * as auth from "../lib/auth";
 import * as cph from "../lib/cph";
 import { LANG_DISPLAY } from "../lib/langmap";
@@ -20,6 +20,12 @@ export interface SolveArgs {
   username: string;
   preferences: Preferences;
   onSubmissions: () => void;
+  // pass #181: the homework lane rides the same solve view with a different data
+  // provider. No default = the contest/public behavior verbatim.
+  loadDetail?: () => Promise<ProblemDetail | ContestProblemDetail>;
+  submit?: (language: string, source: string) => Promise<SubmitResponse>;
+  // isolate drafts between a contest problem and a homework problem with the same code.
+  draftScope?: string;
 }
 
 const MAX_CASES = 40;
@@ -58,6 +64,9 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   // limit seeds from the problem payload itself: TL seconds -> ms, ML KB -> MB
   // (ContestProblemDetail carries both as required fields; public detail too)
   const problemTlMs = (): number => Math.max(100, Math.min(10000, Math.round(Number((problem as {time_limit?: unknown})?.time_limit) * 1000) || 2000));
+  // pass #181: the homework detail carries `can_run`; the judge's gate is authoritative
+  // (a closed homework window can submit-block and run-block independently).
+  const canRunHere = (): boolean => (problem as { can_run?: unknown })?.can_run !== false;
   const problemMemMb = (): number => {
     const kb = Number((problem as {memory_limit?: unknown})?.memory_limit);
     return Number.isFinite(kb) && kb > 0 ? Math.max(16, Math.min(4096, Math.round(kb / 1024))) : 256;
@@ -77,7 +86,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   let rawMath = read("delcc-math-mode") === "raw";
   const listeners = new AbortController();
   const drafts = new Map<string, string>();
-  const storagePrefix = `delcc-tmath-draft:${encodeURIComponent(args.username)}:${encodeURIComponent(args.contestKey ?? "public")}:${encodeURIComponent(args.code)}:`;
+  const storagePrefix = `delcc-tmath-draft:${encodeURIComponent(args.username)}:${encodeURIComponent(args.draftScope ?? args.contestKey ?? "public")}:${encodeURIComponent(args.code)}:`;
   const langKey = `${storagePrefix}language`;
   const $ = <T extends HTMLElement = HTMLElement>(selector: string) => host.querySelector<T>(selector)!;
   // pass #58: the ONE inline status line (He: the old verdict/status box is not in
@@ -98,7 +107,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   // data); the legacy per-language draft migrates into the main draft once and the
   // old keys keep being mirrored best-effort for downgrade safety.
   type Draft = { id: string; name: string; language: string; source: string };
-  const draftsStoreKey = `delcc-tmath-drafts:${encodeURIComponent(args.username)}:${encodeURIComponent(args.contestKey ?? "public")}:${encodeURIComponent(args.code)}`;
+  const draftsStoreKey = `delcc-tmath-drafts:${encodeURIComponent(args.username)}:${encodeURIComponent(args.draftScope ?? args.contestKey ?? "public")}:${encodeURIComponent(args.code)}`;
   let draftsStore: { active: string; drafts: Draft[] } | null = null;
   const sanitizeDraft = (d: unknown): Draft | null => {
     if (!d || typeof d !== "object") return null;
@@ -183,7 +192,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     const langMenu = $("[data-language-menu]");
     if (langMenu) langMenu.classList.toggle("tm-locked", submitting || !language);
     const available = !!language && cph.cphSupported(cph.cphLangKey(language)) && !!cph.toolchainFor(cph.cphLangKey(language));
-    host.querySelectorAll<HTMLButtonElement>("[data-run]").forEach(b => b.disabled = running || debugging || debugBusy || !available);
+    host.querySelectorAll<HTMLButtonElement>("[data-run]").forEach(b => b.disabled = running || debugging || debugBusy || !available || !canRunHere());
     const compileBtn = host.querySelector<HTMLButtonElement>('[data-action="compile"]');
     if (compileBtn) compileBtn.disabled = running || debugging || debugBusy || !available;
     const compileLabel = host.querySelector<HTMLElement>("[data-compile-label]");
@@ -504,7 +513,7 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   }
 
   async function run(mode: "all" | "case" | "stdin"): Promise<void> {
-    if (running || debugging || debugBusy || disposed || switchingLanguage) return;
+    if (running || debugging || debugBusy || disposed || switchingLanguage || !canRunHere()) return;
     // The existing native runner returns RAN (unscored) for blank expected output.
     const manual = mode === "stdin";
     const active = cases.find(c => c.id === activeCaseId);
@@ -570,9 +579,11 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
     submitting = true; saved(); controls();
     note(t("problem.submitting"));
     try {
-      const result = args.contestKey
-        ? await api.submitContest(token(),args.contestKey,args.code,language,code,args.participationId)
-        : await api.submitPublic(token(),args.code,language,code);
+      const result = args.submit
+        ? await args.submit(language, code)
+        : args.contestKey
+          ? await api.submitContest(token(),args.contestKey,args.code,language,code,args.participationId)
+          : await api.submitPublic(token(),args.code,language,code);
       if (disposed) return;
       if (!Number.isSafeInteger(result.submission_id) || result.submission_id <= 0) throw new Error(t("errors.invalid"));
       submittedHere++; // official decrements the counter on an accepted submission
@@ -690,7 +701,9 @@ export function mountSolve(host: HTMLElement, args: SolveArgs): () => void {
   async function load(): Promise<void> {
     host.innerHTML = loading();
     try {
-      problem = args.contestKey ? await api.contestProblem(token(),args.contestKey,args.code,true) : await api.problem(token(),args.code,true);
+      problem = args.loadDetail
+        ? await args.loadDetail()
+        : args.contestKey ? await api.contestProblem(token(),args.contestKey,args.code,true) : await api.problem(token(),args.code,true);
       if (disposed) return;
       const allowed = Array.isArray(problem.allowed_languages) ? problem.allowed_languages.filter((l): l is string=>typeof l === "string" && !!l) : [];
       const { existed } = loadDraftsStore();

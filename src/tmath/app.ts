@@ -19,6 +19,8 @@ import { regexMatchInWorker } from "../lib/regex-probe";
 import { wireDebugHover, attachDebug, setDebugGate } from "../lib/debug-tip";
 import { openSubmissionStream, type StreamKind } from "../lib/substream";
 import { mountSolve } from "./solve";
+import { mountHomework } from "./homework";
+import { mountCommunity } from "./community";
 import "./tmath.css";
 
 // About renders markdown FIRST (md.ts, scheme-allow-listed), then the RESULT goes through
@@ -142,12 +144,12 @@ const wireAboutImages = (root: HTMLElement): void => {
   }
 };
 
-type Route = "contests" | "problems" | "workspace" | "submissions" | "rankings" | "account" | "settings";
-const titles: Record<Route, DictKey> = { contests:"contests.title", problems:"problems.title", workspace:"app.workspace", submissions:"subs.title", rankings:"rankings.title", account:"account.title", settings:"settings.title" };
+type Route = "contests" | "problems" | "workspace" | "submissions" | "rankings" | "homework" | "share" | "community" | "account" | "settings";
+const titles: Record<Route, DictKey> = { contests:"contests.title", problems:"problems.title", workspace:"app.workspace", submissions:"subs.title", rankings:"rankings.title", homework:"homework.title", share:"share.title", community:"community.title", account:"account.title", settings:"settings.title" };
 // Official icon mapping — the route→icon pairs are carve-observed from the 1.0.9 client
 // (He's 2026-10-29 provenance ruling: the icons themselves are Phosphor, MIT; the mapping
 // is carve-observed/RE'd, which nothing prohibits — the judge ships no ToS).
-const navIcons: Record<Route, PhName> = { contests:"squares-four", problems:"code", workspace:"code", submissions:"list-checks", rankings:"trophy", account:"user-circle", settings:"gear" };
+const navIcons: Record<Route, PhName> = { contests:"squares-four", problems:"code", workspace:"code", submissions:"list-checks", rankings:"trophy", homework:"list-checks", share:"share-network", community:"squares-four", account:"user-circle", settings:"gear" };
 const routes = Object.keys(titles) as Route[];
 const PAGE_SIZE = 20;
 const SUBS_FILTERS_KEY = "delcc-subs-filters";
@@ -560,6 +562,8 @@ export class TmathApp {
       if (this.route === "workspace") await this.workspace(content, params, alive);
       if (this.route === "submissions") await this.submissions(content, params, alive);
       if (this.route === "rankings") await this.rankings(content, alive);
+      if (this.route === "homework") this.homework(content, params);
+      if (this.route === "share" || this.route === "community") this.community(content, params);
       if (this.route === "account") await this.account(content, alive);
       // every page's hero Refresh button (audit: it rendered but was never wired)
       const refresh = content.querySelector<HTMLButtonElement>('[data-action="refresh"]');
@@ -581,7 +585,7 @@ export class TmathApp {
     const nav = (r: Route) => `<button type="button" data-route="${r}" class="${this.route === r ? "tm-current" : ""}" title="${text(titles[r])}" aria-label="${text(titles[r])}"${this.route === r ? ' aria-current="page"' : ""}>${phIcon(navIcons[r], 20)}<span>${text(titles[r])}</span></button>`;
     const displayName = this.user?.display_name ?? this.user?.username ?? "?";
     this.host.innerHTML = `<div class="tm-shell${this.collapsed ? " collapsed" : ""}">
-      <aside class="tm-sidebar"><div class="tm-sidebar-header">${brand()}<button type="button" class="tm-sidebar-toggle" data-action="collapse" aria-controls="tm-navigation" aria-expanded="${!this.collapsed}" aria-label="${text(this.collapsed ? "app.expandSidebar" : "app.collapseSidebar")}">${phIcon("sidebar-simple", 22)}</button></div><div class="tm-nav-label">${text("app.navigation")}</div><nav class="tm-nav" id="tm-navigation">${loggedIn ? (this.contest ? nav("workspace") : nav("contests") + nav("problems")) + nav("submissions") + nav("rankings") + nav("account") : ""}${nav("settings")}</nav><div class="tm-sidebar-footer"><button type="button" class="tm-connection" data-update-dot data-state="unknown" aria-label="${esc(text("app.updateUnknown"))}" title="${esc(text("app.updateUnknown"))}"><span data-update-text>${esc(text("app.updateUnknown"))}</span></button><div class="tm-fine" data-footnote-fine>${sanitizeFooterNote(read(FOOTER_NOTE_KEY)) || `independent · ${esc(manifest.version)}`}</div>${loggedIn ? "" : button("auth.login","login")}</div></aside>
+      <aside class="tm-sidebar"><div class="tm-sidebar-header">${brand()}<button type="button" class="tm-sidebar-toggle" data-action="collapse" aria-controls="tm-navigation" aria-expanded="${!this.collapsed}" aria-label="${text(this.collapsed ? "app.expandSidebar" : "app.collapseSidebar")}">${phIcon("sidebar-simple", 22)}</button></div><div class="tm-nav-label">${text("app.navigation")}</div><nav class="tm-nav" id="tm-navigation">${loggedIn ? (this.contest ? nav("workspace") + nav("share") : nav("contests") + nav("problems")) + nav("homework") + nav("submissions") + nav("rankings") + nav("community") + nav("account") : ""}${nav("settings")}</nav><div class="tm-sidebar-footer"><button type="button" class="tm-connection" data-update-dot data-state="unknown" aria-label="${esc(text("app.updateUnknown"))}" title="${esc(text("app.updateUnknown"))}"><span data-update-text>${esc(text("app.updateUnknown"))}</span></button><div class="tm-fine" data-footnote-fine>${sanitizeFooterNote(read(FOOTER_NOTE_KEY)) || `independent · ${esc(manifest.version)}`}</div>${loggedIn ? "" : button("auth.login","login")}</div></aside>
       <div class="tm-main"><header class="tm-topbar"><div class="tm-topbar-page"><span class="tm-topbar-page-icon" aria-hidden="true">${phIcon(navIcons[this.route] ?? "user-circle", 22)}</span><div class="tm-topbar-page-copy"><span class="tm-topbar-eyebrow">TMATH / STUDENT</span><strong class="tm-topbar-title">${text(titles[this.route])}</strong></div></div><div class="tm-topbar-actions"><div class="tm-server-clock" role="timer" aria-live="off" aria-label="${text("app.serverClock")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><time data-server-clock>—</time></div>${themeMenuHtml(this.prefs.theme)}${loggedIn ? `<button type="button" class="tm-topbar-account" data-route="account">${avatarHtml(displayName, this.user?.gravatarHash ?? this.user?.gravatar_hash ?? cachedAvatar(String(this.user?.username ?? "")), 34)}<span class="tm-topbar-account-name"${ratingStyle(this.user?.rating)}>${esc(displayName)}</span></button><button type="button" class="tm-topbar-logout" data-action="logout" aria-label="${text("app.topbar.logout")}" title="${text("app.topbar.logout")}">${phIcon("sign-out", 18, "regular")}<span>${text("app.topbar.logout")}</span></button>` : button("auth.login","login")}</div></header>${this.versionNotice && !this.bannerDismissed ? this.bannerHtml() : ""}<main class="tm-content" id="tm-content"></main></div></div>`;
     this.host.querySelectorAll<HTMLElement>("[data-route]").forEach(b => b.onclick = () => this.go(b.dataset.route as Route, b.dataset.route === "workspace" && this.contest ? {contest:this.contest.key} : {}));
     this.host.querySelector<HTMLButtonElement>('[data-action="collapse"]')!.onclick = () => {
@@ -1356,6 +1360,36 @@ export class TmathApp {
       onSubmissions: () => this.go("submissions",{problem:code})});
     // chain: keep any earlier disposal (e.g. the workspace countdown interval) alive
     this.disposeView = () => { previous?.(); dispose(); };
+  }
+
+  // pass #181 — code-share (inside a contest) and community browsing.
+  private community(host: HTMLElement, params: URLSearchParams): void {
+    this.disposeView = mountCommunity(host, {
+      view: this.route === "share" ? "share" : "community", params,
+      contestKey: this.contest?.key ?? "",
+      participationId: this.part,
+      username: this.user?.username ?? "",
+      navigate: p => this.go(this.route === "share" ? "share" : "community", p),
+    });
+  }
+
+  // pass #181 — Official 1.1.1 homework. The module owns its own polling and
+  // disposal; the route stays a thin adapter over the existing solve/detail plumbing.
+  private homework(host: HTMLElement, params: URLSearchParams): void {
+    const allowed = ["list", "problem", "history", "detail", "source"];
+    const requested = params.get("view") ?? "";
+    const view = (allowed.includes(requested) ? requested : "list") as "list" | "problem" | "history" | "detail" | "source";
+    // Official blocks homework navigation while a contest is live; the module
+    // renders that card and the way back rather than a fake homework surface.
+    const activeContest = this.contest?.key ?? "";
+    this.disposeView = mountHomework(host, {
+      view, params, activeContest,
+      username: this.user?.username ?? "", preferences: this.prefs,
+      navigate: p => this.go("homework", p),
+      returnToContest: () => this.go(activeContest ? "workspace" : "contests", activeContest ? { contest: activeContest } : {}),
+      mountSolve: (solveHost, args) => mountSolve(solveHost, args),
+      detailHtml: s => this.submissionDetailHtml(s),
+    });
   }
 
   private async submissions(host: HTMLElement, params: URLSearchParams, alive: () => boolean): Promise<void> {

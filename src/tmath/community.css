@@ -1,0 +1,12 @@
+/* pass #183 — code-share + community browsing surfaces. Shared vocabulary only. */
+body[data-persona="tmath"] .tm-share-own { margin-bottom: 16px; padding: 16px 20px; }
+body[data-persona="tmath"] .tm-share-form { display: grid; gap: 10px; margin: 12px 0; max-width: 680px; }
+body[data-persona="tmath"] .tm-share-form label { display: grid; gap: 4px; color: var(--tmath-muted-foreground); font-size: 12px; font-weight: 600; }
+body[data-persona="tmath"] .tm-share-form input,
+body[data-persona="tmath"] .tm-share-form textarea { min-height: 36px; padding: 8px 10px; border: 1px solid var(--tmath-border); border-radius: 9px; background: var(--tmath-card); color: var(--tmath-foreground); font: inherit; }
+body[data-persona="tmath"] .tm-share-form textarea { min-height: 180px; font-family: var(--tmath-font-mono, monospace); resize: vertical; }
+body[data-persona="tmath"] .tm-share-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 12px 16px; }
+body[data-persona="tmath"] .tm-share-filters label { display: grid; gap: 4px; color: var(--tmath-muted-foreground); font-size: 12px; font-weight: 600; }
+body[data-persona="tmath"] .tm-share-filters input { padding: 8px 10px; border: 1px solid var(--tmath-border); border-radius: 9px; background: var(--tmath-card); color: var(--tmath-foreground); font: inherit; }
+body[data-persona="tmath"] .tm-share-source { max-height: 70vh; overflow: auto; padding: 16px; border: 1px solid var(--tmath-border); border-radius: 9px; background: var(--tmath-card); white-space: pre; overflow-wrap: anywhere; font: 12px/1.5 var(--tmath-font-mono, monospace); }
+body[data-persona="tmath"] .tm-community-list { margin: 12px 0; padding-left: 20px; line-height: 1.8; }
