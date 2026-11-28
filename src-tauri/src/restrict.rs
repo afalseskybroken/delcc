@@ -222,33 +222,36 @@ pub fn restricted_child_main(child_line: &str) -> i32 {
     }
 }
 
-/// Labels `dir` with a LOW mandatory label so a sandboxed child (low-IL) can create
-/// files inside it. Called by the capture BEFORE the spawn; idempotent.
-pub fn label_dir_low(dir: &std::path::Path) -> bool {
-    use windows_sys::Win32::Security::Authorization::{
-        ConvertStringSecurityDescriptorToSecurityDescriptorW,
-        SetNamedSecurityInfoW, SE_FILE_OBJECT,
-    };
-    use windows_sys::Win32::Security::{ACL, GetSecurityDescriptorSacl, LABEL_SECURITY_INFORMATION};
+/// pass #186: creates `path` with a LOW mandatory label AT CREATION TIME — the
+/// documented no-privilege path. A no-write-up label assigned at object creation
+/// needs no SeSecurityPrivilege; the post-creation SetNamedSecurityInfoW route
+/// this replaces failed with ERROR_NO_TOKEN (1008) for any normal process —
+/// the #182 fix's own bug, caught by the containment test (the wave-16 P1).
+/// FAIL-CLOSED (the W11-02 doctrine): an already-existing dir is refused (it
+/// cannot be proven labeled), never reused.
+pub fn create_dir_low(path: &std::path::Path) -> Result<(), String> {
+    use windows_sys::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
+    use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+    use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
     const SDDL_LOW_LABEL: &str = "S:(ML;;NW;;;LW)";
     unsafe {
         let mut sddl_w = wide(SDDL_LOW_LABEL);
         let mut sd: *mut std::ffi::c_void = std::ptr::null_mut();
         if ConvertStringSecurityDescriptorToSecurityDescriptorW(
             sddl_w.as_mut_ptr(), 1, &mut sd, std::ptr::null_mut(),
-        ) == 0 { return false; }
-        let mut present = 0;
-        let mut sacl: *mut ACL = std::ptr::null_mut();
-        let mut defaulted = 0;
-        let got = GetSecurityDescriptorSacl(sd, &mut present, &mut sacl, &mut defaulted);
-        if got == 0 || present == 0 || sacl.is_null() { LocalFree(sd as _); return false; }
-        let mut dir_w = wide(&dir.to_string_lossy());
-        let ok = SetNamedSecurityInfoW(
-            dir_w.as_mut_ptr(), SE_FILE_OBJECT, LABEL_SECURITY_INFORMATION,
-            std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), sacl,
-        ) == 0;
+        ) == 0 { return Err(format!("ConvertStringSecurityDescriptor failed ({})", GetLastError())); }
+        let mut sa: SECURITY_ATTRIBUTES = std::mem::zeroed();
+        sa.nLength = std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32;
+        sa.lpSecurityDescriptor = sd;
+        let mut path_w = wide(&path.to_string_lossy());
+        let ok = CreateDirectoryW(path_w.as_mut_ptr(), &sa);
+        let err = GetLastError();
         LocalFree(sd as _);
-        ok
+        if ok == 0 {
+            if err == 183 { return Err("the session dir already exists and its label cannot be proven".into()); }
+            return Err(format!("CreateDirectoryW failed ({err})"));
+        }
+        Ok(())
     }
 }
 
@@ -276,5 +279,40 @@ mod tests {
             );
             CloseHandle(token);
         }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod sandbox_label_tests {
+    use super::*;
+
+    /// pass #186 (the wave-16 P1): the LABEL-EXISTENCE test — create_dir_low must
+    /// actually install the no-write-up mandatory label, proven by the icacls
+    /// read-back (the system tool reads the label without elevation). The wave-10
+    /// class of silent failure (the labeling half never worked from #159 to #182)
+    /// becomes a test failure instead of quiet degradation. Note: the write-up
+    /// ENFORCEMENT is kernel-policy-dependent and is exercised live by every run;
+    /// what this test pins is that the label INSTALLS.
+    #[test]
+    fn the_session_corner_carries_its_low_label() {
+        let base = std::env::temp_dir().join(format!("delcc-label-test-{}", std::process::id()));
+        let corner = base.join("corner");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).expect("mkdir base");
+        if let Err(e) = create_dir_low(&corner) {
+            panic!("creating the labeled corner failed: {e}");
+        }
+        let out = std::process::Command::new("icacls")
+            .arg(&corner)
+            .output()
+            .expect("icacls");
+        let _ = std::fs::remove_dir_all(&base);
+        let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
+        assert!(
+            text.contains("mandatory label") && text.contains("low mandatory level"),
+            "the corner must carry the LOW mandatory label (the icacls read-back); got:
+{}",
+            text.trim()
+        );
     }
 }

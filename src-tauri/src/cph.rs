@@ -548,8 +548,12 @@ fn new_tmp_dir(job_id: u64) -> Result<PathBuf, String> {
             .create(&tmp)
             .map_err(|e| format!("tmp dir: {e}"))?;
     }
+    // pass #186: the WINDOWS branch creates the session dir WITH its LOW mandatory
+    // label at creation time (the documented no-privilege path) — the post-creation
+    // SetNamedSecurityInfoW route needs SeSecurityPrivilege and fails (1008) for a
+    // normal process. FAIL-CLOSED: an existing dir is refused, never reused.
     #[cfg(not(unix))]
-    fs::create_dir_all(&tmp).map_err(|e| format!("tmp dir: {e}"))?;
+    crate::restrict::create_dir_low(&tmp).map_err(|e| format!("tmp dir: {e}"))?;
     Ok(tmp)
 }
 
@@ -1740,8 +1744,10 @@ fn capture(mut cmd: Command, input: Option<&str>, limit: Duration, _memory_limit
                 Some(d) => d.to_path_buf(),
                 None => { result.spawn_err = Some("sandbox: no session cwd".into()); return result; }
             };
-            if !crate::restrict::label_dir_low(&dir) {
-                result.spawn_err = Some("sandbox: LOW label failed".into());
+            // pass #186: the label is guaranteed by the CREATION (create_dir_low in
+            // new_tmp_dir); the post-creation label route is gone (1008 without
+            // SeSecurityPrivilege). The corner's existence is the containment proof.
+            if !dir.exists() {
                 return result;
             }
             let sandboxed = true;

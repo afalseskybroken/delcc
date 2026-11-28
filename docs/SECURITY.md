@@ -126,6 +126,20 @@ That is all. Concretely absent:
   block outbound calls at the user's rights; the run response carries a `sandboxed`
   flag (true when every case ran wrapped with its temp corner labeled) for
   diagnostics, but the current UI does not surface it as a visible badge.
+  **THE LABELING CORRECTION (pass #186, the wave-16 adjudication):** Sonnet's
+  wave-16 re-read found that `label_dir_low` had passed the security DESCRIPTOR
+  pointer where a SACL pointer belongs — the label call very likely failed on
+  every run since #159, and #159–#181's "labeled corner" claim was FALSE in
+  practice (the auditor's own wave-10 miss, self-reported). #182 fixed the API
+  misuse; #186 found the corrected route still failing (ERROR_NO_TOKEN 1008 —
+  the post-creation SACL write needs SeSecurityPrivilege a normal process does
+  not hold) and replaced it with the documented no-privilege path: the session
+  dir is CREATED with its LOW label (`create_dir_low`, the label in the
+  creation security attributes), the label-presence test (`icacls` read-back)
+  pins it in CI, and the labeling failure now names its OS error in the run's
+  spawn_err. The containment note: the LOW-token half was verified live all
+  along; the write-up ENFORCEMENT of the installed label is kernel-policy-
+  dependent and is exercised live by every run.
 
 Network code lives in four plainly named places. `src/lib/transport.ts` carries
 all API traffic (Rust shell first, WebView `fetch` as fallback). Two deliberate

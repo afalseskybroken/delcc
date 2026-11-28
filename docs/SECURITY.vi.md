@@ -230,7 +230,8 @@ của user (Windows MIC no-write-up). Công bố còn lại: deny group NETWORK 
 best-effort (token logon interactive thường không mang S-1-5-2) và chỉ chặn kết
 nối có xác thực — LOW integrity KHÔNG chặn lượt gọi ra ngoài với quyền của user;
 response của run mang cờ `sandboxed` (true khi mọi case chạy được bọc với góc
-temp đã label) để chẩn đoán, nhưng UI hiện tại không hiển thị nó như một badge.
+
+  **SỬA CHÚA VỀ NHÃN (pass #186, điều tra wave-16):** `label_dir_low` từng truyền con trỏ security descriptor vào chỗ của con trỏ SACL — lệnh gán nhãn rất có thể đã thất bại trên mọi run từ #159, và tuyên bố “corner được gán nhãn” của #159–#181 là SAI trong thực tế (miss của chính auditor ở wave-10, tự công bố). #182 sửa lệnh gọi API; #186 phát hiện route đã sửa vẫn lỗi (ERROR_NO_TOKEN 1008 — ghi SACL sau khi tạo cần SeSecurityPrivilege mà tiển trình thường không có) và thay bằng đường không cần ưu quyền được tài liệu hóa: thư mục session được TẠO kèm nhãn LOW (`create_dir_low`, nhãn nằm trong security attributes của lệnh tạo), test presence (`icacls` read-back) ghim nó trong CI, và lỗi gán nhãn giờ nêu rõ lỗi OS trong spawn_err của run.temp đã label) để chẩn đoán, nhưng UI hiện tại không hiển thị nó như một badge.
 
 ## Consent toolchain & debugger — phần còn lại công khai (pass #163, wave-12)
 
