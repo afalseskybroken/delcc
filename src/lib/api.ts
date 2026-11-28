@@ -516,6 +516,35 @@ export const api = {
   organization: (t: string, id: number): Promise<OrganizationDetail> =>
     raw(`/organizations/${encodeURIComponent(String(id))}`, { token: t }),
   years: (): Promise<any[]> => raw("/years"),
+  // pass #185: BootstrapSchema = {site, nav_tabs[], nav_tree[], user|null} — the
+  // consolidated boot payload. delcc's boot stays /home + /me (no boot-surface
+  // change); this is fetched ON DEMAND from the community page's site tab and
+  // rendered defensively — the server's nav tree is observed, never adopted as
+  // delcc's own navigation (an independent client's routes stay its own).
+  bootstrap: (t: string): Promise<any> => raw("/bootstrap", { token: t }),
+  // pass #185: the problem-class system. The spec documents the INPUT shapes
+  // verbatim (RequestInput {problem_class_id, reason<=4000}, VoteInput {decision,
+  // comment<=4000}, RevocationInput {grant_id, reason<=4000}) but the GET
+  // responses are UNDOCUMENTED ("OK", no schema) — the view renders whatever the
+  // server returns, defensively, and the Debug payloads carry the raw.
+  problemClasses: (t: string, o: { page?: number; page_size?: number } = {}): Promise<any> => {
+    const q = new URLSearchParams();
+    if (o.page) q.set("page", String(o.page));
+    if (o.page_size) q.set("page_size", String(o.page_size));
+    return raw(`/problem-classes${q.toString() ? `?${q.toString()}` : ""}`, { token: t });
+  },
+  problemClassRequests: (t: string, o: { page?: number; page_size?: number } = {}): Promise<any> => {
+    const q = new URLSearchParams();
+    if (o.page) q.set("page", String(o.page));
+    if (o.page_size) q.set("page_size", String(o.page_size));
+    return raw(`/problem-class-requests${q.toString() ? `?${q.toString()}` : ""}`, { token: t });
+  },
+  problemClassRequest: (t: string, problem_class_id: number, reason = ""): Promise<any> =>
+    raw("/problem-class-requests", { method: "POST", body: { problem_class_id, reason: reason.slice(0, 4000) }, token: t }),
+  problemClassVote: (t: string, request_id: number, decision: string, comment = ""): Promise<any> =>
+    raw(`/problem-class-requests/${encodeURIComponent(String(request_id))}/votes`, { method: "POST", body: { decision, comment: comment.slice(0, 4000) }, token: t }),
+  problemClassRevocation: (t: string, grant_id: number, reason = ""): Promise<any> =>
+    raw("/problem-class-revocations", { method: "POST", body: { grant_id, reason: reason.slice(0, 4000) }, token: t }),
   achievements: (): Promise<any[]> => raw("/achievements"),
   achievementsFeatured: (): Promise<any[]> => raw("/achievements/featured"),
   user: (t: string, username: string): Promise<any> =>

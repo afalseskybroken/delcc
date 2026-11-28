@@ -1036,6 +1036,83 @@ try {
   await rankingContext.close();
   assert.deepEqual(failures, [], `ranking parity failures:\n${failures.join("\n")}`);
   console.log("TMATH ranking: synthetic standings preserve the Official score affordances, split geometry, keyboard navigation and refresh lifecycle under production CSP.");
+  // pass #185: the community rig — the undocumented-shape renderers (classes,
+  // site) plus the #181 debt (the homework route) join the same documented-calls
+  // tripwire: every network touch the views make must be a documented api wrapper
+  // call; anything else is an aborted external request.
+  const communityContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const community = await communityContext.newPage();
+  const communityErrors = [], communityExternal = [], communityCalls = [], communityFailures = [];
+  community.on("pageerror", e => communityFailures.push(String(e)));
+  await community.route("**/*", r => {
+    const u = new URL(r.request().url());
+    if (u.hostname === "127.0.0.1") return r.continue();
+    communityExternal.push(u.origin + u.pathname);
+    return r.abort();
+  });
+  await community.goto(`${server.resolvedUrls.local[0]}__tmath_boot_test__`);
+  const importCommunity = () => community.evaluate(async () => {
+    await import("/src/app.css");
+    const [appModule, apiModule, preferences, i18n, clock, auth] = await Promise.all([
+      import("/src/tmath/app.ts"), import("/src/lib/api.ts"),
+      import("/src/tmath/preferences.ts"), import("/src/i18n/index.ts"),
+      import("/src/lib/server-clock.ts"), import("/src/lib/auth.ts"), import("/src/tmath/tmath.css"),
+    ]);
+    window.communityModules = { TmathApp: appModule.TmathApp, api: apiModule.api, ApiError: apiModule.ApiError, preferences, i18n, clock, auth };
+  });
+  try { await importCommunity(); }
+  catch (e) {
+    if (!/Execution context was destroyed.*navigation|navigation.*Execution context was destroyed/i.test(String(e))) throw e;
+    await community.waitForLoadState("domcontentloaded");
+    await importCommunity();
+  }
+  await community.evaluate(() => {
+    const m = window.communityModules;
+    m.auth.seed({ access_token: "offline-fixture", refresh_token: "offline-fixture", token_type: "bearer", access_expires_in: 3600, refresh_expires_in: 7200, server_time: "2099-01-01T00:00:00Z" });
+    const log = (name) => (...args) => { window.communityCalls.push([name, ...args]); return Promise.resolve(window.communityFixtures[name]); };
+    window.communityCalls = [];
+    window.communityFixtures = {
+      problemClasses: [{ id: 7, name: "Lop 10A", undocumented_field: { nested: true } }],
+      problemClassRequests: [{ id: 3, reason: "please", grant_id: 9, undecided: "shape" }],
+      problemClassRequest: { ok: true },
+      problemClassVote: { ok: true },
+      problemClassRevocation: { ok: true },
+      bootstrap: { site: { site_name: "TMath", undocumented: { a: 1 } }, nav_tabs: [{ name: "Home" }, { title: "About" }], nav_tree: [{}, {}, {}], user: null },
+      codeShareState: { revision: 2, active: false, can_share_code: true, can_view_shared_codes: true, item: null, contest_key: "c1" },
+      codeShares: { items: [], has_more: false },
+      homework: { server_time: "2099-01-01T00:00:00Z", page: 1, page_size: 20, has_more: false, items: [] },
+      homeworkContext: { server_time: "2099-01-01T00:00:00Z", page: 1, page_size: 20, has_more: false, items: [], contest_key: "c1", contest_name: "C1", homework_start_time: "2099-01-01T00:00:00Z", homework_due_at: "2099-01-02T00:00:00Z", state: "open", can_submit: true, submit_blocked_reason: null },
+    };
+    for (const name of Object.keys(window.communityFixtures)) {
+      m.api[name] = log(name);
+    }
+    window.communityApp = new m.TmathApp(document.getElementById("app"));
+  });
+  // the per-tab diagnostics run BEFORE the next navigation (each view owns the DOM)
+  // the view methods are invoked DIRECTLY (the ranking rig's pattern): the hash
+  // router would demand the full network boot, which the in-memory fixtures must
+  // never require.
+  const host = await community.evaluateHandle(() => document.getElementById("app"));
+  await community.evaluate(() => { window.communityCalls = []; });
+  await community.evaluate(() => { window.communityApp["community"](document.getElementById("app"), new URLSearchParams("section=classes")); });
+  await community.waitForTimeout(500);
+  const classHeaders = await community.evaluate(() => Array.from(document.querySelectorAll(".tm-table th")).map(e => e.textContent).slice(0, 8));
+  assert.ok(classHeaders.includes("undocumented_field"), "the classes tab renders undocumented shapes as the server sends them");
+  await community.evaluate(() => { window.communityApp["community"](document.getElementById("app"), new URLSearchParams("section=site")); });
+  await community.waitForTimeout(500);
+  const siteKeys = await community.evaluate(() => Array.from(document.querySelectorAll(".tm-profile-dl dt")).map(e => e.textContent));
+  assert.ok(siteKeys.includes("site_name"), "the site tab renders the server's own site keys");
+  await community.evaluate(() => { window.communityApp["homework"](document.getElementById("app"), new URLSearchParams("")); });
+  await community.waitForTimeout(500);
+  const communityDiag = await community.evaluate(() => ({ calls: window.communityCalls.map(c => c[0]) }));
+  const names = communityDiag.calls.filter((v, i) => communityDiag.calls.indexOf(v) === i);
+  assert.deepEqual(names.filter(n => !["homework", "problemClassRequests"].includes(n)).sort(), ["bootstrap", "problemClasses"], "the community views touch only their documented wrappers");
+  assert.deepEqual(communityExternal, [], "in-memory community fixtures never contact the judge");
+  assert.deepEqual(communityErrors, [], "community page errors");
+  await community.evaluate(() => { window.communityApp?.destroy(); window.communityModules.auth.seed(null); });
+  await communityContext.close();
+  assert.deepEqual(communityFailures, [], `community failures:\n${communityFailures.join("\n")}`);
+  console.log("TMATH community: the classes/site tabs and the homework route render undocumented shapes through documented calls only.");
 } finally {
   await browser?.close();
   await server.close();
