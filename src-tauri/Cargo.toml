@@ -11,6 +11,11 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+# pass #184 (the wave-15 D6 requirement, standalone): the single-instance guard —
+# Official's own `instance.lock` represents the same mechanism. A second launch
+# must focus the running window, never fork a second instance racing the CPH
+# registry, the debug lanes and (at wire-up) the contest-device-key store.
+tauri-plugin-single-instance = "2"
 # Phase 3 [claude] lane: tauri-plugin-updater + pubkey + endpoints.
 # deliberately unwired here — the check binary must boot with zero config.
 reqwest = { version = "0.13", features = ["json", "stream"] }

@@ -886,6 +886,20 @@ fn main() {
         }
     }
     tauri::Builder::default()
+        // pass #184 (the wave-15 D6 requirement): the single-instance guard, FIRST
+        // in the chain per the plugin contract. The restricted-child argv path above
+        // exits before this point, so restricted children never contend for the
+        // mutex. The handler focuses the existing window; no second instance ever
+        // runs the CPH registry, the debug lanes or the (wire-up-gated) device-key
+        // store concurrently.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            use tauri::Manager;
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .manage(CphState::default())
         .invoke_handler(tauri::generate_handler![api_fetch, site_fetch, asset_fetch, get_layout, toggle_fullscreen, open_url, update_check, fonts_list, cph_detect, cph_set_override, cph_run, cph_compile, cph_stop, debug_start, debug_step, debug_stop, identity_apply, secure_put, secure_get, secure_del, submission_stream_start, submission_stream_stop])
         .setup(move |app| {
